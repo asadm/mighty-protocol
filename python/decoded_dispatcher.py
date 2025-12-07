@@ -1,0 +1,64 @@
+import mighty_protocol as mp
+
+class DecodedDispatcher:
+    """
+    Feed raw bytes; dispatches per type with decoded payloads.
+    Handlers (all optional):
+      on_jpg(timestamp_ns, channel, data, is_ref)
+      on_pose(pose_dict, is_unoptimized)
+      on_constraints(segments_list)
+      on_features(features_list)
+      on_pointcloud(points, point_size)
+      on_viz(payload_bytes)
+      on_imu(samples_list)
+      on_status(text)
+      on_reset()
+    """
+    def __init__(self):
+        self.on_jpg = None
+        self.on_pose = None
+        self.on_constraints = None
+        self.on_features = None
+        self.on_pointcloud = None
+        self.on_viz = None
+        self.on_imu = None
+        self.on_status = None
+        self.on_reset = None
+        self._buffer = b""
+
+    def feed(self, data: bytes):
+        self._buffer += data
+        frames, rest = mp.parse_frames(self._buffer)
+        self._buffer = rest
+        for f in frames:
+            t = f["type"]
+            p = f["payload"]
+            if t == "JPG":
+                if self.on_jpg:
+                    d = mp.decode_jpg_payload(p, False); self.on_jpg(d["timestamp_ns"], d["channel"], d["data"], False)
+            elif t == "RJPG":
+                if self.on_jpg:
+                    d = mp.decode_jpg_payload(p, True); self.on_jpg(d["timestamp_ns"], d["channel"], d["data"], True)
+            elif t == "POSE":
+                if self.on_pose:
+                    d = mp.decode_pose_payload(p); self.on_pose(d, False)
+            elif t == "UPOS":
+                if self.on_pose:
+                    d = mp.decode_pose_payload(p); self.on_pose(d, True)
+            elif t == "LCON":
+                if self.on_constraints:
+                    self.on_constraints(mp.decode_constraints_payload(p))
+            elif t == "FEA3":
+                if self.on_features:
+                    self.on_features(mp.decode_fea3_payload(p))
+            elif t == "PCLD":
+                if self.on_pointcloud:
+                    res = mp.decode_pcld_payload(p); self.on_pointcloud(res["points"], res["point_size"])
+            elif t == "VIZ":
+                if self.on_viz: self.on_viz(p)
+            elif t == "IMU":
+                if self.on_imu: self.on_imu(mp.decode_imu_payload(p))
+            elif t == "STAT":
+                if self.on_status: self.on_status(mp.decode_status_payload(p))
+            elif t == "RSET":
+                if self.on_reset: self.on_reset()

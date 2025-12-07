@@ -1,0 +1,225 @@
+import math
+import os
+import sys
+import random
+import secrets
+
+HERE = os.path.dirname(__file__)
+sys.path.append(os.path.join(HERE, "..", "python"))
+import mighty_protocol as mp  # noqa: E402
+
+SAMPLE = {
+    "jpg_ts": 111,
+    "jpg_channel": "preview",
+    "jpg_data": b"\x01\x02\x03",
+    "rjpg_ts": 222,
+    "rjpg_data": b"\xaa\xbb",
+    "pose": {"pose_type": 0, "pose_flags": 0x3, "position": (1.1, 2.2, 3.3), "quat": (0.1, 0.2, 0.3, 0.9)},
+    "upose": {"pose_type": 0, "pose_flags": 0x1, "position": (4.4, 5.5, 6.6), "quat": (0.4, 0.5, 0.6, 0.7)},
+    "constraints": [
+        {"type": 0, "start": (0.1, 0.2, 0.3), "end": (0.4, 0.5, 0.6)},
+        {"type": 1, "start": (1.0, 1.1, 1.2), "end": (1.3, 1.4, 1.5)},
+    ],
+    "viz0": {"subtype": 0, "features": [{"x": 10, "y": 20, "status": 1, "id": 7}, {"x": 30, "y": 40, "status": 4, "id": 8}]},
+    "viz1": {"subtype": 1, "detections": [{"x1": 5, "y1": 6, "x2": 25, "y2": 26, "label": "car"}]},
+    "viz2": {"subtype": 2, "matches": [{"x1": 100, "y1": 110, "x2": 120, "y2": 130, "confidence": 200}]},
+    "imu": [
+        {"timestamp_ns": 1000, "ax": 0.1, "ay": 0.2, "az": 0.3, "gx": 1.1, "gy": 1.2, "gz": 1.3},
+        {"timestamp_ns": 2000, "ax": 0.4, "ay": 0.5, "az": 0.6, "gx": 1.4, "gy": 1.5, "gz": 1.6},
+    ],
+    "status": "STATUS_OK",
+    "fea3": [
+        {"id": 1, "x": 0.1, "y": 0.2, "z": 0.3},
+        {"id": 2, "x": 1.1, "y": 1.2, "z": 1.3},
+    ],
+    "pcld": {
+        "points": [
+            {"x": 1, "y": 2, "z": 3, "r": 10, "g": 20, "b": 30},
+            {"x": 4, "y": 5, "z": 6, "r": 40, "g": 50, "b": 60},
+        ],
+        "point_size": 1.5,
+    },
+}
+
+def almost(a, b, eps=1e-6):
+    return math.isfinite(a) and math.isfinite(b) and abs(a - b) < eps
+
+def build_packets():
+    pkts = []
+    pkts.append(mp.make_packet(mp.TYPE["RSET"]))
+    pkts.append(mp.make_packet(mp.TYPE["JPG"], struct_jpg(False)))
+    pkts.append(mp.make_packet(mp.TYPE["RJPG"], struct_jpg(True)))
+    pkts.append(mp.make_packet(mp.TYPE["POSE"], struct_pose(SAMPLE["pose"])))
+    pkts.append(mp.make_packet(mp.TYPE["UPOSE"], struct_pose(SAMPLE["upose"])))
+    pkts.append(mp.make_packet(mp.TYPE["LCON"], struct_constraints()))
+    pkts.append(mp.make_packet(mp.TYPE["VIZ"], struct_viz(SAMPLE["viz0"])))
+    pkts.append(mp.make_packet(mp.TYPE["VIZ"], struct_viz(SAMPLE["viz1"])))
+    pkts.append(mp.make_packet(mp.TYPE["VIZ"], struct_viz(SAMPLE["viz2"])))
+    pkts.append(mp.make_packet(mp.TYPE["IMU"], struct_imu()))
+    pkts.append(mp.make_packet(mp.TYPE["STAT"], SAMPLE["status"].encode()))
+    pkts.append(mp.make_packet(mp.TYPE["FEA3"], struct_fea3()))
+    pkts.append(mp.make_packet(mp.TYPE["PCLD"], struct_pcld()))
+    return pkts
+
+def struct_jpg(is_ref):
+    import struct
+    ts = struct.pack(">Q", SAMPLE["rjpg_ts"] if is_ref else SAMPLE["jpg_ts"])
+    if is_ref:
+        return ts + SAMPLE["rjpg_data"]
+    chan = SAMPLE["jpg_channel"].encode()
+    return ts + bytes([len(chan)]) + chan + SAMPLE["jpg_data"]
+
+def struct_pose(data):
+    import struct
+    pose_flags = data["pose_flags"]
+    buf = struct.pack(">II", data["pose_type"], pose_flags)
+    buf += struct.pack(">ddd", *data["position"])
+    if pose_flags & 0x1:
+        buf += struct.pack(">dddd", *data["quat"])
+    return buf
+
+def struct_constraints():
+    import struct
+    buf = struct.pack(">I", len(SAMPLE["constraints"]))
+    for c in SAMPLE["constraints"]:
+        buf += struct.pack(">B", c["type"])
+        buf += struct.pack(">fff", *c["start"])
+        buf += struct.pack(">fff", *c["end"])
+    return buf
+
+def struct_viz(v):
+    import struct
+    subtype = v["subtype"]
+    body = b""
+    if subtype == 0:
+        for f in v["features"]:
+            body += struct.pack(">HHBH", f["x"], f["y"], f.get("status", 0), f["id"])
+        count = len(v["features"])
+    elif subtype == 1:
+        for d in v["detections"]:
+            lbl = d["label"].encode()
+            body += struct.pack(">HHHHB", d["x1"], d["y1"], d["x2"], d["y2"], len(lbl)) + lbl
+        count = len(v["detections"])
+    else:
+        for m in v["matches"]:
+            body += struct.pack(">HHHHB", m["x1"], m["y1"], m["x2"], m["y2"], m["confidence"])
+        count = len(v["matches"])
+    header = struct.pack(">B H", subtype, count)
+    return header + body
+
+def struct_imu():
+    import struct
+    buf = struct.pack(">I", len(SAMPLE["imu"]))
+    for s in SAMPLE["imu"]:
+        buf += struct.pack(">Q ddd ddd", s["timestamp_ns"], s["ax"], s["ay"], s["az"], s["gx"], s["gy"], s["gz"])
+    return buf
+
+def struct_fea3():
+    import struct
+    buf = struct.pack(">H", len(SAMPLE["fea3"]))
+    for f in SAMPLE["fea3"]:
+        buf += struct.pack(">H ddd", f["id"], f["x"], f["y"], f["z"])
+    return buf
+
+def struct_pcld():
+    import struct
+    buf = struct.pack(">I", len(SAMPLE["pcld"]["points"]))
+    buf += struct.pack(">f", SAMPLE["pcld"]["point_size"])
+    for p in SAMPLE["pcld"]["points"]:
+        buf += struct.pack(">fffBBB", p["x"], p["y"], p["z"], p["r"], p["g"], p["b"])
+    return buf
+
+def random_jpg(is_ref=False):
+    import struct, secrets
+    ts = struct.pack(">Q", random.randint(0, 10_000))
+    data = secrets.token_bytes(8)
+    if is_ref:
+        return ts + data
+    chan = b"ch"
+    return ts + bytes([len(chan)]) + chan + data
+
+def main():
+    stream = b"".join(build_packets())
+    frames, rest = mp.parse_frames(stream)
+    assert not rest
+    assert len(frames) == 13
+
+    idx = 0
+    assert frames[idx]["type"] == "RSET"; idx += 1
+    jpg = mp.decode_jpg_payload(frames[idx]["payload"], False); idx += 1
+    assert jpg["timestamp_ns"] == SAMPLE["jpg_ts"]
+    rjpg = mp.decode_jpg_payload(frames[idx]["payload"], True); idx += 1
+    assert rjpg["timestamp_ns"] == SAMPLE["rjpg_ts"]
+    pose = mp.decode_pose_payload(frames[idx]["payload"]); idx += 1
+    assert pose["pose_type"] == SAMPLE["pose"]["pose_type"]
+    upose = mp.decode_pose_payload(frames[idx]["payload"]); idx += 1
+    assert almost(upose["position"][2], SAMPLE["upose"]["position"][2])
+    lcon = mp.decode_constraints_payload(frames[idx]["payload"]); idx += 1
+    assert len(lcon) == len(SAMPLE["constraints"])
+    viz0 = mp.decode_viz_payload(frames[idx]["payload"]); idx += 1
+    viz1 = mp.decode_viz_payload(frames[idx]["payload"]); idx += 1
+    viz2 = mp.decode_viz_payload(frames[idx]["payload"]); idx += 1
+    imu = mp.decode_imu_payload(frames[idx]["payload"]); idx += 1
+    assert len(imu) == len(SAMPLE["imu"])
+    stat = mp.decode_status_payload(frames[idx]["payload"]); idx += 1
+    assert stat == SAMPLE["status"]
+    fea3 = mp.decode_fea3_payload(frames[idx]["payload"]); idx += 1
+    assert fea3[1]["id"] == 2
+    pcld = mp.decode_pcld_payload(frames[idx]["payload"]); idx += 1
+    assert len(pcld["points"]) == len(SAMPLE["pcld"]["points"])
+
+    # Dispatcher sanity
+    from dispatcher import FrameDispatcher
+    import random
+    seen = []
+    d = FrameDispatcher(lambda f: seen.append(f["type"]))
+    chunked = stream[:20] + stream[20:]  # two chunks
+    d.feed(chunked)
+    assert len(seen) == 13
+
+    # Decoded dispatcher sanity
+    from decoded_dispatcher import DecodedDispatcher
+    decoded_seen = []
+    dd = DecodedDispatcher()
+    dd.on_jpg = lambda ts, ch, data, is_ref: decoded_seen.append(("jpg", is_ref))
+    dd.on_pose = lambda pose, is_unopt: decoded_seen.append(("pose", is_unopt))
+    dd.on_constraints = lambda segs: decoded_seen.append(("lcon", len(segs)))
+    dd.on_features = lambda feats: decoded_seen.append(("fea3", len(feats)))
+    dd.on_pointcloud = lambda pts, ps: decoded_seen.append(("pcld", len(pts)))
+    dd.on_viz = lambda _: decoded_seen.append(("viz", None))
+    dd.on_imu = lambda samples: decoded_seen.append(("imu", len(samples)))
+    dd.on_status = lambda txt: decoded_seen.append(("stat", txt))
+    dd.on_reset = lambda: decoded_seen.append(("rset", True))
+    dd.feed(stream)
+    assert len(decoded_seen) >= 8
+
+    # Fuzz decode/dispatch
+    types = ["JPG", "RJPG", "POSE", "UPOSE", "LCON", "IMU", "STAT"]
+    for _ in range(20):
+      pkts = []
+      for _ in range(5):
+        t = random.choice(types)
+        if t == "JPG":
+          payload = random_jpg(False)
+        elif t == "RJPG":
+          payload = random_jpg(True)
+        elif t in ("POSE", "UPOSE"):
+          payload = struct_pose({"pose_type": 0, "pose_flags": 0x3, "position": (0.1,0.2,0.3), "quat": (0.1,0.2,0.3,0.9)})
+        elif t == "LCON":
+          payload = struct_constraints()
+        elif t == "IMU":
+          payload = struct_imu()
+        elif t == "STAT":
+          payload = b"fuzz"
+        pkts.append(mp.make_packet(mp.TYPE[t], payload))
+      merged = b"".join(pkts)
+      # parse_frames robustness
+      frames, rest = mp.parse_frames(merged)
+      assert rest == b""
+      dd = DecodedDispatcher()
+      dd.feed(merged)
+
+    print("Python consumer test passed")
+
+if __name__ == "__main__":
+    main()
