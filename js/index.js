@@ -1,26 +1,41 @@
 // Lightweight protocol helpers shared between Node and the browser code (no transport).
-// Provides framing, CRC, encode/decode for all packet types.
+// Single implementation with light Buffer-friendly bridges for Node.
 
-const HEADER_MAGIC = Buffer.from([0xde, 0xad, 0xbe, 0xef]);
-const FOOTER_MAGIC = Buffer.from([0xfe, 0xed, 0xfa, 0xce]);
+const hasBuffer = typeof Buffer !== "undefined";
+const textEncoder = typeof TextEncoder !== "undefined" ? new TextEncoder() : null;
+const textDecoder = typeof TextDecoder !== "undefined" ? new TextDecoder() : null;
 
 const TYPE = {
-  JPG: 'JPG ',
-  RJPG: 'RJPG',
-  POSE: 'POSE',
-  UPOSE: 'UPOS',
-  LCON: 'LCON',
-  VIZ: 'VIZ ',
-  IMU: 'IMU ',
-  STAT: 'STAT',
-  RSET: 'RSET',
-  FEA3: 'FEA3',
-  PCLD: 'PCLD',
+  JPG: "JPG ",
+  RJPG: "RJPG",
+  POSE: "POSE",
+  UPOSE: "UPOS",
+  LCON: "LCON",
+  VIZ: "VIZ ",
+  IMU: "IMU ",
+  STAT: "STAT",
+  RSET: "RSET",
+  FEA3: "FEA3",
+  PCLD: "PCLD",
 };
 
-// ---------------------------------------------------------------------------
-// CRC32
-// ---------------------------------------------------------------------------
+const HEADER_BYTES = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
+const FOOTER_BYTES = new Uint8Array([0xfe, 0xed, 0xfa, 0xce]);
+
+const toU8 = (data = new Uint8Array()) => {
+  if (data instanceof Uint8Array) return data;
+  if (hasBuffer && data instanceof Buffer) {
+    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  }
+  return new Uint8Array(data);
+};
+
+const fromU8 = (u8) =>
+  hasBuffer ? Buffer.from(u8.buffer, u8.byteOffset, u8.byteLength) : u8;
+
+const HEADER_MAGIC = fromU8(HEADER_BYTES);
+const FOOTER_MAGIC = fromU8(FOOTER_BYTES);
+
 const crcTable = (() => {
   const t = new Uint32Array(256);
   for (let n = 0; n < 256; ++n) {
@@ -34,70 +49,102 @@ const crcTable = (() => {
 })();
 
 function crc32(buf) {
+  const u8 = toU8(buf);
   let crc = 0xffffffff;
-  for (let i = 0; i < buf.length; ++i) {
-    crc = (crcTable[(crc ^ buf[i]) & 0xff] ^ (crc >>> 8)) >>> 0;
+  for (let i = 0; i < u8.length; ++i) {
+    crc = (crcTable[(crc ^ u8[i]) & 0xff] ^ (crc >>> 8)) >>> 0;
   }
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-// ---------------------------------------------------------------------------
-// Framing helpers
-// ---------------------------------------------------------------------------
-function makePacket(type, payload = Buffer.alloc(0)) {
-  if (!TYPE[type] && typeof type !== 'string') {
-    throw new Error('type must be a 4-char string or known key');
+function arraysEqual(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+const readU32BE = (arr, off) =>
+  new DataView(arr.buffer, arr.byteOffset + off, 4).getUint32(0, false);
+const readU16BE = (arr, off) =>
+  new DataView(arr.buffer, arr.byteOffset + off, 2).getUint16(0, false);
+const readU8 = (arr, off) => arr[off];
+const readF32BE = (arr, off) =>
+  new DataView(arr.buffer, arr.byteOffset + off, 4).getFloat32(0, false);
+const readF64BE = (arr, off) =>
+  new DataView(arr.buffer, arr.byteOffset + off, 8).getFloat64(0, false);
+const readBigU64BE = (arr, off) =>
+  new DataView(arr.buffer, arr.byteOffset + off, 8).getBigUint64(0, false);
+
+function makePacket(type, payload = new Uint8Array()) {
+  if (!TYPE[type] && typeof type !== "string") {
+    throw new Error("type must be a 4-char string or known key");
   }
   const typeStr = TYPE[type] || type;
-  if (typeStr.length !== 4) throw new Error('type must be 4 chars');
-  const len = payload.length >>> 0;
-  const out = Buffer.alloc(4 + 4 + 4 + len + 4 + 4);
-  HEADER_MAGIC.copy(out, 0);
-  out.write(typeStr, 4, 4, 'ascii');
-  out.writeUInt32BE(len, 8);
-  if (len) payload.copy(out, 12);
-  const crc = len ? crc32(payload) : 0;
-  out.writeUInt32BE(crc >>> 0, 12 + len);
-  FOOTER_MAGIC.copy(out, 16 + len);
-  return out;
+  if (typeStr.length !== 4) throw new Error("type must be 4 chars");
+
+  const payloadU8 = toU8(payload);
+  const len = payloadU8.length >>> 0;
+  const out = new Uint8Array(4 + 4 + 4 + len + 4 + 4);
+
+  out.set(HEADER_BYTES, 0);
+  for (let i = 0; i < 4; ++i) out[4 + i] = typeStr.charCodeAt(i);
+  out[8] = (len >>> 24) & 0xff;
+  out[9] = (len >>> 16) & 0xff;
+  out[10] = (len >>> 8) & 0xff;
+  out[11] = len & 0xff;
+  if (len) out.set(payloadU8, 12);
+  const crc = len ? crc32(payloadU8) : 0;
+  out[12 + len] = (crc >>> 24) & 0xff;
+  out[13 + len] = (crc >>> 16) & 0xff;
+  out[14 + len] = (crc >>> 8) & 0xff;
+  out[15 + len] = crc & 0xff;
+  out.set(FOOTER_BYTES, 16 + len);
+  return fromU8(out);
 }
 
 // Parses as many complete frames as possible; returns {frames, rest}
 function parseFrames(buffer) {
+  const u8 = toU8(buffer);
   let offset = 0;
   const frames = [];
-  while (buffer.length - offset >= 20) {
-    if (!buffer.slice(offset, offset + 4).equals(HEADER_MAGIC)) break;
-    const type = buffer.slice(offset + 4, offset + 8).toString('ascii');
-    const len = buffer.readUInt32BE(offset + 8);
+  while (u8.length - offset >= 20) {
+    if (!arraysEqual(u8.subarray(offset, offset + 4), HEADER_BYTES)) break;
+    const type = String.fromCharCode(
+      u8[offset + 4],
+      u8[offset + 5],
+      u8[offset + 6],
+      u8[offset + 7],
+    );
+    const len = readU32BE(u8, offset + 8);
     const pktSize = 20 + len;
-    if (buffer.length - offset < pktSize) break; // need more
-    const payload = buffer.slice(offset + 12, offset + 12 + len);
-    const recvCrc = buffer.readUInt32BE(offset + 12 + len);
-    const footer = buffer.slice(offset + 16 + len, offset + pktSize);
-    if (!footer.equals(FOOTER_MAGIC) || (len && crc32(payload) !== recvCrc)) {
+    if (u8.length - offset < pktSize) break; // need more
+    const payloadView = u8.subarray(offset + 12, offset + 12 + len);
+    const recvCrc = readU32BE(u8, offset + 12 + len);
+    const footer = u8.subarray(offset + 16 + len, offset + pktSize);
+    if (!arraysEqual(footer, FOOTER_BYTES) || (len && crc32(payloadView) !== recvCrc)) {
       offset += pktSize;
       continue;
     }
-    frames.push({ type, payload });
+    frames.push({ type, payload: fromU8(payloadView) });
     offset += pktSize;
   }
-  return { frames, rest: buffer.slice(offset) };
+  return { frames, rest: fromU8(u8.subarray(offset)) };
 }
 
-// ---------------------------------------------------------------------------
-// Dispatcher helper
-// ---------------------------------------------------------------------------
 class FrameDispatcher {
   constructor(onFrame) {
     this.onFrame = onFrame;
-    this.buffer = Buffer.alloc(0);
+    this.buffer = new Uint8Array();
   }
   feed(chunk) {
-    if (!(chunk instanceof Buffer)) chunk = Buffer.from(chunk);
-    this.buffer = Buffer.concat([this.buffer, chunk]);
-    const parsed = parseFrames(this.buffer);
-    this.buffer = parsed.rest;
+    const incoming = toU8(chunk);
+    const merged = new Uint8Array(this.buffer.length + incoming.length);
+    merged.set(this.buffer, 0);
+    merged.set(incoming, this.buffer.length);
+    const parsed = parseFrames(merged);
+    this.buffer = toU8(parsed.rest);
     if (this.onFrame) {
       for (const f of parsed.frames) this.onFrame(f);
     }
@@ -107,206 +154,241 @@ class FrameDispatcher {
 // ---------------------------------------------------------------------------
 // Payload builders
 // ---------------------------------------------------------------------------
-function buildJpgPayload({ timestampNs = 0n, channel = 'preview', data = Buffer.alloc(0), isRef = false }) {
-  if (!(data instanceof Buffer)) data = Buffer.from(data);
-  const tsBuf = Buffer.alloc(8);
-  tsBuf.writeBigUInt64BE(BigInt(timestampNs));
+function buildJpgPayload({ timestampNs = 0n, channel = "preview", data = new Uint8Array(), isRef = false }) {
+  const dataU8 = toU8(data);
+  const tsBuf = new Uint8Array(8);
+  new DataView(tsBuf.buffer, tsBuf.byteOffset, tsBuf.byteLength).setBigUint64(0, BigInt(timestampNs), false);
   if (isRef) {
-    return Buffer.concat([tsBuf, data]);
+    const out = new Uint8Array(tsBuf.length + dataU8.length);
+    out.set(tsBuf, 0);
+    out.set(dataU8, tsBuf.length);
+    return fromU8(out);
   }
-  const chanBuf = Buffer.from(channel || '', 'utf8');
-  const chanLen = Math.min(255, chanBuf.length);
-  return Buffer.concat([tsBuf, Buffer.from([chanLen]), chanBuf.slice(0, chanLen), data]);
+  const chanBytes = (textEncoder || new TextEncoder()).encode(channel || "");
+  const chanLen = Math.min(255, chanBytes.length);
+  const out = new Uint8Array(tsBuf.length + 1 + chanLen + dataU8.length);
+  let off = 0;
+  out.set(tsBuf, off); off += tsBuf.length;
+  out[off] = chanLen; off += 1;
+  out.set(chanBytes.subarray(0, chanLen), off); off += chanLen;
+  out.set(dataU8, off);
+  return fromU8(out);
 }
 
 function buildPosePayload({ poseType = 0, poseFlags = 0, position = [0, 0, 0], quat = null }) {
   const hasQuat = Array.isArray(quat) && quat.length === 4;
   let flags = poseFlags;
   if (hasQuat) flags |= 0x1;
-  const buf = Buffer.alloc(4 + 4 + 8 * 3 + (hasQuat ? 8 * 4 : 0));
+  const len = 4 + 4 + 8 * 3 + (hasQuat ? 8 * 4 : 0);
+  const buf = new Uint8Array(len);
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   let off = 0;
-  buf.writeUInt32BE(poseType >>> 0, off); off += 4;
-  buf.writeUInt32BE(flags >>> 0, off); off += 4;
-  buf.writeDoubleBE(position[0], off); off += 8;
-  buf.writeDoubleBE(position[1], off); off += 8;
-  buf.writeDoubleBE(position[2], off); off += 8;
+  dv.setUint32(off, poseType >>> 0, false); off += 4;
+  dv.setUint32(off, flags >>> 0, false); off += 4;
+  dv.setFloat64(off, position[0], false); off += 8;
+  dv.setFloat64(off, position[1], false); off += 8;
+  dv.setFloat64(off, position[2], false); off += 8;
   if (hasQuat) {
-    buf.writeDoubleBE(quat[0], off); off += 8;
-    buf.writeDoubleBE(quat[1], off); off += 8;
-    buf.writeDoubleBE(quat[2], off); off += 8;
-    buf.writeDoubleBE(quat[3], off); off += 8;
+    dv.setFloat64(off, quat[0], false); off += 8;
+    dv.setFloat64(off, quat[1], false); off += 8;
+    dv.setFloat64(off, quat[2], false); off += 8;
+    dv.setFloat64(off, quat[3], false); off += 8;
   }
-  return buf;
+  return fromU8(buf);
 }
 
 function buildConstraintsPayload(segments = []) {
   const per = 1 + 6 * 4;
-  const buf = Buffer.alloc(4 + segments.length * per);
-  buf.writeUInt32BE(segments.length >>> 0, 0);
+  const buf = new Uint8Array(4 + segments.length * per);
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  dv.setUint32(0, segments.length >>> 0, false);
   let off = 4;
   for (const s of segments) {
-    buf.writeUInt8(s.type || 0, off); off += 1;
-    for (let i = 0; i < 3; ++i) { buf.writeFloatBE(s.start[i] ?? 0, off); off += 4; }
-    for (let i = 0; i < 3; ++i) { buf.writeFloatBE(s.end[i] ?? 0, off); off += 4; }
+    dv.setUint8(off, s.type || 0); off += 1;
+    for (let i = 0; i < 3; ++i) { dv.setFloat32(off, s.start?.[i] ?? 0, false); off += 4; }
+    for (let i = 0; i < 3; ++i) { dv.setFloat32(off, s.end?.[i] ?? 0, false); off += 4; }
   }
-  return buf;
+  return fromU8(buf);
 }
 
 function buildVizPayload(viz) {
   const subtype = viz.subtype ?? 0;
-  let body = Buffer.alloc(0);
+  let body = new Uint8Array();
   if (subtype === 0) {
-    body = Buffer.alloc(viz.features.length * (2 + 2 + 1 + 2));
+    body = new Uint8Array(viz.features.length * (2 + 2 + 1 + 2));
+    const dv = new DataView(body.buffer, body.byteOffset, body.byteLength);
     let off = 0;
     for (const f of viz.features) {
-      body.writeUInt16BE(f.x, off); off += 2;
-      body.writeUInt16BE(f.y, off); off += 2;
-      body.writeUInt8(f.status || 0, off); off += 1;
-      body.writeUInt16BE(f.id, off); off += 2;
+      dv.setUint16(off, f.x, false); off += 2;
+      dv.setUint16(off, f.y, false); off += 2;
+      dv.setUint8(off, f.status || 0); off += 1;
+      dv.setUint16(off, f.id, false); off += 2;
     }
   } else if (subtype === 1) {
     const parts = [];
+    let total = 0;
     for (const d of viz.detections) {
-      const lbl = Buffer.from(d.label || '', 'utf8');
+      const lbl = (textEncoder || new TextEncoder()).encode(d.label || "");
       const ll = Math.min(255, lbl.length);
-      const b = Buffer.alloc(2 + 2 + 2 + 2 + 1 + ll);
+      const b = new Uint8Array(2 + 2 + 2 + 2 + 1 + ll);
+      const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
       let off = 0;
-      b.writeUInt16BE(d.x1, off); off += 2;
-      b.writeUInt16BE(d.y1, off); off += 2;
-      b.writeUInt16BE(d.x2, off); off += 2;
-      b.writeUInt16BE(d.y2, off); off += 2;
-      b.writeUInt8(ll, off); off += 1;
-      lbl.copy(b, off, 0, ll);
+      dv.setUint16(off, d.x1, false); off += 2;
+      dv.setUint16(off, d.y1, false); off += 2;
+      dv.setUint16(off, d.x2, false); off += 2;
+      dv.setUint16(off, d.y2, false); off += 2;
+      dv.setUint8(off, ll); off += 1;
+      b.set(lbl.subarray(0, ll), off);
       parts.push(b);
+      total += b.length;
     }
-    body = Buffer.concat(parts);
+    body = new Uint8Array(total);
+    let off = 0;
+    for (const p of parts) { body.set(p, off); off += p.length; }
   } else if (subtype === 2) {
-    body = Buffer.alloc(viz.matches.length * (2 + 2 + 2 + 2 + 1));
+    body = new Uint8Array(viz.matches.length * (2 + 2 + 2 + 2 + 1));
+    const dv = new DataView(body.buffer, body.byteOffset, body.byteLength);
     let off = 0;
     for (const m of viz.matches) {
-      body.writeUInt16BE(m.x1, off); off += 2;
-      body.writeUInt16BE(m.y1, off); off += 2;
-      body.writeUInt16BE(m.x2, off); off += 2;
-      body.writeUInt16BE(m.y2, off); off += 2;
-      body.writeUInt8(m.confidence || 0, off); off += 1;
+      dv.setUint16(off, m.x1, false); off += 2;
+      dv.setUint16(off, m.y1, false); off += 2;
+      dv.setUint16(off, m.x2, false); off += 2;
+      dv.setUint16(off, m.y2, false); off += 2;
+      dv.setUint8(off, m.confidence || 0); off += 1;
     }
   } else {
-    throw new Error('unknown viz subtype');
+    throw new Error("unknown viz subtype");
   }
-  const header = Buffer.alloc(3);
-  header.writeUInt8(subtype, 0);
-  header.writeUInt16BE(subtype === 0 ? viz.features.length : subtype === 1 ? viz.detections.length : viz.matches.length, 1);
-  return Buffer.concat([header, body]);
+  const header = new Uint8Array(3);
+  const hdv = new DataView(header.buffer, header.byteOffset, header.byteLength);
+  hdv.setUint8(0, subtype);
+  hdv.setUint16(
+    1,
+    subtype === 0 ? viz.features.length : subtype === 1 ? viz.detections.length : viz.matches.length,
+    false,
+  );
+  const out = new Uint8Array(header.length + body.length);
+  out.set(header, 0);
+  out.set(body, header.length);
+  return fromU8(out);
 }
 
 function buildImuPayload(samples = []) {
-  if (!samples.length) return Buffer.alloc(0);
+  if (!samples.length) return fromU8(new Uint8Array());
   const stride = 8 + 6 * 8;
-  const buf = Buffer.alloc(4 + samples.length * stride);
-  buf.writeUInt32BE(samples.length >>> 0, 0);
+  const buf = new Uint8Array(4 + samples.length * stride);
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  dv.setUint32(0, samples.length >>> 0, false);
   let off = 4;
   for (const s of samples) {
-    buf.writeBigUInt64BE(BigInt(s.timestampNs), off); off += 8;
-    buf.writeDoubleBE(s.ax, off); off += 8;
-    buf.writeDoubleBE(s.ay, off); off += 8;
-    buf.writeDoubleBE(s.az, off); off += 8;
-    buf.writeDoubleBE(s.gx, off); off += 8;
-    buf.writeDoubleBE(s.gy, off); off += 8;
-    buf.writeDoubleBE(s.gz, off); off += 8;
+    dv.setBigUint64(off, BigInt(s.timestampNs), false); off += 8;
+    dv.setFloat64(off, s.ax, false); off += 8;
+    dv.setFloat64(off, s.ay, false); off += 8;
+    dv.setFloat64(off, s.az, false); off += 8;
+    dv.setFloat64(off, s.gx, false); off += 8;
+    dv.setFloat64(off, s.gy, false); off += 8;
+    dv.setFloat64(off, s.gz, false); off += 8;
   }
-  return buf;
+  return fromU8(buf);
 }
 
-const buildStatusPayload = (text = '') => Buffer.from(text, 'utf8');
+const buildStatusPayload = (text = "") =>
+  fromU8((textEncoder || new TextEncoder()).encode(text));
 
 function buildFea3Payload(features = []) {
-  const buf = Buffer.alloc(2 + features.length * (2 + 8 * 3));
-  buf.writeUInt16BE(features.length, 0);
+  const buf = new Uint8Array(2 + features.length * (2 + 8 * 3));
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  dv.setUint16(0, features.length, false);
   let off = 2;
   for (const f of features) {
-    buf.writeUInt16BE(f.id, off); off += 2;
-    buf.writeDoubleBE(f.x, off); off += 8;
-    buf.writeDoubleBE(f.y, off); off += 8;
-    buf.writeDoubleBE(f.z, off); off += 8;
+    dv.setUint16(off, f.id, false); off += 2;
+    dv.setFloat64(off, f.x, false); off += 8;
+    dv.setFloat64(off, f.y, false); off += 8;
+    dv.setFloat64(off, f.z, false); off += 8;
   }
-  return buf;
+  return fromU8(buf);
 }
 
 function buildPcldPayload(points = [], pointSize = null) {
-  const includeSize = typeof pointSize === 'number' && pointSize > 0;
-  const buf = Buffer.alloc((includeSize ? 8 : 4) + points.length * (4 * 3 + 3));
-  buf.writeUInt32BE(points.length, 0);
+  const includeSize = typeof pointSize === "number" && pointSize > 0;
+  const buf = new Uint8Array((includeSize ? 8 : 4) + points.length * (4 * 3 + 3));
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  dv.setUint32(0, points.length >>> 0, false);
   let off = 4;
   if (includeSize) {
-    buf.writeFloatBE(pointSize, off); off += 4;
+    dv.setFloat32(off, pointSize, false); off += 4;
   }
   for (const p of points) {
-    buf.writeFloatBE(p.x, off); off += 4;
-    buf.writeFloatBE(p.y, off); off += 4;
-    buf.writeFloatBE(p.z, off); off += 4;
-    buf.writeUInt8(p.r, off); off += 1;
-    buf.writeUInt8(p.g, off); off += 1;
-    buf.writeUInt8(p.b, off); off += 1;
+    dv.setFloat32(off, p.x, false); off += 4;
+    dv.setFloat32(off, p.y, false); off += 4;
+    dv.setFloat32(off, p.z, false); off += 4;
+    dv.setUint8(off, p.r, false); off += 1;
+    dv.setUint8(off, p.g, false); off += 1;
+    dv.setUint8(off, p.b, false); off += 1;
   }
-  return buf;
+  return fromU8(buf);
 }
 
 // ---------------------------------------------------------------------------
 // Payload decoders
 // ---------------------------------------------------------------------------
 function decodeJpgPayload(payload, isRef = false) {
-  if (payload.length < 8) throw new Error('JPG payload too short');
+  const u8 = toU8(payload);
+  if (u8.length < 8) throw new Error("JPG payload too short");
   let off = 0;
-  const ts = payload.readBigUInt64BE(off); off += 8;
+  const ts = readBigU64BE(u8, off); off += 8;
   if (isRef) {
-    return { timestampNs: ts, channel: '', data: payload.slice(off) };
+    return { timestampNs: ts, channel: "", data: fromU8(u8.subarray(off)) };
   }
-  const clen = payload.readUInt8(off); off += 1;
-  const channel = payload.slice(off, off + clen).toString('utf8'); off += clen;
-  return { timestampNs: ts, channel, data: payload.slice(off) };
+  const clen = readU8(u8, off); off += 1;
+  const channel = (textDecoder || new TextDecoder()).decode(u8.subarray(off, off + clen)); off += clen;
+  return { timestampNs: ts, channel, data: fromU8(u8.subarray(off)) };
 }
 
 function decodePosePayload(payload) {
+  const u8 = toU8(payload);
   let off = 0;
-  const poseType = payload.readUInt32BE(off); off += 4;
-  const poseFlags = payload.readUInt32BE(off); off += 4;
-  const x = payload.readDoubleBE(off); off += 8;
-  const y = payload.readDoubleBE(off); off += 8;
-  const z = payload.readDoubleBE(off); off += 8;
+  const poseType = readU32BE(u8, off); off += 4;
+  const poseFlags = readU32BE(u8, off); off += 4;
+  const x = readF64BE(u8, off); off += 8;
+  const y = readF64BE(u8, off); off += 8;
+  const z = readF64BE(u8, off); off += 8;
   let quat = null;
   if (poseFlags & 0x1) {
     quat = [
-      payload.readDoubleBE(off), payload.readDoubleBE(off + 8),
-      payload.readDoubleBE(off + 16), payload.readDoubleBE(off + 24),
+      readF64BE(u8, off), readF64BE(u8, off + 8),
+      readF64BE(u8, off + 16), readF64BE(u8, off + 24),
     ];
   }
   return { poseType, poseFlags, position: [x, y, z], quat };
 }
 
 function decodeConstraintsPayload(payload) {
+  const u8 = toU8(payload);
   let off = 0;
-  const count = payload.readUInt32BE(off); off += 4;
+  const count = readU32BE(u8, off); off += 4;
   const segments = [];
   for (let i = 0; i < count; ++i) {
-    const type = payload.readUInt8(off); off += 1;
-    const start = [payload.readFloatBE(off), payload.readFloatBE(off + 4), payload.readFloatBE(off + 8)]; off += 12;
-    const end = [payload.readFloatBE(off), payload.readFloatBE(off + 4), payload.readFloatBE(off + 8)]; off += 12;
+    const type = readU8(u8, off); off += 1;
+    const start = [readF32BE(u8, off), readF32BE(u8, off + 4), readF32BE(u8, off + 8)]; off += 12;
+    const end = [readF32BE(u8, off), readF32BE(u8, off + 4), readF32BE(u8, off + 8)]; off += 12;
     segments.push({ type, start, end });
   }
   return segments;
 }
 
 function decodeVizPayload(payload) {
+  const u8 = toU8(payload);
   let off = 0;
-  const subtype = payload.readUInt8(off); off += 1;
-  const count = payload.readUInt16BE(off); off += 2;
+  const subtype = readU8(u8, off); off += 1;
+  const count = readU16BE(u8, off); off += 2;
   if (subtype === 0) {
     const features = [];
     for (let i = 0; i < count; ++i) {
-      const x = payload.readUInt16BE(off); off += 2;
-      const y = payload.readUInt16BE(off); off += 2;
-      const status = payload.readUInt8(off); off += 1;
-      const id = payload.readUInt16BE(off); off += 2;
+      const x = readU16BE(u8, off); off += 2;
+      const y = readU16BE(u8, off); off += 2;
+      const status = readU8(u8, off); off += 1;
+      const id = readU16BE(u8, off); off += 2;
       features.push({ x, y, status, id });
     }
     return { subtype, features };
@@ -314,12 +396,12 @@ function decodeVizPayload(payload) {
   if (subtype === 1) {
     const detections = [];
     for (let i = 0; i < count; ++i) {
-      const x1 = payload.readUInt16BE(off); off += 2;
-      const y1 = payload.readUInt16BE(off); off += 2;
-      const x2 = payload.readUInt16BE(off); off += 2;
-      const y2 = payload.readUInt16BE(off); off += 2;
-      const ll = payload.readUInt8(off); off += 1;
-      const label = payload.slice(off, off + ll).toString('utf8'); off += ll;
+      const x1 = readU16BE(u8, off); off += 2;
+      const y1 = readU16BE(u8, off); off += 2;
+      const x2 = readU16BE(u8, off); off += 2;
+      const y2 = readU16BE(u8, off); off += 2;
+      const ll = readU8(u8, off); off += 1;
+      const label = (textDecoder || new TextDecoder()).decode(u8.subarray(off, off + ll)); off += ll;
       detections.push({ x1, y1, x2, y2, label });
     }
     return { subtype, detections };
@@ -327,66 +409,72 @@ function decodeVizPayload(payload) {
   if (subtype === 2) {
     const matches = [];
     for (let i = 0; i < count; ++i) {
-      const x1 = payload.readUInt16BE(off); off += 2;
-      const y1 = payload.readUInt16BE(off); off += 2;
-      const x2 = payload.readUInt16BE(off); off += 2;
-      const y2 = payload.readUInt16BE(off); off += 2;
-      const confidence = payload.readUInt8(off); off += 1;
+      const x1 = readU16BE(u8, off); off += 2;
+      const y1 = readU16BE(u8, off); off += 2;
+      const x2 = readU16BE(u8, off); off += 2;
+      const y2 = readU16BE(u8, off); off += 2;
+      const confidence = readU8(u8, off); off += 1;
       matches.push({ x1, y1, x2, y2, confidence });
     }
     return { subtype, matches };
   }
-  throw new Error('Unknown viz subtype');
+  throw new Error("Unknown viz subtype");
 }
 
 function decodeImuPayload(payload) {
+  const u8 = toU8(payload);
   let off = 0;
-  const count = payload.readUInt32BE(off); off += 4;
+  const count = readU32BE(u8, off); off += 4;
   const samples = [];
   for (let i = 0; i < count; ++i) {
-    const timestampNs = payload.readBigUInt64BE(off); off += 8;
-    const ax = payload.readDoubleBE(off); off += 8;
-    const ay = payload.readDoubleBE(off); off += 8;
-    const az = payload.readDoubleBE(off); off += 8;
-    const gx = payload.readDoubleBE(off); off += 8;
-    const gy = payload.readDoubleBE(off); off += 8;
-    const gz = payload.readDoubleBE(off); off += 8;
+    const timestampNs = readBigU64BE(u8, off); off += 8;
+    const ax = readF64BE(u8, off); off += 8;
+    const ay = readF64BE(u8, off); off += 8;
+    const az = readF64BE(u8, off); off += 8;
+    const gx = readF64BE(u8, off); off += 8;
+    const gy = readF64BE(u8, off); off += 8;
+    const gz = readF64BE(u8, off); off += 8;
     samples.push({ timestampNs, ax, ay, az, gx, gy, gz });
   }
   return samples;
 }
 
-const decodeStatusPayload = (payload) => payload.toString('utf8');
+const decodeStatusPayload = (payload) =>
+  (textDecoder || new TextDecoder()).decode(toU8(payload));
 
 function decodeFea3Payload(payload) {
+  const u8 = toU8(payload);
   let off = 0;
-  const count = payload.readUInt16BE(off); off += 2;
+  const count = readU16BE(u8, off); off += 2;
   const features = [];
   for (let i = 0; i < count; ++i) {
-    const id = payload.readUInt16BE(off); off += 2;
-    const x = payload.readDoubleBE(off); off += 8;
-    const y = payload.readDoubleBE(off); off += 8;
-    const z = payload.readDoubleBE(off); off += 8;
+    const id = readU16BE(u8, off); off += 2;
+    const x = readF64BE(u8, off); off += 8;
+    const y = readF64BE(u8, off); off += 8;
+    const z = readF64BE(u8, off); off += 8;
     features.push({ id, x, y, z });
   }
   return features;
 }
 
 function decodePcldPayload(payload) {
+  const u8 = toU8(payload);
   let off = 0;
-  const count = payload.readUInt32BE(off); off += 4;
+  const count = readU32BE(u8, off); off += 4;
   let pointSize = null;
-  if (payload.length >= 8 + count * (3 * 4 + 3)) {
-    pointSize = payload.readFloatBE(off); off += 4;
+  const perPoint = 4 * 3 + 3;
+  const expectedWithoutSize = 4 + count * perPoint;
+  if (u8.length >= expectedWithoutSize + 4) {
+    pointSize = readF32BE(u8, off); off += 4;
   }
   const points = [];
   for (let i = 0; i < count; ++i) {
-    const x = payload.readFloatBE(off); off += 4;
-    const y = payload.readFloatBE(off); off += 4;
-    const z = payload.readFloatBE(off); off += 4;
-    const r = payload.readUInt8(off); off += 1;
-    const g = payload.readUInt8(off); off += 1;
-    const b = payload.readUInt8(off); off += 1;
+    const x = readF32BE(u8, off); off += 4;
+    const y = readF32BE(u8, off); off += 4;
+    const z = readF32BE(u8, off); off += 4;
+    const r = readU8(u8, off); off += 1;
+    const g = readU8(u8, off); off += 1;
+    const b = readU8(u8, off); off += 1;
     points.push({ x, y, z, r, g, b });
   }
   return { points, pointSize };
@@ -417,9 +505,10 @@ const api = {
   decodePcldPayload,
 };
 
-if (typeof module !== 'undefined' && module.exports) {
+if (typeof module !== "undefined" && module.exports) {
   module.exports = api;
+  module.exports.default = api;
 }
-if (typeof window !== 'undefined') {
+if (typeof window !== "undefined") {
   window.MightyProtocol = api;
 }
