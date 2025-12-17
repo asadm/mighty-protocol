@@ -107,6 +107,8 @@ class DecodedDispatcher {
   using ImuHandler = std::function<void(const std::vector<ImuSample>&)>;
   using StatusHandler = std::function<void(const std::string&)>;
   using ResetHandler = std::function<void()>;
+  using CommandHandler = std::function<void(const CommandRequest&)>;
+  using CommandResponseHandler = std::function<void(const CommandResponse&)>;
 
   void on_jpg(JpgHandler h) { jpg_handler_ = std::move(h); }
   void on_pose(PoseHandler h) { pose_handler_ = std::move(h); }
@@ -117,6 +119,8 @@ class DecodedDispatcher {
   void on_imu(ImuHandler h) { imu_handler_ = std::move(h); }
   void on_status(StatusHandler h) { status_handler_ = std::move(h); }
   void on_reset(ResetHandler h) { reset_handler_ = std::move(h); }
+  void on_command(CommandHandler h) { command_handler_ = std::move(h); }
+  void on_command_response(CommandResponseHandler h) { command_response_handler_ = std::move(h); }
 
   void feed(const uint8_t* data, size_t len) {
     consumer_.feed(data, len);
@@ -180,6 +184,18 @@ class DecodedDispatcher {
       if (decode_status_payload(f.payload, text)) status_handler_(text);
     } else if (type == "RSET") {
       if (reset_handler_) reset_handler_();
+    } else if (type == "CMD ") {
+      if (!command_handler_) return;
+      CommandRequest cmd{};
+      if (decode_command_payload(f.payload, cmd)) {
+        command_handler_(cmd);
+      }
+    } else if (type == "CRES") {
+      if (!command_response_handler_) return;
+      CommandResponse resp{};
+      if (decode_command_response_payload(f.payload, resp)) {
+        command_response_handler_(resp);
+      }
     }
   }
 
@@ -193,6 +209,8 @@ class DecodedDispatcher {
   ImuHandler imu_handler_;
   StatusHandler status_handler_;
   ResetHandler reset_handler_;
+  CommandHandler command_handler_;
+  CommandResponseHandler command_response_handler_;
 };
 
 } // namespace mighty_protocol

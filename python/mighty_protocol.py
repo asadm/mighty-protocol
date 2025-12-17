@@ -16,6 +16,8 @@ TYPE = {
     "RSET": b"RSET",
     "FEA3": b"FEA3",
     "PCLD": b"PCLD",
+    "CMD": b"CMD ",
+    "CRES": b"CRES",
 }
 
 def _crc32(data: bytes) -> int:
@@ -181,3 +183,60 @@ def decode_pcld_payload(payload: bytes):
         r, g, b = struct.unpack(">BBB", payload[off:off+3]); off += 3
         points.append({"x": x, "y": y, "z": z, "r": r, "g": g, "b": b})
     return {"points": points, "point_size": point_size}
+
+# Command helpers
+def build_command_payload(req_id: int, name: str, data: bytes = b"") -> bytes:
+    name_bytes = (name or "").encode("utf-8")
+    name_len = min(255, len(name_bytes))
+    data = data or b""
+    return b"".join([
+        struct.pack(">I", req_id & 0xFFFFFFFF),
+        struct.pack("B", name_len),
+        name_bytes[:name_len],
+        struct.pack(">I", len(data)),
+        data
+    ])
+
+def build_command_response_payload(req_id: int, status: int, message: str = "", data: bytes = b"") -> bytes:
+    msg_bytes = (message or "").encode("utf-8")
+    msg_len = min(65535, len(msg_bytes))
+    data = data or b""
+    return b"".join([
+        struct.pack(">I", req_id & 0xFFFFFFFF),
+        struct.pack("B", status & 0xFF),
+        struct.pack(">H", msg_len),
+        msg_bytes[:msg_len],
+        struct.pack(">I", len(data)),
+        data
+    ])
+
+def decode_command_payload(payload: bytes) -> Dict[str, Any]:
+    if len(payload) < 4 + 1 + 4:
+        raise ValueError("payload too short")
+    off = 0
+    req_id = struct.unpack(">I", payload[off:off+4])[0]; off += 4
+    name_len = payload[off]; off += 1
+    if len(payload) < off + name_len + 4:
+        raise ValueError("payload truncated")
+    name = payload[off:off+name_len].decode("utf-8"); off += name_len
+    data_len = struct.unpack(">I", payload[off:off+4])[0]; off += 4
+    if len(payload) < off + data_len:
+        raise ValueError("payload truncated for data")
+    data = payload[off:off+data_len]
+    return {"req_id": req_id, "name": name, "data": data}
+
+def decode_command_response_payload(payload: bytes) -> Dict[str, Any]:
+    if len(payload) < 4 + 1 + 2 + 4:
+        raise ValueError("payload too short")
+    off = 0
+    req_id = struct.unpack(">I", payload[off:off+4])[0]; off += 4
+    status = payload[off]; off += 1
+    msg_len = struct.unpack(">H", payload[off:off+2])[0]; off += 2
+    if len(payload) < off + msg_len + 4:
+        raise ValueError("payload truncated")
+    message = payload[off:off+msg_len].decode("utf-8"); off += msg_len
+    data_len = struct.unpack(">I", payload[off:off+4])[0]; off += 4
+    if len(payload) < off + data_len:
+        raise ValueError("payload truncated (data)")
+    data = payload[off:off+data_len]
+    return {"req_id": req_id, "status": status, "message": message, "data": data}
