@@ -17,6 +17,8 @@ const TYPE = {
   RSET: "RSET",
   FEA3: "FEA3",
   PCLD: "PCLD",
+  CMD: "CMD ",
+  CRES: "CRES",
 };
 
 const HEADER_BYTES = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
@@ -329,6 +331,37 @@ function buildPcldPayload(points = [], pointSize = null) {
   return fromU8(buf);
 }
 
+function buildCommandPayload({ reqId = 0, name = "", data = new Uint8Array() } = {}) {
+  const dataU8 = toU8(data);
+  const nameBytes = (textEncoder || new TextEncoder()).encode(name || "");
+  const nameLen = Math.min(255, nameBytes.length);
+  const buf = new Uint8Array(4 + 1 + nameLen + 4 + dataU8.length);
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  let off = 0;
+  dv.setUint32(off, reqId >>> 0, false); off += 4;
+  dv.setUint8(off, nameLen); off += 1;
+  buf.set(nameBytes.subarray(0, nameLen), off); off += nameLen;
+  dv.setUint32(off, dataU8.length >>> 0, false); off += 4;
+  buf.set(dataU8, off);
+  return fromU8(buf);
+}
+
+function buildCommandResponsePayload({ reqId = 0, status = 0, message = "", data = new Uint8Array() } = {}) {
+  const msgBytes = (textEncoder || new TextEncoder()).encode(message || "");
+  const msgLen = Math.min(65535, msgBytes.length);
+  const dataU8 = toU8(data);
+  const buf = new Uint8Array(4 + 1 + 2 + msgLen + 4 + dataU8.length);
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  let off = 0;
+  dv.setUint32(off, reqId >>> 0, false); off += 4;
+  dv.setUint8(off, status & 0xff); off += 1;
+  dv.setUint16(off, msgLen, false); off += 2;
+  buf.set(msgBytes.subarray(0, msgLen), off); off += msgLen;
+  dv.setUint32(off, dataU8.length >>> 0, false); off += 4;
+  buf.set(dataU8, off);
+  return fromU8(buf);
+}
+
 // ---------------------------------------------------------------------------
 // Payload decoders
 // ---------------------------------------------------------------------------
@@ -480,6 +513,35 @@ function decodePcldPayload(payload) {
   return { points, pointSize };
 }
 
+function decodeCommandPayload(payload) {
+  const u8 = toU8(payload);
+  if (u8.length < 4 + 1 + 4) throw new Error("CMD payload too short");
+  let off = 0;
+  const reqId = readU32BE(u8, off); off += 4;
+  const nameLen = readU8(u8, off); off += 1;
+  if (u8.length < off + nameLen + 4) throw new Error("CMD payload truncated");
+  const name = (textDecoder || new TextDecoder()).decode(u8.subarray(off, off + nameLen)); off += nameLen;
+  const dataLen = readU32BE(u8, off); off += 4;
+  if (u8.length < off + dataLen) throw new Error("CMD payload data truncated");
+  const data = fromU8(u8.subarray(off, off + dataLen));
+  return { reqId, name, data };
+}
+
+function decodeCommandResponsePayload(payload) {
+  const u8 = toU8(payload);
+  if (u8.length < 4 + 1 + 2 + 4) throw new Error("CRES payload too short");
+  let off = 0;
+  const reqId = readU32BE(u8, off); off += 4;
+  const status = readU8(u8, off); off += 1;
+  const msgLen = readU16BE(u8, off); off += 2;
+  if (u8.length < off + msgLen + 4) throw new Error("CRES payload truncated");
+  const message = (textDecoder || new TextDecoder()).decode(u8.subarray(off, off + msgLen)); off += msgLen;
+  const dataLen = readU32BE(u8, off); off += 4;
+  if (u8.length < off + dataLen) throw new Error("CRES data truncated");
+  const data = fromU8(u8.subarray(off, off + dataLen));
+  return { reqId, status, message, data };
+}
+
 const api = {
   TYPE,
   HEADER_MAGIC,
@@ -495,6 +557,8 @@ const api = {
   buildStatusPayload,
   buildFea3Payload,
   buildPcldPayload,
+  buildCommandPayload,
+  buildCommandResponsePayload,
   decodeJpgPayload,
   decodePosePayload,
   decodeConstraintsPayload,
@@ -503,6 +567,8 @@ const api = {
   decodeStatusPayload,
   decodeFea3Payload,
   decodePcldPayload,
+  decodeCommandPayload,
+  decodeCommandResponsePayload,
 };
 
 if (typeof module !== "undefined" && module.exports) {

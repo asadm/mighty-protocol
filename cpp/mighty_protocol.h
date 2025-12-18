@@ -22,6 +22,8 @@ inline constexpr char TYPE_STAT[4] = {'S','T','A','T'};
 inline constexpr char TYPE_RSET[4] = {'R','S','E','T'};
 inline constexpr char TYPE_FEA3[4] = {'F','E','A','3'};
 inline constexpr char TYPE_PCLD[4] = {'P','C','L','D'};
+inline constexpr char TYPE_CMD[4]  = {'C','M','D',' '};
+inline constexpr char TYPE_CRES[4] = {'C','R','E','S'};
 
 inline constexpr uint8_t HEADER_MAGIC[4] = {0xDE, 0xAD, 0xBE, 0xEF};
 inline constexpr uint8_t FOOTER_MAGIC[4] = {0xFE, 0xED, 0xFA, 0xCE};
@@ -211,6 +213,19 @@ struct VizPayload {
   std::vector<VizFeature> features;
   std::vector<VizDetection> detections;
   std::vector<VizMatch> matches;
+};
+
+struct CommandRequest {
+  uint32_t req_id = 0;
+  std::string name;
+  std::vector<uint8_t> data;
+};
+
+struct CommandResponse {
+  uint32_t req_id = 0;
+  uint8_t status = 0; // 0=ok, 1=error
+  std::string message;
+  std::vector<uint8_t> data;
 };
 
 // --------------------------------------------------------------------------
@@ -408,6 +423,49 @@ inline std::vector<uint8_t> build_pcld_payload(const std::vector<Point3DColor>& 
     payload[offset++] = p.r;
     payload[offset++] = p.g;
     payload[offset++] = p.b;
+  }
+  return payload;
+}
+
+inline std::vector<uint8_t> build_command_payload(uint32_t req_id,
+                                                  const std::string& name,
+                                                  const uint8_t* data,
+                                                  size_t len) {
+  const uint8_t name_len = static_cast<uint8_t>(std::min<size_t>(255, name.size()));
+  std::vector<uint8_t> payload;
+  payload.reserve(4 + 1 + name_len + 4 + len);
+  uint8_t buf[8];
+  write_u32_be(buf, req_id); payload.insert(payload.end(), buf, buf + 4);
+  payload.push_back(name_len);
+  payload.insert(payload.end(), name.data(), name.data() + name_len);
+  write_u32_be(buf, static_cast<uint32_t>(len)); payload.insert(payload.end(), buf, buf + 4);
+  if (len > 0 && data) {
+    payload.insert(payload.end(), data, data + len);
+  }
+  return payload;
+}
+
+inline std::vector<uint8_t> build_command_payload(uint32_t req_id,
+                                                  const std::string& name,
+                                                  const std::vector<uint8_t>& data) {
+  const uint8_t* ptr = data.empty() ? nullptr : data.data();
+  return build_command_payload(req_id, name, ptr, data.size());
+}
+
+inline std::vector<uint8_t> build_command_response_payload(const CommandResponse& res) {
+  const uint16_t msg_len = static_cast<uint16_t>(std::min<size_t>(65535, res.message.size()));
+  const uint32_t data_len = static_cast<uint32_t>(res.data.size());
+  std::vector<uint8_t> payload;
+  payload.reserve(4 + 1 + 2 + msg_len + 4 + data_len);
+  uint8_t buf[8];
+  write_u32_be(buf, res.req_id); payload.insert(payload.end(), buf, buf + 4);
+  payload.push_back(res.status);
+  payload.push_back(static_cast<uint8_t>((msg_len >> 8) & 0xFF));
+  payload.push_back(static_cast<uint8_t>(msg_len & 0xFF));
+  payload.insert(payload.end(), res.message.data(), res.message.data() + msg_len);
+  write_u32_be(buf, data_len); payload.insert(payload.end(), buf, buf + 4);
+  if (data_len > 0) {
+    payload.insert(payload.end(), res.data.begin(), res.data.end());
   }
   return payload;
 }
@@ -638,6 +696,56 @@ inline bool decode_pcld_payload(const std::vector<uint8_t>& payload,
     p.r = payload[off++]; p.g = payload[off++]; p.b = payload[off++];
     out.push_back(p);
   }
+  return true;
+}
+
+inline bool decode_command_payload(const std::vector<uint8_t>& payload,
+                                   CommandRequest& out) {
+  const size_t min_size = 4 + 1 + 4;
+  if (payload.size() < min_size) return false;
+  size_t off = 0;
+  out.req_id = (static_cast<uint32_t>(payload[off]) << 24) |
+               (static_cast<uint32_t>(payload[off + 1]) << 16) |
+               (static_cast<uint32_t>(payload[off + 2]) << 8) |
+               (static_cast<uint32_t>(payload[off + 3]));
+  off += 4;
+  const uint8_t name_len = payload[off++];
+  if (payload.size() < off + name_len + 4) return false;
+  out.name.assign(reinterpret_cast<const char*>(payload.data() + off), name_len);
+  off += name_len;
+  const uint32_t data_len = (static_cast<uint32_t>(payload[off]) << 24) |
+                            (static_cast<uint32_t>(payload[off + 1]) << 16) |
+                            (static_cast<uint32_t>(payload[off + 2]) << 8) |
+                            (static_cast<uint32_t>(payload[off + 3]));
+  off += 4;
+  if (payload.size() < off + data_len) return false;
+  out.data.assign(payload.begin() + off, payload.begin() + off + data_len);
+  return true;
+}
+
+inline bool decode_command_response_payload(const std::vector<uint8_t>& payload,
+                                            CommandResponse& out) {
+  const size_t min_size = 4 + 1 + 2 + 4;
+  if (payload.size() < min_size) return false;
+  size_t off = 0;
+  out.req_id = (static_cast<uint32_t>(payload[off]) << 24) |
+               (static_cast<uint32_t>(payload[off + 1]) << 16) |
+               (static_cast<uint32_t>(payload[off + 2]) << 8) |
+               (static_cast<uint32_t>(payload[off + 3]));
+  off += 4;
+  out.status = payload[off++];
+  const uint16_t msg_len = static_cast<uint16_t>((payload[off] << 8) | payload[off + 1]);
+  off += 2;
+  if (payload.size() < off + msg_len + 4) return false;
+  out.message.assign(reinterpret_cast<const char*>(payload.data() + off), msg_len);
+  off += msg_len;
+  const uint32_t data_len = (static_cast<uint32_t>(payload[off]) << 24) |
+                            (static_cast<uint32_t>(payload[off + 1]) << 16) |
+                            (static_cast<uint32_t>(payload[off + 2]) << 8) |
+                            (static_cast<uint32_t>(payload[off + 3]));
+  off += 4;
+  if (payload.size() < off + data_len) return false;
+  out.data.assign(payload.begin() + off, payload.begin() + off + data_len);
   return true;
 }
 
