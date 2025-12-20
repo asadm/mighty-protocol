@@ -23,6 +23,14 @@ const TYPE = {
 
 const HEADER_BYTES = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
 const FOOTER_BYTES = new Uint8Array([0xfe, 0xed, 0xfa, 0xce]);
+const MAX_PAYLOAD_BYTES = 16 * 1024 * 1024;
+const isDebugEnabled = () => {
+  try {
+    return typeof window !== "undefined" && window.localStorage?.getItem("mightyDebugProtocol") === "1";
+  } catch (_) {
+    return false;
+  }
+};
 
 const toU8 = (data = new Uint8Array()) => {
   if (data instanceof Uint8Array) return data;
@@ -111,8 +119,25 @@ function parseFrames(buffer) {
   const u8 = toU8(buffer);
   let offset = 0;
   const frames = [];
+  const debug = isDebugEnabled();
+  const findHeader = (start) => {
+    for (let i = start; i <= u8.length - 4; i += 1) {
+      if (
+        u8[i] === HEADER_BYTES[0] &&
+        u8[i + 1] === HEADER_BYTES[1] &&
+        u8[i + 2] === HEADER_BYTES[2] &&
+        u8[i + 3] === HEADER_BYTES[3]
+      ) {
+        return i;
+      }
+    }
+    return -1;
+  };
   while (u8.length - offset >= 20) {
-    if (!arraysEqual(u8.subarray(offset, offset + 4), HEADER_BYTES)) break;
+    if (!arraysEqual(u8.subarray(offset, offset + 4), HEADER_BYTES)) {
+      offset += 1;
+      continue;
+    }
     const type = String.fromCharCode(
       u8[offset + 4],
       u8[offset + 5],
@@ -120,13 +145,38 @@ function parseFrames(buffer) {
       u8[offset + 7],
     );
     const len = readU32BE(u8, offset + 8);
+    if (len > MAX_PAYLOAD_BYTES) {
+      if (debug) {
+        // eslint-disable-next-line no-console
+        console.warn("mighty-protocol: oversized payload", len);
+      }
+      offset += 1;
+      continue;
+    }
     const pktSize = 20 + len;
-    if (u8.length - offset < pktSize) break; // need more
+    if (u8.length - offset < pktSize) {
+      if (debug) {
+        // eslint-disable-next-line no-console
+        console.warn("mighty-protocol: incomplete frame, waiting", len);
+      }
+      break; // need more data
+    }
     const payloadView = u8.subarray(offset + 12, offset + 12 + len);
     const recvCrc = readU32BE(u8, offset + 12 + len);
     const footer = u8.subarray(offset + 16 + len, offset + pktSize);
     if (!arraysEqual(footer, FOOTER_BYTES) || (len && crc32(payloadView) !== recvCrc)) {
-      offset += pktSize;
+      if (debug) {
+        const footerOk = arraysEqual(footer, FOOTER_BYTES);
+        const crcOk = len ? crc32(payloadView) === recvCrc : true;
+        // eslint-disable-next-line no-console
+        console.warn("mighty-protocol: corrupt frame", { footerOk, crcOk, len });
+      }
+      const next = findHeader(offset + 1);
+      if (next >= 0) {
+        offset = next;
+      } else {
+        offset += 1;
+      }
       continue;
     }
     frames.push({ type, payload: fromU8(payloadView) });
