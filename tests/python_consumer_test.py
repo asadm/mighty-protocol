@@ -14,6 +14,12 @@ SAMPLE = {
     "jpg_data": b"\x01\x02\x03",
     "rjpg_ts": 222,
     "rjpg_data": b"\xaa\xbb",
+    "raw_ts": 333,
+    "raw_channel": "cam0",
+    "raw_width": 4,
+    "raw_height": 2,
+    "raw_format": mp.RAW_FORMAT["GRAY8"],
+    "raw_data": b"\x10\x11\x12\x13\x14\x15\x16\x17",
     "pose": {"pose_type": 0, "pose_flags": 0x3, "position": (1.1, 2.2, 3.3), "quat": (0.1, 0.2, 0.3, 0.9)},
     "upose": {"pose_type": 0, "pose_flags": 0x1, "position": (4.4, 5.5, 6.6), "quat": (0.4, 0.5, 0.6, 0.7)},
     "constraints": [
@@ -49,6 +55,7 @@ def build_packets():
     pkts.append(mp.make_packet(mp.TYPE["RSET"]))
     pkts.append(mp.make_packet(mp.TYPE["JPG"], struct_jpg(False)))
     pkts.append(mp.make_packet(mp.TYPE["RJPG"], struct_jpg(True)))
+    pkts.append(mp.make_packet(mp.TYPE["RAW"], struct_raw()))
     pkts.append(mp.make_packet(mp.TYPE["POSE"], struct_pose(SAMPLE["pose"])))
     pkts.append(mp.make_packet(mp.TYPE["UPOSE"], struct_pose(SAMPLE["upose"])))
     pkts.append(mp.make_packet(mp.TYPE["LCON"], struct_constraints()))
@@ -68,6 +75,14 @@ def struct_jpg(is_ref):
         return ts + SAMPLE["rjpg_data"]
     chan = SAMPLE["jpg_channel"].encode()
     return ts + bytes([len(chan)]) + chan + SAMPLE["jpg_data"]
+
+def struct_raw():
+    import struct
+    ts = struct.pack(">Q", SAMPLE["raw_ts"])
+    header = ts + struct.pack(">I", SAMPLE["raw_width"]) + struct.pack(">I", SAMPLE["raw_height"])
+    chan = SAMPLE["raw_channel"].encode()
+    header += bytes([SAMPLE["raw_format"], len(chan)]) + chan
+    return header + SAMPLE["raw_data"]
 
 def struct_pose(data):
     import struct
@@ -142,7 +157,7 @@ def main():
     stream = b"".join(build_packets())
     frames, rest = mp.parse_frames(stream)
     assert not rest
-    assert len(frames) == 13
+    assert len(frames) == 14
 
     idx = 0
     assert frames[idx]["type"] == "RSET"; idx += 1
@@ -150,6 +165,13 @@ def main():
     assert jpg["timestamp_ns"] == SAMPLE["jpg_ts"]
     rjpg = mp.decode_jpg_payload(frames[idx]["payload"], True); idx += 1
     assert rjpg["timestamp_ns"] == SAMPLE["rjpg_ts"]
+    raw = mp.decode_raw_payload(frames[idx]["payload"]); idx += 1
+    assert raw["timestamp_ns"] == SAMPLE["raw_ts"]
+    assert raw["width"] == SAMPLE["raw_width"]
+    assert raw["height"] == SAMPLE["raw_height"]
+    assert raw["format"] == SAMPLE["raw_format"]
+    assert raw["channel"] == SAMPLE["raw_channel"]
+    assert raw["data"] == SAMPLE["raw_data"]
     pose = mp.decode_pose_payload(frames[idx]["payload"]); idx += 1
     assert pose["pose_type"] == SAMPLE["pose"]["pose_type"]
     upose = mp.decode_pose_payload(frames[idx]["payload"]); idx += 1
@@ -175,13 +197,14 @@ def main():
     d = FrameDispatcher(lambda f: seen.append(f["type"]))
     chunked = stream[:20] + stream[20:]  # two chunks
     d.feed(chunked)
-    assert len(seen) == 13
+    assert len(seen) == 14
 
     # Decoded dispatcher sanity
     from decoded_dispatcher import DecodedDispatcher
     decoded_seen = []
     dd = DecodedDispatcher()
     dd.on_jpg = lambda ts, ch, data, is_ref: decoded_seen.append(("jpg", is_ref))
+    dd.on_raw = lambda ts, w, h, fmt, ch, data: decoded_seen.append(("raw", (w, h, fmt)))
     dd.on_pose = lambda pose, is_unopt: decoded_seen.append(("pose", is_unopt))
     dd.on_constraints = lambda segs: decoded_seen.append(("lcon", len(segs)))
     dd.on_features = lambda feats: decoded_seen.append(("fea3", len(feats)))
@@ -194,7 +217,7 @@ def main():
     assert len(decoded_seen) >= 8
 
     # Fuzz decode/dispatch
-    types = ["JPG", "RJPG", "POSE", "UPOSE", "LCON", "IMU", "STAT"]
+    types = ["JPG", "RJPG", "RAW", "POSE", "UPOSE", "LCON", "IMU", "STAT"]
     for _ in range(20):
       pkts = []
       for _ in range(5):
@@ -203,6 +226,8 @@ def main():
           payload = random_jpg(False)
         elif t == "RJPG":
           payload = random_jpg(True)
+        elif t == "RAW":
+          payload = mp.build_raw_payload(123, 4, 2, mp.RAW_FORMAT["GRAY8"], "raw", secrets.token_bytes(8))
         elif t in ("POSE", "UPOSE"):
           payload = struct_pose({"pose_type": 0, "pose_flags": 0x3, "position": (0.1,0.2,0.3), "quat": (0.1,0.2,0.3,0.9)})
         elif t == "LCON":

@@ -22,7 +22,7 @@ using namespace mighty_protocol;
 
 namespace {
 
-constexpr int kExpectedFrames = 13; // RSET + JPG + RJPG + POSE + UPOSE + LCON + 3xVIZ + IMU + STAT + FEA3 + PCLD
+constexpr int kExpectedFrames = 14; // RSET + JPG + RJPG + RAW + POSE + UPOSE + LCON + 3xVIZ + IMU + STAT + FEA3 + PCLD
 
 struct SampleData {
   uint64_t jpg_ts = 111;
@@ -31,6 +31,13 @@ struct SampleData {
 
   uint64_t rjpg_ts = 222;
   std::vector<uint8_t> rjpg_data = {0xAA, 0xBB};
+
+  uint64_t raw_ts = 333;
+  uint32_t raw_width = 4;
+  uint32_t raw_height = 2;
+  uint8_t raw_format = static_cast<uint8_t>(RawFormat::kGray8);
+  std::string raw_channel = "cam0";
+  std::vector<uint8_t> raw_data = {0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17};
 
   uint32_t pose_type = 0;
   double pose_xyz[3] = {1.1, 2.2, 3.3};
@@ -105,6 +112,12 @@ bool verify_frame(const Frame& f, int index, const SampleData& s) {
     if (!decode_jpg_payload(f.payload, true, ts, ch, data)) return false;
     return ts == s.rjpg_ts && data == s.rjpg_data;
   }
+  if (type_str == "RAW ") {
+    uint64_t ts; uint32_t w, h; uint8_t fmt; std::string ch; std::vector<uint8_t> data;
+    if (!decode_raw_payload(f.payload, ts, w, h, fmt, ch, data)) return false;
+    return ts == s.raw_ts && w == s.raw_width && h == s.raw_height &&
+           fmt == s.raw_format && ch == s.raw_channel && data == s.raw_data;
+  }
   if (type_str == "POSE") {
     uint32_t pt, pf; double x, y, z; std::optional<std::array<double,4>> q;
     if (!decode_pose_payload(f.payload, pt, pf, x, y, z, q)) return false;
@@ -161,6 +174,8 @@ std::vector<std::vector<uint8_t>> build_sample_packets(const SampleData& s) {
   packets.push_back(make_packet(nullptr, 0, TYPE_RSET));
   packets.push_back(make_packet(build_jpg_payload(s.jpg_ts, false, s.jpg_channel, s.jpg_data.data(), s.jpg_data.size()), TYPE_JPG));
   packets.push_back(make_packet(build_jpg_payload(s.rjpg_ts, true, "", s.rjpg_data.data(), s.rjpg_data.size()), TYPE_RJPG));
+  packets.push_back(make_packet(build_raw_payload(s.raw_ts, s.raw_channel, s.raw_width, s.raw_height,
+                                                 s.raw_format, s.raw_data.data(), s.raw_data.size()), TYPE_RAW));
   packets.push_back(make_packet(build_pose_payload(s.pose_type, true, true, s.pose_xyz[0], s.pose_xyz[1], s.pose_xyz[2], s.pose_quat), TYPE_POSE));
   packets.push_back(make_packet(build_pose_payload(s.upose_type, true, false, s.upose_xyz[0], s.upose_xyz[1], s.upose_xyz[2], s.upose_quat), TYPE_UPOSE));
   packets.push_back(make_packet(build_constraints_payload(s.constraints), TYPE_LCON));

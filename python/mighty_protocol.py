@@ -7,6 +7,7 @@ FOOTER_MAGIC = bytes([0xFE, 0xED, 0xFA, 0xCE])
 TYPE = {
     "JPG": b"JPG ",
     "RJPG": b"RJPG",
+    "RAW": b"RAW ",
     "POSE": b"POSE",
     "UPOSE": b"UPOS",
     "LCON": b"LCON",
@@ -18,6 +19,17 @@ TYPE = {
     "PCLD": b"PCLD",
     "CMD": b"CMD ",
     "CRES": b"CRES",
+}
+
+RAW_FORMAT = {
+    "UNKNOWN": 0,
+    "GRAY8": 1,
+    "RGB24": 2,
+    "BGR24": 3,
+    "RGBA32": 4,
+    "BGRA32": 5,
+    "YUV420SP": 6,
+    "YUV420P": 7,
 }
 
 def _crc32(data: bytes) -> int:
@@ -66,6 +78,19 @@ def parse_frames(buf: bytes) -> Tuple[List[Dict[str, Any]], bytes]:
         frames.append({"type": tcode.decode("ascii"), "payload": payload})
     return frames, buf[offset:]
 
+def build_raw_payload(timestamp_ns: int,
+                      width: int,
+                      height: int,
+                      fmt: int,
+                      channel: str,
+                      data: bytes) -> bytes:
+    chan_bytes = (channel or "").encode("utf-8")
+    chan_len = min(255, len(chan_bytes))
+    data = data or b""
+    header = struct.pack(">QII", int(timestamp_ns), int(width), int(height))
+    header += bytes([fmt & 0xFF, chan_len])
+    return header + chan_bytes[:chan_len] + data
+
 # Payload decoders
 def decode_jpg_payload(payload: bytes, is_ref: bool):
     if len(payload) < 8:
@@ -77,6 +102,20 @@ def decode_jpg_payload(payload: bytes, is_ref: bool):
     channel = payload[9:9+clen].decode("utf-8")
     data = payload[9+clen:]
     return {"timestamp_ns": ts, "channel": channel, "data": data}
+
+def decode_raw_payload(payload: bytes):
+    if len(payload) < 8 + 4 + 4 + 1 + 1:
+        raise ValueError("payload too short")
+    ts = struct.unpack(">Q", payload[0:8])[0]
+    width = struct.unpack(">I", payload[8:12])[0]
+    height = struct.unpack(">I", payload[12:16])[0]
+    fmt = payload[16]
+    clen = payload[17]
+    if len(payload) < 18 + clen:
+        raise ValueError("payload too short")
+    channel = payload[18:18+clen].decode("utf-8")
+    data = payload[18+clen:]
+    return {"timestamp_ns": ts, "width": width, "height": height, "format": fmt, "channel": channel, "data": data}
 
 def decode_pose_payload(payload: bytes):
     if len(payload) < 4+4+8*3:

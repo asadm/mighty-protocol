@@ -99,6 +99,8 @@ class DecodedDispatcher {
     std::optional<float> point_size;
   };
   using JpgHandler = std::function<void(uint64_t timestamp_ns, const std::string& channel, const std::vector<uint8_t>& data, bool is_ref)>;
+  using RawHandler = std::function<void(uint64_t timestamp_ns, uint32_t width, uint32_t height, uint8_t format,
+                                        const std::string& channel, const std::vector<uint8_t>& data)>;
   using PoseHandler = std::function<void(const Pose&, bool is_unoptimized)>;
   using ConstraintsHandler = std::function<void(const Constraints&)>;
   using FeaturesHandler = std::function<void(const std::vector<Feature3D>&)>;
@@ -111,6 +113,7 @@ class DecodedDispatcher {
   using CommandResponseHandler = std::function<void(const CommandResponse&)>;
 
   void on_jpg(JpgHandler h) { jpg_handler_ = std::move(h); }
+  void on_raw(RawHandler h) { raw_handler_ = std::move(h); }
   void on_pose(PoseHandler h) { pose_handler_ = std::move(h); }
   void on_constraints(ConstraintsHandler h) { constraints_handler_ = std::move(h); }
   void on_features(FeaturesHandler h) { fea_handler_ = std::move(h); }
@@ -144,6 +147,12 @@ class DecodedDispatcher {
       uint64_t ts; std::string ch; std::vector<uint8_t> data;
       if (decode_jpg_payload(f.payload, true, ts, ch, data)) {
         jpg_handler_(ts, ch, data, true);
+      }
+    } else if (type == "RAW ") {
+      if (!raw_handler_) return;
+      uint64_t ts; uint32_t w, h; uint8_t fmt; std::string ch; std::vector<uint8_t> data;
+      if (decode_raw_payload(f.payload, ts, w, h, fmt, ch, data)) {
+        raw_handler_(ts, w, h, fmt, ch, data);
       }
     } else if (type == "POSE" || type == "UPOS") {
       if (!pose_handler_) return;
@@ -201,6 +210,7 @@ class DecodedDispatcher {
 
   FrameConsumer consumer_;
   JpgHandler jpg_handler_;
+  RawHandler raw_handler_;
   PoseHandler pose_handler_;
   ConstraintsHandler constraints_handler_;
   FeaturesHandler fea_handler_;
