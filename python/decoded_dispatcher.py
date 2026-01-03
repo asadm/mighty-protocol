@@ -5,6 +5,7 @@ class DecodedDispatcher:
     Feed raw bytes; dispatches per type with decoded payloads.
     Handlers (all optional):
       on_jpg(timestamp_ns, channel, data, is_ref)
+      on_raw(timestamp_ns, width, height, format, channel, data)
       on_pose(pose_dict, is_unoptimized)
       on_constraints(segments_list)
       on_features(features_list)
@@ -16,6 +17,7 @@ class DecodedDispatcher:
     """
     def __init__(self):
         self.on_jpg = None
+        self.on_raw = None
         self.on_pose = None
         self.on_constraints = None
         self.on_features = None
@@ -31,7 +33,7 @@ class DecodedDispatcher:
         frames, rest = mp.parse_frames(self._buffer)
         self._buffer = rest
         for f in frames:
-            t = f["type"]
+            t = f["type"].strip()
             p = f["payload"]
             if t == "JPG":
                 if self.on_jpg:
@@ -39,6 +41,10 @@ class DecodedDispatcher:
             elif t == "RJPG":
                 if self.on_jpg:
                     d = mp.decode_jpg_payload(p, True); self.on_jpg(d["timestamp_ns"], d["channel"], d["data"], True)
+            elif t == "RAW":
+                if self.on_raw:
+                    d = mp.decode_raw_payload(p)
+                    self.on_raw(d["timestamp_ns"], d["width"], d["height"], d["format"], d["channel"], d["data"])
             elif t == "POSE":
                 if self.on_pose:
                     d = mp.decode_pose_payload(p); self.on_pose(d, False)

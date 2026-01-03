@@ -11,6 +11,12 @@ const SAMPLE = {
   jpgData: Buffer.from([0x01, 0x02, 0x03]),
   rjpgTs: 222n,
   rjpgData: Buffer.from([0xaa, 0xbb]),
+  rawTs: 333n,
+  rawChannel: 'cam0',
+  rawWidth: 4,
+  rawHeight: 2,
+  rawFormat: proto.RAW_FORMAT.GRAY8,
+  rawData: Buffer.from([0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17]),
   pose: { poseType: 0, poseFlags: 0x3, position: [1.1, 2.2, 3.3], quat: [0.1, 0.2, 0.3, 0.9] },
   upose: { poseType: 0, poseFlags: 0x1, position: [4.4, 5.5, 6.6], quat: [0.4, 0.5, 0.6, 0.7] },
   constraints: [
@@ -38,13 +44,21 @@ const SAMPLE = {
   },
 };
 
-const EXPECTED_COUNT = 13;
+const EXPECTED_COUNT = 14;
 
 function buildPackets() {
   return [
     proto.makePacket(proto.TYPE.RSET),
     proto.makePacket(proto.TYPE.JPG, proto.buildJpgPayload({ timestampNs: SAMPLE.jpgTs, channel: SAMPLE.jpgChannel, data: SAMPLE.jpgData, isRef: false })),
     proto.makePacket(proto.TYPE.RJPG, proto.buildJpgPayload({ timestampNs: SAMPLE.rjpgTs, data: SAMPLE.rjpgData, isRef: true })),
+    proto.makePacket(proto.TYPE.RAW, proto.buildRawPayload({
+      timestampNs: SAMPLE.rawTs,
+      width: SAMPLE.rawWidth,
+      height: SAMPLE.rawHeight,
+      format: SAMPLE.rawFormat,
+      channel: SAMPLE.rawChannel,
+      data: SAMPLE.rawData,
+    })),
     proto.makePacket(proto.TYPE.POSE, proto.buildPosePayload(SAMPLE.pose)),
     proto.makePacket(proto.TYPE.UPOSE, proto.buildPosePayload(SAMPLE.upose)),
     proto.makePacket(proto.TYPE.LCON, proto.buildConstraintsPayload(SAMPLE.constraints)),
@@ -80,6 +94,16 @@ function verifyFrame(frame, index) {
       const res = proto.decodeJpgPayload(payload, true);
       assert.strictEqual(res.timestampNs, SAMPLE.rjpgTs);
       assert.deepStrictEqual(res.data, SAMPLE.rjpgData);
+      break;
+    }
+    case proto.TYPE.RAW: {
+      const res = proto.decodeRawPayload(payload);
+      assert.strictEqual(res.timestampNs, SAMPLE.rawTs);
+      assert.strictEqual(res.width, SAMPLE.rawWidth);
+      assert.strictEqual(res.height, SAMPLE.rawHeight);
+      assert.strictEqual(res.format, SAMPLE.rawFormat);
+      assert.strictEqual(res.channel, SAMPLE.rawChannel);
+      assert.deepStrictEqual(res.data, SAMPLE.rawData);
       break;
     }
     case proto.TYPE.POSE: {
@@ -207,6 +231,7 @@ async function runFuzzTests() {
   const fuzzTypes = [
     proto.TYPE.JPG,
     proto.TYPE.RJPG,
+    proto.TYPE.RAW,
     proto.TYPE.POSE,
     proto.TYPE.UPOSE,
     proto.TYPE.LCON,
@@ -217,6 +242,20 @@ async function runFuzzTests() {
   function randomJpgPayload(isRef) {
     const data = crypto.randomBytes(16);
     return proto.buildJpgPayload({ timestampNs: BigInt(Math.floor(Math.random() * 1e6)), channel: 'ch', data, isRef });
+  }
+
+  function randomRawPayload() {
+    const width = 4;
+    const height = 2;
+    const data = crypto.randomBytes(width * height);
+    return proto.buildRawPayload({
+      timestampNs: BigInt(Math.floor(Math.random() * 1e6)),
+      width,
+      height,
+      format: proto.RAW_FORMAT.GRAY8,
+      channel: 'raw',
+      data,
+    });
   }
 
   function randomPosePayload() {
@@ -247,6 +286,7 @@ async function runFuzzTests() {
   const builders = {
     [proto.TYPE.JPG]: () => randomJpgPayload(false),
     [proto.TYPE.RJPG]: () => randomJpgPayload(true),
+    [proto.TYPE.RAW]: () => randomRawPayload(),
     [proto.TYPE.POSE]: () => randomPosePayload(),
     [proto.TYPE.UPOSE]: () => randomPosePayload(),
     [proto.TYPE.LCON]: () => randomConstraintsPayload(),
@@ -275,6 +315,7 @@ async function runFuzzTests() {
       switch (f.type) {
         case proto.TYPE.JPG: proto.decodeJpgPayload(f.payload, false); break;
         case proto.TYPE.RJPG: proto.decodeJpgPayload(f.payload, true); break;
+        case proto.TYPE.RAW: proto.decodeRawPayload(f.payload); break;
         case proto.TYPE.POSE:
         case proto.TYPE.UPOSE: proto.decodePosePayload(f.payload); break;
         case proto.TYPE.LCON: proto.decodeConstraintsPayload(f.payload); break;

@@ -8,6 +8,7 @@ const textDecoder = typeof TextDecoder !== "undefined" ? new TextDecoder() : nul
 const TYPE = {
   JPG: "JPG ",
   RJPG: "RJPG",
+  RAW: "RAW ",
   POSE: "POSE",
   UPOSE: "UPOS",
   LCON: "LCON",
@@ -19,6 +20,17 @@ const TYPE = {
   PCLD: "PCLD",
   CMD: "CMD ",
   CRES: "CRES",
+};
+
+const RAW_FORMAT = {
+  UNKNOWN: 0,
+  GRAY8: 1,
+  RGB24: 2,
+  BGR24: 3,
+  RGBA32: 4,
+  BGRA32: 5,
+  YUV420SP: 6,
+  YUV420P: 7,
 };
 
 const HEADER_BYTES = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
@@ -227,6 +239,30 @@ function buildJpgPayload({ timestampNs = 0n, channel = "preview", data = new Uin
   return fromU8(out);
 }
 
+function buildRawPayload({
+  timestampNs = 0n,
+  width = 0,
+  height = 0,
+  format = RAW_FORMAT.UNKNOWN,
+  channel = "preview",
+  data = new Uint8Array(),
+}) {
+  const dataU8 = toU8(data);
+  const chanBytes = (textEncoder || new TextEncoder()).encode(channel || "");
+  const chanLen = Math.min(255, chanBytes.length);
+  const out = new Uint8Array(8 + 4 + 4 + 1 + 1 + chanLen + dataU8.length);
+  const dv = new DataView(out.buffer, out.byteOffset, out.byteLength);
+  let off = 0;
+  dv.setBigUint64(off, BigInt(timestampNs), false); off += 8;
+  dv.setUint32(off, width >>> 0, false); off += 4;
+  dv.setUint32(off, height >>> 0, false); off += 4;
+  out[off] = format & 0xff; off += 1;
+  out[off] = chanLen; off += 1;
+  out.set(chanBytes.subarray(0, chanLen), off); off += chanLen;
+  out.set(dataU8, off);
+  return fromU8(out);
+}
+
 function buildPosePayload({ poseType = 0, poseFlags = 0, position = [0, 0, 0], quat = null }) {
   const hasQuat = Array.isArray(quat) && quat.length === 4;
   let flags = poseFlags;
@@ -428,6 +464,21 @@ function decodeJpgPayload(payload, isRef = false) {
   return { timestampNs: ts, channel, data: fromU8(u8.subarray(off)) };
 }
 
+function decodeRawPayload(payload) {
+  const u8 = toU8(payload);
+  if (u8.length < 8 + 4 + 4 + 1 + 1) throw new Error("RAW payload too short");
+  let off = 0;
+  const timestampNs = readBigU64BE(u8, off); off += 8;
+  const width = readU32BE(u8, off); off += 4;
+  const height = readU32BE(u8, off); off += 4;
+  const format = readU8(u8, off); off += 1;
+  const clen = readU8(u8, off); off += 1;
+  if (u8.length < off + clen) throw new Error("RAW payload truncated");
+  const channel = (textDecoder || new TextDecoder()).decode(u8.subarray(off, off + clen)); off += clen;
+  const data = fromU8(u8.subarray(off));
+  return { timestampNs, width, height, format, channel, data };
+}
+
 function decodePosePayload(payload) {
   const u8 = toU8(payload);
   let off = 0;
@@ -594,12 +645,14 @@ function decodeCommandResponsePayload(payload) {
 
 const api = {
   TYPE,
+  RAW_FORMAT,
   HEADER_MAGIC,
   FOOTER_MAGIC,
   makePacket,
   parseFrames,
   FrameDispatcher,
   buildJpgPayload,
+  buildRawPayload,
   buildPosePayload,
   buildConstraintsPayload,
   buildVizPayload,
@@ -610,6 +663,7 @@ const api = {
   buildCommandPayload,
   buildCommandResponsePayload,
   decodeJpgPayload,
+  decodeRawPayload,
   decodePosePayload,
   decodeConstraintsPayload,
   decodeVizPayload,

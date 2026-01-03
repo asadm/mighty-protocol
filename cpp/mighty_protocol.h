@@ -13,6 +13,7 @@ namespace mighty_protocol {
 // Type codes
 inline constexpr char TYPE_JPG[4]  = {'J','P','G',' '};
 inline constexpr char TYPE_RJPG[4] = {'R','J','P','G'};
+inline constexpr char TYPE_RAW[4]  = {'R','A','W',' '};
 inline constexpr char TYPE_POSE[4] = {'P','O','S','E'};
 inline constexpr char TYPE_UPOSE[4]= {'U','P','O','S'};
 inline constexpr char TYPE_LCON[4] = {'L','C','O','N'};
@@ -24,6 +25,18 @@ inline constexpr char TYPE_FEA3[4] = {'F','E','A','3'};
 inline constexpr char TYPE_PCLD[4] = {'P','C','L','D'};
 inline constexpr char TYPE_CMD[4]  = {'C','M','D',' '};
 inline constexpr char TYPE_CRES[4] = {'C','R','E','S'};
+
+// Raw frame formats (payload data is tightly packed)
+enum class RawFormat : uint8_t {
+  kUnknown = 0,
+  kGray8 = 1,
+  kRGB24 = 2,
+  kBGR24 = 3,
+  kRGBA32 = 4,
+  kBGRA32 = 5,
+  kYUV420SP = 6,
+  kYUV420P = 7,
+};
 
 inline constexpr uint8_t HEADER_MAGIC[4] = {0xDE, 0xAD, 0xBE, 0xEF};
 inline constexpr uint8_t FOOTER_MAGIC[4] = {0xFE, 0xED, 0xFA, 0xCE};
@@ -261,6 +274,32 @@ inline std::vector<uint8_t> build_jpg_payload(uint64_t timestamp_ns,
   return payload;
 }
 
+inline std::vector<uint8_t> build_raw_payload(uint64_t timestamp_ns,
+                                              const std::string& channel,
+                                              uint32_t width,
+                                              uint32_t height,
+                                              uint8_t format,
+                                              const uint8_t* data,
+                                              size_t len) {
+  const uint8_t channel_len = static_cast<uint8_t>(std::min<size_t>(255, channel.size()));
+  std::vector<uint8_t> payload;
+  payload.resize(8 + 4 + 4 + 1 + 1 + channel_len + len);
+  size_t offset = 0;
+  write_u64_be(payload.data() + offset, timestamp_ns); offset += 8;
+  write_u32_be(payload.data() + offset, width); offset += 4;
+  write_u32_be(payload.data() + offset, height); offset += 4;
+  payload[offset++] = format;
+  payload[offset++] = channel_len;
+  if (channel_len > 0) {
+    std::memcpy(payload.data() + offset, channel.data(), channel_len);
+    offset += channel_len;
+  }
+  if (len > 0 && data) {
+    std::memcpy(payload.data() + offset, data, len);
+  }
+  return payload;
+}
+
 inline std::vector<uint8_t> build_pose_payload(uint32_t pose_type,
                                                bool has_quat,
                                                bool is_keyframe,
@@ -490,6 +529,38 @@ inline bool decode_jpg_payload(const std::vector<uint8_t>& payload,
     return true;
   }
   if (payload.size() < offset + 1) return false;
+  uint8_t clen = payload[offset]; offset += 1;
+  if (payload.size() < offset + clen) return false;
+  channel.assign(reinterpret_cast<const char*>(payload.data() + offset), clen);
+  offset += clen;
+  data.assign(payload.begin() + offset, payload.end());
+  return true;
+}
+
+inline bool decode_raw_payload(const std::vector<uint8_t>& payload,
+                               uint64_t& timestamp_ns,
+                               uint32_t& width,
+                               uint32_t& height,
+                               uint8_t& format,
+                               std::string& channel,
+                               std::vector<uint8_t>& data) {
+  if (payload.size() < 8 + 4 + 4 + 1 + 1) return false;
+  timestamp_ns = 0;
+  for (int i = 0; i < 8; ++i) {
+    timestamp_ns = (timestamp_ns << 8) | payload[i];
+  }
+  size_t offset = 8;
+  width = (static_cast<uint32_t>(payload[offset]) << 24) |
+          (static_cast<uint32_t>(payload[offset + 1]) << 16) |
+          (static_cast<uint32_t>(payload[offset + 2]) << 8) |
+          (static_cast<uint32_t>(payload[offset + 3]));
+  offset += 4;
+  height = (static_cast<uint32_t>(payload[offset]) << 24) |
+           (static_cast<uint32_t>(payload[offset + 1]) << 16) |
+           (static_cast<uint32_t>(payload[offset + 2]) << 8) |
+           (static_cast<uint32_t>(payload[offset + 3]));
+  offset += 4;
+  format = payload[offset]; offset += 1;
   uint8_t clen = payload[offset]; offset += 1;
   if (payload.size() < offset + clen) return false;
   channel.assign(reinterpret_cast<const char*>(payload.data() + offset), clen);
