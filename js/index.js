@@ -38,7 +38,9 @@ const FOOTER_BYTES = new Uint8Array([0xfe, 0xed, 0xfa, 0xce]);
 const MAX_PAYLOAD_BYTES = 16 * 1024 * 1024;
 const isDebugEnabled = () => {
   try {
-    return typeof window !== "undefined" && window.localStorage?.getItem("mightyDebugProtocol") === "1";
+    const root = typeof globalThis !== "undefined" ? globalThis : undefined;
+    if (!root || !("localStorage" in root)) return false;
+    return root.localStorage?.getItem("mightyDebugProtocol") === "1";
   } catch (_) {
     return false;
   }
@@ -679,6 +681,6 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = api;
   module.exports.default = api;
 }
-if (typeof window !== "undefined") {
-  window.MightyProtocol = api;
+if (typeof globalThis !== "undefined" && globalThis.window === globalThis) {
+  globalThis.MightyProtocol = api;
 }
