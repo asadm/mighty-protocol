@@ -148,15 +148,19 @@ inline bool parse_frame(const std::vector<uint8_t>& buffer,
     consumed = pkt_size;
     return false;
   }
+  const bool is_raw = buffer[4] == 'R' && buffer[5] == 'A' && buffer[6] == 'W' && buffer[7] == ' ';
   const uint32_t recv_crc = (static_cast<uint32_t>(buffer[crc_start]) << 24) |
                             (static_cast<uint32_t>(buffer[crc_start + 1]) << 16) |
                             (static_cast<uint32_t>(buffer[crc_start + 2]) << 8) |
                             (static_cast<uint32_t>(buffer[crc_start + 3]));
   if (len > 0) {
-    const uint32_t calc_crc = crc32_be(buffer.data() + payload_start, len);
-    if (calc_crc != recv_crc) {
-      consumed = pkt_size;
-      return false;
+    const bool skip_crc = is_raw && recv_crc == 0;
+    if (!skip_crc) {
+      const uint32_t calc_crc = crc32_be(buffer.data() + payload_start, len);
+      if (calc_crc != recv_crc) {
+        consumed = pkt_size;
+        return false;
+      }
     }
   }
 
