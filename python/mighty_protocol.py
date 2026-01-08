@@ -73,7 +73,8 @@ def parse_frames(buf: bytes) -> Tuple[List[Dict[str, Any]], bytes]:
         offset += pkt_size
         if footer != FOOTER_MAGIC:
             continue
-        if length and _crc32(payload) != recv_crc:
+        skip_crc = tcode == b"RAW " and recv_crc == 0
+        if length and not skip_crc and _crc32(payload) != recv_crc:
             continue
         frames.append({"type": tcode.decode("ascii"), "payload": payload})
     return frames, buf[offset:]

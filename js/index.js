@@ -178,12 +178,13 @@ function parseFrames(buffer) {
     const payloadView = u8.subarray(offset + 12, offset + 12 + len);
     const recvCrc = readU32BE(u8, offset + 12 + len);
     const footer = u8.subarray(offset + 16 + len, offset + pktSize);
-    if (!arraysEqual(footer, FOOTER_BYTES) || (len && crc32(payloadView) !== recvCrc)) {
+    const footerOk = arraysEqual(footer, FOOTER_BYTES);
+    const skipCrc = type === "RAW " && recvCrc === 0;
+    const crcOk = len && !skipCrc ? crc32(payloadView) === recvCrc : true;
+    if (!footerOk || !crcOk) {
       if (debug) {
-        const footerOk = arraysEqual(footer, FOOTER_BYTES);
-        const crcOk = len ? crc32(payloadView) === recvCrc : true;
         // eslint-disable-next-line no-console
-        console.warn("mighty-protocol: corrupt frame", { footerOk, crcOk, len });
+        console.warn("mighty-protocol: corrupt frame", { footerOk, crcOk, len, skipCrc });
       }
       const next = findHeader(offset + 1);
       if (next >= 0) {
