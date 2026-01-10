@@ -14,6 +14,7 @@ namespace mighty_protocol {
 inline constexpr char TYPE_JPG[4]  = {'J','P','G',' '};
 inline constexpr char TYPE_RJPG[4] = {'R','J','P','G'};
 inline constexpr char TYPE_RAW[4]  = {'R','A','W',' '};
+inline constexpr char TYPE_SRAW[4] = {'S','R','A','W'};
 inline constexpr char TYPE_POSE[4] = {'P','O','S','E'};
 inline constexpr char TYPE_UPOSE[4]= {'U','P','O','S'};
 inline constexpr char TYPE_LCON[4] = {'L','C','O','N'};
@@ -148,7 +149,8 @@ inline bool parse_frame(const std::vector<uint8_t>& buffer,
     consumed = pkt_size;
     return false;
   }
-  const bool is_raw = buffer[4] == 'R' && buffer[5] == 'A' && buffer[6] == 'W' && buffer[7] == ' ';
+  const bool is_raw = (buffer[4] == 'R' && buffer[5] == 'A' && buffer[6] == 'W' && buffer[7] == ' ') ||
+                      (buffer[4] == 'S' && buffer[5] == 'R' && buffer[6] == 'A' && buffer[7] == 'W');
   const uint32_t recv_crc = (static_cast<uint32_t>(buffer[crc_start]) << 24) |
                             (static_cast<uint32_t>(buffer[crc_start + 1]) << 16) |
                             (static_cast<uint32_t>(buffer[crc_start + 2]) << 8) |
@@ -300,6 +302,65 @@ inline std::vector<uint8_t> build_raw_payload(uint64_t timestamp_ns,
   }
   if (len > 0 && data) {
     std::memcpy(payload.data() + offset, data, len);
+  }
+  return payload;
+}
+
+inline std::vector<uint8_t> build_stereo_raw_payload(uint64_t left_timestamp_ns,
+                                                     uint64_t right_timestamp_ns,
+                                                     const std::string& left_channel,
+                                                     uint32_t left_width,
+                                                     uint32_t left_height,
+                                                     uint8_t left_format,
+                                                     const uint8_t* left_data,
+                                                     size_t left_len,
+                                                     const std::string& right_channel,
+                                                     uint32_t right_width,
+                                                     uint32_t right_height,
+                                                     uint8_t right_format,
+                                                     const uint8_t* right_data,
+                                                     size_t right_len) {
+  const uint8_t left_channel_len = static_cast<uint8_t>(std::min<size_t>(255, left_channel.size()));
+  const uint8_t right_channel_len = static_cast<uint8_t>(std::min<size_t>(255, right_channel.size()));
+  const uint32_t left_len_u32 = static_cast<uint32_t>(left_len);
+  const uint32_t right_len_u32 = static_cast<uint32_t>(right_len);
+
+  std::vector<uint8_t> payload;
+  payload.resize(8 + 8 +
+                 4 + 4 + 1 + 1 + left_channel_len +
+                 4 + 4 + 1 + 1 + right_channel_len +
+                 4 + 4 +
+                 left_len_u32 + right_len_u32);
+  size_t offset = 0;
+  write_u64_be(payload.data() + offset, left_timestamp_ns); offset += 8;
+  write_u64_be(payload.data() + offset, right_timestamp_ns); offset += 8;
+
+  write_u32_be(payload.data() + offset, left_width); offset += 4;
+  write_u32_be(payload.data() + offset, left_height); offset += 4;
+  payload[offset++] = left_format;
+  payload[offset++] = left_channel_len;
+  if (left_channel_len > 0) {
+    std::memcpy(payload.data() + offset, left_channel.data(), left_channel_len);
+    offset += left_channel_len;
+  }
+
+  write_u32_be(payload.data() + offset, right_width); offset += 4;
+  write_u32_be(payload.data() + offset, right_height); offset += 4;
+  payload[offset++] = right_format;
+  payload[offset++] = right_channel_len;
+  if (right_channel_len > 0) {
+    std::memcpy(payload.data() + offset, right_channel.data(), right_channel_len);
+    offset += right_channel_len;
+  }
+
+  write_u32_be(payload.data() + offset, left_len_u32); offset += 4;
+  write_u32_be(payload.data() + offset, right_len_u32); offset += 4;
+  if (left_len_u32 > 0 && left_data) {
+    std::memcpy(payload.data() + offset, left_data, left_len_u32);
+    offset += left_len_u32;
+  }
+  if (right_len_u32 > 0 && right_data) {
+    std::memcpy(payload.data() + offset, right_data, right_len_u32);
   }
   return payload;
 }
@@ -570,6 +631,83 @@ inline bool decode_raw_payload(const std::vector<uint8_t>& payload,
   channel.assign(reinterpret_cast<const char*>(payload.data() + offset), clen);
   offset += clen;
   data.assign(payload.begin() + offset, payload.end());
+  return true;
+}
+
+inline bool decode_stereo_raw_payload(const std::vector<uint8_t>& payload,
+                                      uint64_t& left_timestamp_ns,
+                                      uint64_t& right_timestamp_ns,
+                                      uint32_t& left_width,
+                                      uint32_t& left_height,
+                                      uint8_t& left_format,
+                                      std::string& left_channel,
+                                      std::vector<uint8_t>& left_data,
+                                      uint32_t& right_width,
+                                      uint32_t& right_height,
+                                      uint8_t& right_format,
+                                      std::string& right_channel,
+                                      std::vector<uint8_t>& right_data) {
+  if (payload.size() < 8 + 8 + 4 + 4 + 1 + 1 + 4 + 4 + 1 + 1 + 4 + 4) return false;
+  size_t offset = 0;
+  left_timestamp_ns = 0;
+  for (int i = 0; i < 8; ++i) {
+    left_timestamp_ns = (left_timestamp_ns << 8) | payload[offset + i];
+  }
+  offset += 8;
+  right_timestamp_ns = 0;
+  for (int i = 0; i < 8; ++i) {
+    right_timestamp_ns = (right_timestamp_ns << 8) | payload[offset + i];
+  }
+  offset += 8;
+
+  left_width = (static_cast<uint32_t>(payload[offset]) << 24) |
+               (static_cast<uint32_t>(payload[offset + 1]) << 16) |
+               (static_cast<uint32_t>(payload[offset + 2]) << 8) |
+               (static_cast<uint32_t>(payload[offset + 3]));
+  offset += 4;
+  left_height = (static_cast<uint32_t>(payload[offset]) << 24) |
+                (static_cast<uint32_t>(payload[offset + 1]) << 16) |
+                (static_cast<uint32_t>(payload[offset + 2]) << 8) |
+                (static_cast<uint32_t>(payload[offset + 3]));
+  offset += 4;
+  left_format = payload[offset++];
+  uint8_t left_clen = payload[offset++];
+  if (payload.size() < offset + left_clen) return false;
+  left_channel.assign(reinterpret_cast<const char*>(payload.data() + offset), left_clen);
+  offset += left_clen;
+
+  if (payload.size() < offset + 4 + 4 + 1 + 1) return false;
+  right_width = (static_cast<uint32_t>(payload[offset]) << 24) |
+                (static_cast<uint32_t>(payload[offset + 1]) << 16) |
+                (static_cast<uint32_t>(payload[offset + 2]) << 8) |
+                (static_cast<uint32_t>(payload[offset + 3]));
+  offset += 4;
+  right_height = (static_cast<uint32_t>(payload[offset]) << 24) |
+                 (static_cast<uint32_t>(payload[offset + 1]) << 16) |
+                 (static_cast<uint32_t>(payload[offset + 2]) << 8) |
+                 (static_cast<uint32_t>(payload[offset + 3]));
+  offset += 4;
+  right_format = payload[offset++];
+  uint8_t right_clen = payload[offset++];
+  if (payload.size() < offset + right_clen) return false;
+  right_channel.assign(reinterpret_cast<const char*>(payload.data() + offset), right_clen);
+  offset += right_clen;
+
+  if (payload.size() < offset + 8) return false;
+  uint32_t left_len = (static_cast<uint32_t>(payload[offset]) << 24) |
+                      (static_cast<uint32_t>(payload[offset + 1]) << 16) |
+                      (static_cast<uint32_t>(payload[offset + 2]) << 8) |
+                      (static_cast<uint32_t>(payload[offset + 3]));
+  offset += 4;
+  uint32_t right_len = (static_cast<uint32_t>(payload[offset]) << 24) |
+                       (static_cast<uint32_t>(payload[offset + 1]) << 16) |
+                       (static_cast<uint32_t>(payload[offset + 2]) << 8) |
+                       (static_cast<uint32_t>(payload[offset + 3]));
+  offset += 4;
+  if (payload.size() < offset + left_len + right_len) return false;
+  left_data.assign(payload.begin() + offset, payload.begin() + offset + left_len);
+  offset += left_len;
+  right_data.assign(payload.begin() + offset, payload.begin() + offset + right_len);
   return true;
 }
 

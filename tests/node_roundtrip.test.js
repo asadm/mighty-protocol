@@ -17,6 +17,18 @@ const SAMPLE = {
   rawHeight: 2,
   rawFormat: proto.RAW_FORMAT.GRAY8,
   rawData: Buffer.from([0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17]),
+  srawLeftTs: 444n,
+  srawRightTs: 445n,
+  srawLeftChannel: 'cam0',
+  srawRightChannel: 'cam1',
+  srawLeftWidth: 2,
+  srawLeftHeight: 1,
+  srawLeftFormat: proto.RAW_FORMAT.GRAY8,
+  srawLeftData: Buffer.from([0x21, 0x22]),
+  srawRightWidth: 2,
+  srawRightHeight: 1,
+  srawRightFormat: proto.RAW_FORMAT.GRAY8,
+  srawRightData: Buffer.from([0x31, 0x32]),
   pose: { poseType: 0, poseFlags: 0x3, position: [1.1, 2.2, 3.3], quat: [0.1, 0.2, 0.3, 0.9] },
   upose: { poseType: 0, poseFlags: 0x1, position: [4.4, 5.5, 6.6], quat: [0.4, 0.5, 0.6, 0.7] },
   constraints: [
@@ -44,7 +56,7 @@ const SAMPLE = {
   },
 };
 
-const EXPECTED_COUNT = 14;
+const EXPECTED_COUNT = 15;
 
 function buildPackets() {
   return [
@@ -58,6 +70,24 @@ function buildPackets() {
       format: SAMPLE.rawFormat,
       channel: SAMPLE.rawChannel,
       data: SAMPLE.rawData,
+    })),
+    proto.makePacket(proto.TYPE.SRAW, proto.buildStereoRawPayload({
+      left: {
+        timestampNs: SAMPLE.srawLeftTs,
+        width: SAMPLE.srawLeftWidth,
+        height: SAMPLE.srawLeftHeight,
+        format: SAMPLE.srawLeftFormat,
+        channel: SAMPLE.srawLeftChannel,
+        data: SAMPLE.srawLeftData,
+      },
+      right: {
+        timestampNs: SAMPLE.srawRightTs,
+        width: SAMPLE.srawRightWidth,
+        height: SAMPLE.srawRightHeight,
+        format: SAMPLE.srawRightFormat,
+        channel: SAMPLE.srawRightChannel,
+        data: SAMPLE.srawRightData,
+      },
     })),
     proto.makePacket(proto.TYPE.POSE, proto.buildPosePayload(SAMPLE.pose)),
     proto.makePacket(proto.TYPE.UPOSE, proto.buildPosePayload(SAMPLE.upose)),
@@ -104,6 +134,22 @@ function verifyFrame(frame, index) {
       assert.strictEqual(res.format, SAMPLE.rawFormat);
       assert.strictEqual(res.channel, SAMPLE.rawChannel);
       assert.deepStrictEqual(res.data, SAMPLE.rawData);
+      break;
+    }
+    case proto.TYPE.SRAW: {
+      const res = proto.decodeStereoRawPayload(payload);
+      assert.strictEqual(res.left.timestampNs, SAMPLE.srawLeftTs);
+      assert.strictEqual(res.left.width, SAMPLE.srawLeftWidth);
+      assert.strictEqual(res.left.height, SAMPLE.srawLeftHeight);
+      assert.strictEqual(res.left.format, SAMPLE.srawLeftFormat);
+      assert.strictEqual(res.left.channel, SAMPLE.srawLeftChannel);
+      assert.deepStrictEqual(res.left.data, SAMPLE.srawLeftData);
+      assert.strictEqual(res.right.timestampNs, SAMPLE.srawRightTs);
+      assert.strictEqual(res.right.width, SAMPLE.srawRightWidth);
+      assert.strictEqual(res.right.height, SAMPLE.srawRightHeight);
+      assert.strictEqual(res.right.format, SAMPLE.srawRightFormat);
+      assert.strictEqual(res.right.channel, SAMPLE.srawRightChannel);
+      assert.deepStrictEqual(res.right.data, SAMPLE.srawRightData);
       break;
     }
     case proto.TYPE.POSE: {
@@ -232,6 +278,7 @@ async function runFuzzTests() {
     proto.TYPE.JPG,
     proto.TYPE.RJPG,
     proto.TYPE.RAW,
+    proto.TYPE.SRAW,
     proto.TYPE.POSE,
     proto.TYPE.UPOSE,
     proto.TYPE.LCON,
@@ -287,6 +334,10 @@ async function runFuzzTests() {
     [proto.TYPE.JPG]: () => randomJpgPayload(false),
     [proto.TYPE.RJPG]: () => randomJpgPayload(true),
     [proto.TYPE.RAW]: () => randomRawPayload(),
+    [proto.TYPE.SRAW]: () => proto.buildStereoRawPayload({
+      left: { timestampNs: 11n, width: 2, height: 1, format: proto.RAW_FORMAT.GRAY8, channel: 'cam0', data: Buffer.from([0x01, 0x02]) },
+      right: { timestampNs: 12n, width: 2, height: 1, format: proto.RAW_FORMAT.GRAY8, channel: 'cam1', data: Buffer.from([0x03, 0x04]) },
+    }),
     [proto.TYPE.POSE]: () => randomPosePayload(),
     [proto.TYPE.UPOSE]: () => randomPosePayload(),
     [proto.TYPE.LCON]: () => randomConstraintsPayload(),
@@ -316,6 +367,7 @@ async function runFuzzTests() {
         case proto.TYPE.JPG: proto.decodeJpgPayload(f.payload, false); break;
         case proto.TYPE.RJPG: proto.decodeJpgPayload(f.payload, true); break;
         case proto.TYPE.RAW: proto.decodeRawPayload(f.payload); break;
+        case proto.TYPE.SRAW: proto.decodeStereoRawPayload(f.payload); break;
         case proto.TYPE.POSE:
         case proto.TYPE.UPOSE: proto.decodePosePayload(f.payload); break;
         case proto.TYPE.LCON: proto.decodeConstraintsPayload(f.payload); break;

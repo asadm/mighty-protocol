@@ -8,6 +8,7 @@ TYPE = {
     "JPG": b"JPG ",
     "RJPG": b"RJPG",
     "RAW": b"RAW ",
+    "SRAW": b"SRAW",
     "POSE": b"POSE",
     "UPOSE": b"UPOS",
     "LCON": b"LCON",
@@ -73,7 +74,7 @@ def parse_frames(buf: bytes) -> Tuple[List[Dict[str, Any]], bytes]:
         offset += pkt_size
         if footer != FOOTER_MAGIC:
             continue
-        skip_crc = tcode == b"RAW " and recv_crc == 0
+        skip_crc = tcode in (b"RAW ", b"SRAW") and recv_crc == 0
         if length and not skip_crc and _crc32(payload) != recv_crc:
             continue
         frames.append({"type": tcode.decode("ascii"), "payload": payload})
@@ -91,6 +92,31 @@ def build_raw_payload(timestamp_ns: int,
     header = struct.pack(">QII", int(timestamp_ns), int(width), int(height))
     header += bytes([fmt & 0xFF, chan_len])
     return header + chan_bytes[:chan_len] + data
+
+def build_stereo_raw_payload(left_timestamp_ns: int,
+                             right_timestamp_ns: int,
+                             left_width: int,
+                             left_height: int,
+                             left_fmt: int,
+                             left_channel: str,
+                             left_data: bytes,
+                             right_width: int,
+                             right_height: int,
+                             right_fmt: int,
+                             right_channel: str,
+                             right_data: bytes) -> bytes:
+    left_chan = (left_channel or "").encode("utf-8")
+    right_chan = (right_channel or "").encode("utf-8")
+    left_chan_len = min(255, len(left_chan))
+    right_chan_len = min(255, len(right_chan))
+    left_data = left_data or b""
+    right_data = right_data or b""
+    header = struct.pack(">QQII", int(left_timestamp_ns), int(right_timestamp_ns), int(left_width), int(left_height))
+    header += bytes([left_fmt & 0xFF, left_chan_len]) + left_chan[:left_chan_len]
+    header += struct.pack(">II", int(right_width), int(right_height))
+    header += bytes([right_fmt & 0xFF, right_chan_len]) + right_chan[:right_chan_len]
+    header += struct.pack(">II", len(left_data), len(right_data))
+    return header + left_data + right_data
 
 # Payload decoders
 def decode_jpg_payload(payload: bytes, is_ref: bool):
@@ -117,6 +143,54 @@ def decode_raw_payload(payload: bytes):
     channel = payload[18:18+clen].decode("utf-8")
     data = payload[18+clen:]
     return {"timestamp_ns": ts, "width": width, "height": height, "format": fmt, "channel": channel, "data": data}
+
+def decode_stereo_raw_payload(payload: bytes):
+    if len(payload) < 8 + 8 + 4 + 4 + 1 + 1 + 4 + 4 + 1 + 1 + 4 + 4:
+        raise ValueError("payload too short")
+    off = 0
+    left_ts = struct.unpack(">Q", payload[off:off+8])[0]; off += 8
+    right_ts = struct.unpack(">Q", payload[off:off+8])[0]; off += 8
+    left_width = struct.unpack(">I", payload[off:off+4])[0]; off += 4
+    left_height = struct.unpack(">I", payload[off:off+4])[0]; off += 4
+    left_fmt = payload[off]; off += 1
+    left_clen = payload[off]; off += 1
+    if len(payload) < off + left_clen:
+        raise ValueError("payload too short")
+    left_channel = payload[off:off+left_clen].decode("utf-8"); off += left_clen
+    if len(payload) < off + 4 + 4 + 1 + 1:
+        raise ValueError("payload too short")
+    right_width = struct.unpack(">I", payload[off:off+4])[0]; off += 4
+    right_height = struct.unpack(">I", payload[off:off+4])[0]; off += 4
+    right_fmt = payload[off]; off += 1
+    right_clen = payload[off]; off += 1
+    if len(payload) < off + right_clen:
+        raise ValueError("payload too short")
+    right_channel = payload[off:off+right_clen].decode("utf-8"); off += right_clen
+    if len(payload) < off + 8:
+        raise ValueError("payload too short")
+    left_len, right_len = struct.unpack(">II", payload[off:off+8]); off += 8
+    if len(payload) < off + left_len + right_len:
+        raise ValueError("payload too short")
+    left_data = payload[off:off+left_len]; off += left_len
+    right_data = payload[off:off+right_len]
+    return {
+        "left": {
+            "timestamp_ns": left_ts,
+            "width": left_width,
+            "height": left_height,
+            "format": left_fmt,
+            "channel": left_channel,
+            "data": left_data,
+        },
+        "right": {
+            "timestamp_ns": right_ts,
+            "width": right_width,
+            "height": right_height,
+            "format": right_fmt,
+            "channel": right_channel,
+            "data": right_data,
+        },
+    }
 
 def decode_pose_payload(payload: bytes):
     if len(payload) < 4+4+8*3:
