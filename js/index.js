@@ -9,6 +9,7 @@ const TYPE = {
   JPG: "JPG ",
   RJPG: "RJPG",
   RAW: "RAW ",
+  SRAW: "SRAW",
   POSE: "POSE",
   UPOSE: "UPOS",
   LCON: "LCON",
@@ -179,7 +180,7 @@ function parseFrames(buffer) {
     const recvCrc = readU32BE(u8, offset + 12 + len);
     const footer = u8.subarray(offset + 16 + len, offset + pktSize);
     const footerOk = arraysEqual(footer, FOOTER_BYTES);
-    const skipCrc = type === "RAW " && recvCrc === 0;
+    const skipCrc = (type === "RAW " || type === "SRAW") && recvCrc === 0;
     const crcOk = len && !skipCrc ? crc32(payloadView) === recvCrc : true;
     if (!footerOk || !crcOk) {
       if (debug) {
@@ -263,6 +264,39 @@ function buildRawPayload({
   out[off] = chanLen; off += 1;
   out.set(chanBytes.subarray(0, chanLen), off); off += chanLen;
   out.set(dataU8, off);
+  return fromU8(out);
+}
+
+function buildStereoRawPayload({ left = {}, right = {} } = {}) {
+  const leftData = toU8(left.data || new Uint8Array());
+  const rightData = toU8(right.data || new Uint8Array());
+  const leftChanBytes = (textEncoder || new TextEncoder()).encode(left.channel || "cam0");
+  const rightChanBytes = (textEncoder || new TextEncoder()).encode(right.channel || "cam1");
+  const leftChanLen = Math.min(255, leftChanBytes.length);
+  const rightChanLen = Math.min(255, rightChanBytes.length);
+  const headerLen = 8 + 8 +
+    4 + 4 + 1 + 1 + leftChanLen +
+    4 + 4 + 1 + 1 + rightChanLen +
+    4 + 4;
+  const out = new Uint8Array(headerLen + leftData.length + rightData.length);
+  const dv = new DataView(out.buffer, out.byteOffset, out.byteLength);
+  let off = 0;
+  dv.setBigUint64(off, BigInt(left.timestampNs || 0n), false); off += 8;
+  dv.setBigUint64(off, BigInt(right.timestampNs || 0n), false); off += 8;
+  dv.setUint32(off, (left.width || 0) >>> 0, false); off += 4;
+  dv.setUint32(off, (left.height || 0) >>> 0, false); off += 4;
+  out[off] = (left.format ?? RAW_FORMAT.UNKNOWN) & 0xff; off += 1;
+  out[off] = leftChanLen; off += 1;
+  out.set(leftChanBytes.subarray(0, leftChanLen), off); off += leftChanLen;
+  dv.setUint32(off, (right.width || 0) >>> 0, false); off += 4;
+  dv.setUint32(off, (right.height || 0) >>> 0, false); off += 4;
+  out[off] = (right.format ?? RAW_FORMAT.UNKNOWN) & 0xff; off += 1;
+  out[off] = rightChanLen; off += 1;
+  out.set(rightChanBytes.subarray(0, rightChanLen), off); off += rightChanLen;
+  dv.setUint32(off, leftData.length >>> 0, false); off += 4;
+  dv.setUint32(off, rightData.length >>> 0, false); off += 4;
+  out.set(leftData, off); off += leftData.length;
+  out.set(rightData, off);
   return fromU8(out);
 }
 
@@ -482,6 +516,53 @@ function decodeRawPayload(payload) {
   return { timestampNs, width, height, format, channel, data };
 }
 
+function decodeStereoRawPayload(payload) {
+  const u8 = toU8(payload);
+  if (u8.length < 8 + 8 + 4 + 4 + 1 + 1 + 4 + 4 + 1 + 1 + 4 + 4) {
+    throw new Error("SRAW payload too short");
+  }
+  let off = 0;
+  const leftTimestampNs = readBigU64BE(u8, off); off += 8;
+  const rightTimestampNs = readBigU64BE(u8, off); off += 8;
+  const leftWidth = readU32BE(u8, off); off += 4;
+  const leftHeight = readU32BE(u8, off); off += 4;
+  const leftFormat = readU8(u8, off); off += 1;
+  const leftClen = readU8(u8, off); off += 1;
+  if (u8.length < off + leftClen) throw new Error("SRAW payload truncated");
+  const leftChannel = (textDecoder || new TextDecoder()).decode(u8.subarray(off, off + leftClen)); off += leftClen;
+  if (u8.length < off + 4 + 4 + 1 + 1) throw new Error("SRAW payload truncated");
+  const rightWidth = readU32BE(u8, off); off += 4;
+  const rightHeight = readU32BE(u8, off); off += 4;
+  const rightFormat = readU8(u8, off); off += 1;
+  const rightClen = readU8(u8, off); off += 1;
+  if (u8.length < off + rightClen) throw new Error("SRAW payload truncated");
+  const rightChannel = (textDecoder || new TextDecoder()).decode(u8.subarray(off, off + rightClen)); off += rightClen;
+  if (u8.length < off + 8) throw new Error("SRAW payload truncated");
+  const leftLen = readU32BE(u8, off); off += 4;
+  const rightLen = readU32BE(u8, off); off += 4;
+  if (u8.length < off + leftLen + rightLen) throw new Error("SRAW payload truncated");
+  const leftData = fromU8(u8.subarray(off, off + leftLen)); off += leftLen;
+  const rightData = fromU8(u8.subarray(off, off + rightLen));
+  return {
+    left: {
+      timestampNs: leftTimestampNs,
+      width: leftWidth,
+      height: leftHeight,
+      format: leftFormat,
+      channel: leftChannel,
+      data: leftData,
+    },
+    right: {
+      timestampNs: rightTimestampNs,
+      width: rightWidth,
+      height: rightHeight,
+      format: rightFormat,
+      channel: rightChannel,
+      data: rightData,
+    },
+  };
+}
+
 function decodePosePayload(payload) {
   const u8 = toU8(payload);
   let off = 0;
@@ -656,6 +737,7 @@ const api = {
   FrameDispatcher,
   buildJpgPayload,
   buildRawPayload,
+  buildStereoRawPayload,
   buildPosePayload,
   buildConstraintsPayload,
   buildVizPayload,
@@ -667,6 +749,7 @@ const api = {
   buildCommandResponsePayload,
   decodeJpgPayload,
   decodeRawPayload,
+  decodeStereoRawPayload,
   decodePosePayload,
   decodeConstraintsPayload,
   decodeVizPayload,

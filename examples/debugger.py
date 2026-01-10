@@ -50,7 +50,7 @@ def parse_frames_with_debug(buf: bytes, debug: bool = True):
             if debug:
                 print("warn: corrupt frame footer")
             continue
-        if length and mp._crc32(payload) != recv_crc:
+        if length and not (tcode in (b"RAW ", b"SRAW") and recv_crc == 0) and mp._crc32(payload) != recv_crc:
             if debug:
                 print("warn: corrupt frame crc")
             continue
@@ -80,6 +80,13 @@ def decode_summary(frame, max_text_len: int, decode: bool) -> str:
             info = mp.decode_jpg_payload(payload, tcode == "RJPG")
             channel = info.get("channel") or ("ref" if tcode == "RJPG" else "preview")
             return f"ts={info['timestamp_ns']} ch={channel} bytes={len(info['data'])}"
+        if tcode == "SRAW":
+            info = mp.decode_stereo_raw_payload(payload)
+            left = info.get("left", {})
+            right = info.get("right", {})
+            return (f"left_ts={left.get('timestamp_ns')} right_ts={right.get('timestamp_ns')} "
+                    f"left_ch={left.get('channel','')} right_ch={right.get('channel','')} "
+                    f"{left.get('width')}x{left.get('height')}/{right.get('width')}x{right.get('height')}")
         if tcode in ("POSE", "UPOS"):
             info = mp.decode_pose_payload(payload)
             pos = info["position"]

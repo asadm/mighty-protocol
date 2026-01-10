@@ -20,6 +20,18 @@ SAMPLE = {
     "raw_height": 2,
     "raw_format": mp.RAW_FORMAT["GRAY8"],
     "raw_data": b"\x10\x11\x12\x13\x14\x15\x16\x17",
+    "sraw_left_ts": 444,
+    "sraw_right_ts": 445,
+    "sraw_left_channel": "cam0",
+    "sraw_right_channel": "cam1",
+    "sraw_left_width": 2,
+    "sraw_left_height": 1,
+    "sraw_left_format": mp.RAW_FORMAT["GRAY8"],
+    "sraw_left_data": b"\x21\x22",
+    "sraw_right_width": 2,
+    "sraw_right_height": 1,
+    "sraw_right_format": mp.RAW_FORMAT["GRAY8"],
+    "sraw_right_data": b"\x31\x32",
     "pose": {"pose_type": 0, "pose_flags": 0x3, "position": (1.1, 2.2, 3.3), "quat": (0.1, 0.2, 0.3, 0.9)},
     "upose": {"pose_type": 0, "pose_flags": 0x1, "position": (4.4, 5.5, 6.6), "quat": (0.4, 0.5, 0.6, 0.7)},
     "constraints": [
@@ -56,6 +68,7 @@ def build_packets():
     pkts.append(mp.make_packet(mp.TYPE["JPG"], struct_jpg(False)))
     pkts.append(mp.make_packet(mp.TYPE["RJPG"], struct_jpg(True)))
     pkts.append(mp.make_packet(mp.TYPE["RAW"], struct_raw()))
+    pkts.append(mp.make_packet(mp.TYPE["SRAW"], struct_sraw()))
     pkts.append(mp.make_packet(mp.TYPE["POSE"], struct_pose(SAMPLE["pose"])))
     pkts.append(mp.make_packet(mp.TYPE["UPOSE"], struct_pose(SAMPLE["upose"])))
     pkts.append(mp.make_packet(mp.TYPE["LCON"], struct_constraints()))
@@ -83,6 +96,18 @@ def struct_raw():
     chan = SAMPLE["raw_channel"].encode()
     header += bytes([SAMPLE["raw_format"], len(chan)]) + chan
     return header + SAMPLE["raw_data"]
+
+def struct_sraw():
+    import struct
+    left_chan = SAMPLE["sraw_left_channel"].encode()
+    right_chan = SAMPLE["sraw_right_channel"].encode()
+    header = struct.pack(">QQII", SAMPLE["sraw_left_ts"], SAMPLE["sraw_right_ts"],
+                         SAMPLE["sraw_left_width"], SAMPLE["sraw_left_height"])
+    header += bytes([SAMPLE["sraw_left_format"], len(left_chan)]) + left_chan
+    header += struct.pack(">II", SAMPLE["sraw_right_width"], SAMPLE["sraw_right_height"])
+    header += bytes([SAMPLE["sraw_right_format"], len(right_chan)]) + right_chan
+    header += struct.pack(">II", len(SAMPLE["sraw_left_data"]), len(SAMPLE["sraw_right_data"]))
+    return header + SAMPLE["sraw_left_data"] + SAMPLE["sraw_right_data"]
 
 def struct_pose(data):
     import struct
@@ -157,7 +182,7 @@ def main():
     stream = b"".join(build_packets())
     frames, rest = mp.parse_frames(stream)
     assert not rest
-    assert len(frames) == 14
+    assert len(frames) == 15
 
     idx = 0
     assert frames[idx]["type"] == "RSET"; idx += 1
@@ -172,6 +197,19 @@ def main():
     assert raw["format"] == SAMPLE["raw_format"]
     assert raw["channel"] == SAMPLE["raw_channel"]
     assert raw["data"] == SAMPLE["raw_data"]
+    sraw = mp.decode_stereo_raw_payload(frames[idx]["payload"]); idx += 1
+    assert sraw["left"]["timestamp_ns"] == SAMPLE["sraw_left_ts"]
+    assert sraw["left"]["width"] == SAMPLE["sraw_left_width"]
+    assert sraw["left"]["height"] == SAMPLE["sraw_left_height"]
+    assert sraw["left"]["format"] == SAMPLE["sraw_left_format"]
+    assert sraw["left"]["channel"] == SAMPLE["sraw_left_channel"]
+    assert sraw["left"]["data"] == SAMPLE["sraw_left_data"]
+    assert sraw["right"]["timestamp_ns"] == SAMPLE["sraw_right_ts"]
+    assert sraw["right"]["width"] == SAMPLE["sraw_right_width"]
+    assert sraw["right"]["height"] == SAMPLE["sraw_right_height"]
+    assert sraw["right"]["format"] == SAMPLE["sraw_right_format"]
+    assert sraw["right"]["channel"] == SAMPLE["sraw_right_channel"]
+    assert sraw["right"]["data"] == SAMPLE["sraw_right_data"]
     pose = mp.decode_pose_payload(frames[idx]["payload"]); idx += 1
     assert pose["pose_type"] == SAMPLE["pose"]["pose_type"]
     upose = mp.decode_pose_payload(frames[idx]["payload"]); idx += 1
@@ -197,7 +235,7 @@ def main():
     d = FrameDispatcher(lambda f: seen.append(f["type"]))
     chunked = stream[:20] + stream[20:]  # two chunks
     d.feed(chunked)
-    assert len(seen) == 14
+    assert len(seen) == 15
 
     # Decoded dispatcher sanity
     from decoded_dispatcher import DecodedDispatcher
@@ -217,7 +255,7 @@ def main():
     assert len(decoded_seen) >= 8
 
     # Fuzz decode/dispatch
-    types = ["JPG", "RJPG", "RAW", "POSE", "UPOSE", "LCON", "IMU", "STAT"]
+    types = ["JPG", "RJPG", "RAW", "SRAW", "POSE", "UPOSE", "LCON", "IMU", "STAT"]
     for _ in range(20):
       pkts = []
       for _ in range(5):
@@ -228,6 +266,9 @@ def main():
           payload = random_jpg(True)
         elif t == "RAW":
           payload = mp.build_raw_payload(123, 4, 2, mp.RAW_FORMAT["GRAY8"], "raw", secrets.token_bytes(8))
+        elif t == "SRAW":
+          payload = mp.build_stereo_raw_payload(1, 2, 2, 1, mp.RAW_FORMAT["GRAY8"], "cam0", secrets.token_bytes(2),
+                                                2, 1, mp.RAW_FORMAT["GRAY8"], "cam1", secrets.token_bytes(2))
         elif t in ("POSE", "UPOSE"):
           payload = struct_pose({"pose_type": 0, "pose_flags": 0x3, "position": (0.1,0.2,0.3), "quat": (0.1,0.2,0.3,0.9)})
         elif t == "LCON":

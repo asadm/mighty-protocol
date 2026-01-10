@@ -91,6 +91,14 @@ class DecodedDispatcher {
     double x, y, z;
     std::optional<std::array<double,4>> quat;
   };
+  struct RawFrame {
+    uint64_t timestamp_ns;
+    uint32_t width;
+    uint32_t height;
+    uint8_t format;
+    std::string channel;
+    std::vector<uint8_t> data;
+  };
   struct Constraints {
     std::vector<PoseConstraintSegment> segments;
   };
@@ -101,6 +109,7 @@ class DecodedDispatcher {
   using JpgHandler = std::function<void(uint64_t timestamp_ns, const std::string& channel, const std::vector<uint8_t>& data, bool is_ref)>;
   using RawHandler = std::function<void(uint64_t timestamp_ns, uint32_t width, uint32_t height, uint8_t format,
                                         const std::string& channel, const std::vector<uint8_t>& data)>;
+  using StereoRawHandler = std::function<void(const RawFrame& left, const RawFrame& right)>;
   using PoseHandler = std::function<void(const Pose&, bool is_unoptimized)>;
   using ConstraintsHandler = std::function<void(const Constraints&)>;
   using FeaturesHandler = std::function<void(const std::vector<Feature3D>&)>;
@@ -114,6 +123,7 @@ class DecodedDispatcher {
 
   void on_jpg(JpgHandler h) { jpg_handler_ = std::move(h); }
   void on_raw(RawHandler h) { raw_handler_ = std::move(h); }
+  void on_stereo_raw(StereoRawHandler h) { stereo_raw_handler_ = std::move(h); }
   void on_pose(PoseHandler h) { pose_handler_ = std::move(h); }
   void on_constraints(ConstraintsHandler h) { constraints_handler_ = std::move(h); }
   void on_features(FeaturesHandler h) { fea_handler_ = std::move(h); }
@@ -153,6 +163,22 @@ class DecodedDispatcher {
       uint64_t ts; uint32_t w, h; uint8_t fmt; std::string ch; std::vector<uint8_t> data;
       if (decode_raw_payload(f.payload, ts, w, h, fmt, ch, data)) {
         raw_handler_(ts, w, h, fmt, ch, data);
+      }
+    } else if (type == "SRAW") {
+      uint64_t lts, rts;
+      uint32_t lw, lh, rw, rh;
+      uint8_t lfmt, rfmt;
+      std::string lch, rch;
+      std::vector<uint8_t> ldata, rdata;
+      if (decode_stereo_raw_payload(f.payload, lts, rts, lw, lh, lfmt, lch, ldata, rw, rh, rfmt, rch, rdata)) {
+        RawFrame left{lts, lw, lh, lfmt, lch, std::move(ldata)};
+        RawFrame right{rts, rw, rh, rfmt, rch, std::move(rdata)};
+        if (stereo_raw_handler_) {
+          stereo_raw_handler_(left, right);
+        } else if (raw_handler_) {
+          raw_handler_(left.timestamp_ns, left.width, left.height, left.format, left.channel, left.data);
+          raw_handler_(right.timestamp_ns, right.width, right.height, right.format, right.channel, right.data);
+        }
       }
     } else if (type == "POSE" || type == "UPOS") {
       if (!pose_handler_) return;
@@ -211,6 +237,7 @@ class DecodedDispatcher {
   FrameConsumer consumer_;
   JpgHandler jpg_handler_;
   RawHandler raw_handler_;
+  StereoRawHandler stereo_raw_handler_;
   PoseHandler pose_handler_;
   ConstraintsHandler constraints_handler_;
   FeaturesHandler fea_handler_;

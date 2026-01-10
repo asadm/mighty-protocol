@@ -6,6 +6,7 @@ class DecodedDispatcher:
     Handlers (all optional):
       on_jpg(timestamp_ns, channel, data, is_ref)
       on_raw(timestamp_ns, width, height, format, channel, data)
+      on_stereo_raw(left_dict, right_dict)
       on_pose(pose_dict, is_unoptimized)
       on_constraints(segments_list)
       on_features(features_list)
@@ -18,6 +19,7 @@ class DecodedDispatcher:
     def __init__(self):
         self.on_jpg = None
         self.on_raw = None
+        self.on_stereo_raw = None
         self.on_pose = None
         self.on_constraints = None
         self.on_features = None
@@ -45,6 +47,16 @@ class DecodedDispatcher:
                 if self.on_raw:
                     d = mp.decode_raw_payload(p)
                     self.on_raw(d["timestamp_ns"], d["width"], d["height"], d["format"], d["channel"], d["data"])
+            elif t == "SRAW":
+                if self.on_stereo_raw or self.on_raw:
+                    d = mp.decode_stereo_raw_payload(p)
+                    if self.on_stereo_raw:
+                        self.on_stereo_raw(d["left"], d["right"])
+                    elif self.on_raw:
+                        left = d["left"]
+                        right = d["right"]
+                        self.on_raw(left["timestamp_ns"], left["width"], left["height"], left["format"], left["channel"], left["data"])
+                        self.on_raw(right["timestamp_ns"], right["width"], right["height"], right["format"], right["channel"], right["data"])
             elif t == "POSE":
                 if self.on_pose:
                     d = mp.decode_pose_payload(p); self.on_pose(d, False)

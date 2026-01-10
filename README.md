@@ -28,12 +28,12 @@ This builds the C++ test binary and runs the Node roundtrip test plus a Python c
 ### C++ (producer/consumer)
 - Produce
   - `make_packet(payload, TYPE_*)` – wrap framing + CRC.
-  - Builders: `build_jpg_payload`, `build_raw_payload`, `build_pose_payload`, `build_constraints_payload`, `build_viz_payload`, `build_imu_payload`, `build_status_payload`, `build_fea3_payload`, `build_pcld_payload`.
-  - Type codes: `TYPE_JPG`, `TYPE_RJPG`, `TYPE_RAW`, `TYPE_POSE`, `TYPE_UPOSE`, `TYPE_LCON`, `TYPE_VIZ`, `TYPE_IMU`, `TYPE_STAT`, `TYPE_RSET`, `TYPE_FEA3`, `TYPE_PCLD`.
+  - Builders: `build_jpg_payload`, `build_raw_payload`, `build_stereo_raw_payload`, `build_pose_payload`, `build_constraints_payload`, `build_viz_payload`, `build_imu_payload`, `build_status_payload`, `build_fea3_payload`, `build_pcld_payload`.
+  - Type codes: `TYPE_JPG`, `TYPE_RJPG`, `TYPE_RAW`, `TYPE_SRAW`, `TYPE_POSE`, `TYPE_UPOSE`, `TYPE_LCON`, `TYPE_VIZ`, `TYPE_IMU`, `TYPE_STAT`, `TYPE_RSET`, `TYPE_FEA3`, `TYPE_PCLD`.
 - Consume
   - `parse_frame` (single-frame parser) or `FrameConsumer` (`feed`, `try_pop`, `drain`) or `FrameDispatcher` (`set_handler`, `feed`).
-  - `DecodedDispatcher` for per-type decoded callbacks (e.g., `on_jpg`, `on_pose`, `on_constraints`, `on_features`, `on_pointcloud`, `on_viz`, `on_imu`, `on_status`, `on_reset`).
-  - Decoders: `decode_jpg_payload`, `decode_raw_payload`, `decode_pose_payload`, `decode_constraints_payload`, `decode_viz_payload`, `decode_imu_payload`, `decode_status_payload`, `decode_fea3_payload`, `decode_pcld_payload`.
+  - `DecodedDispatcher` for per-type decoded callbacks (e.g., `on_jpg`, `on_raw`, `on_stereo_raw`, `on_pose`, `on_constraints`, `on_features`, `on_pointcloud`, `on_viz`, `on_imu`, `on_status`, `on_reset`).
+  - Decoders: `decode_jpg_payload`, `decode_raw_payload`, `decode_stereo_raw_payload`, `decode_pose_payload`, `decode_constraints_payload`, `decode_viz_payload`, `decode_imu_payload`, `decode_status_payload`, `decode_fea3_payload`, `decode_pcld_payload`.
 
 ```cpp
 #include "mighty-protocol/cpp/mighty_protocol.h"
@@ -76,11 +76,11 @@ dd.feed(bytes, len);  // can be called repeatedly with stream chunks
 ### JavaScript / Node / browser
 - Produce
   - `makePacket(type, payload)`
-  - Builders: `buildJpgPayload`, `buildRawPayload`, `buildPosePayload`, `buildConstraintsPayload`, `buildVizPayload`, `buildImuPayload`, `buildStatusPayload`, `buildFea3Payload`, `buildPcldPayload`
-  - Types: `TYPE` map (`TYPE.JPG`, `TYPE.RJPG`, `TYPE.RAW`, `TYPE.POSE`, `TYPE.UPOSE`, `TYPE.LCON`, `TYPE.VIZ`, `TYPE.IMU`, `TYPE.STAT`, `TYPE.RSET`, `TYPE.FEA3`, `TYPE.PCLD`)
+  - Builders: `buildJpgPayload`, `buildRawPayload`, `buildStereoRawPayload`, `buildPosePayload`, `buildConstraintsPayload`, `buildVizPayload`, `buildImuPayload`, `buildStatusPayload`, `buildFea3Payload`, `buildPcldPayload`
+  - Types: `TYPE` map (`TYPE.JPG`, `TYPE.RJPG`, `TYPE.RAW`, `TYPE.SRAW`, `TYPE.POSE`, `TYPE.UPOSE`, `TYPE.LCON`, `TYPE.VIZ`, `TYPE.IMU`, `TYPE.STAT`, `TYPE.RSET`, `TYPE.FEA3`, `TYPE.PCLD`)
 - Consume
   - `parseFrames(buffer) -> {frames, rest}` or `new FrameDispatcher(onFrame).feed(bytes)` (browser-friendly version is in `main/web/mighty-protocol.js`)
-  - Decoders: `decodeJpgPayload`, `decodeRawPayload`, `decodePosePayload`, `decodeConstraintsPayload`, `decodeVizPayload`, `decodeImuPayload`, `decodeStatusPayload`, `decodeFea3Payload`, `decodePcldPayload`
+  - Decoders: `decodeJpgPayload`, `decodeRawPayload`, `decodeStereoRawPayload`, `decodePosePayload`, `decodeConstraintsPayload`, `decodeVizPayload`, `decodeImuPayload`, `decodeStatusPayload`, `decodeFea3Payload`, `decodePcldPayload`
 
 ```js
 import proto from './mighty-protocol/js/index.js'; // Node (or use global MightyProtocol in browser)
@@ -110,11 +110,11 @@ disp.feed(chunkFromSocket);
 ### Python (consumer + packet builder)
 - Produce
   - `make_packet(tcode: bytes, payload: bytes=b"")`
-  - Type dict: `TYPE["JPG"]`, `TYPE["RJPG"]`, `TYPE["RAW"]`, `TYPE["POSE"]`, `TYPE["UPOSE"]`, `TYPE["LCON"]`, `TYPE["VIZ"]`, `TYPE["IMU"]`, `TYPE["STAT"]`, `TYPE["RSET"]`, `TYPE["FEA3"]`, `TYPE["PCLD"]`
+  - Type dict: `TYPE["JPG"]`, `TYPE["RJPG"]`, `TYPE["RAW"]`, `TYPE["SRAW"]`, `TYPE["POSE"]`, `TYPE["UPOSE"]`, `TYPE["LCON"]`, `TYPE["VIZ"]`, `TYPE["IMU"]`, `TYPE["STAT"]`, `TYPE["RSET"]`, `TYPE["FEA3"]`, `TYPE["PCLD"]`
 - Consume
   - `parse_frames(buf) -> (frames, rest)` or `FrameDispatcher(on_frame).feed(bytes)`
   - `DecodedDispatcher` in `python/decoded_dispatcher.py` for per-type decoded callbacks (`on_jpg`, `on_pose`, etc.).
-  - Decoders: `decode_jpg_payload(payload, is_ref)`, `decode_raw_payload`, `decode_pose_payload`, `decode_constraints_payload`, `decode_viz_payload`, `decode_imu_payload`, `decode_status_payload`, `decode_fea3_payload`, `decode_pcld_payload`
+  - Decoders: `decode_jpg_payload(payload, is_ref)`, `decode_raw_payload`, `decode_stereo_raw_payload`, `decode_pose_payload`, `decode_constraints_payload`, `decode_viz_payload`, `decode_imu_payload`, `decode_status_payload`, `decode_fea3_payload`, `decode_pcld_payload`
 
 ```python
 # PYTHONPATH needs to include mighty-protocol/python
