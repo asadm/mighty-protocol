@@ -212,8 +212,10 @@ def main():
     assert sraw["right"]["data"] == SAMPLE["sraw_right_data"]
     pose = mp.decode_pose_payload(frames[idx]["payload"]); idx += 1
     assert pose["pose_type"] == SAMPLE["pose"]["pose_type"]
+    assert almost(pose.get("confidence", 1.0), 1.0, 1e-6)
     upose = mp.decode_pose_payload(frames[idx]["payload"]); idx += 1
     assert almost(upose["position"][2], SAMPLE["upose"]["position"][2])
+    assert almost(upose.get("confidence", 1.0), 1.0, 1e-6)
     lcon = mp.decode_constraints_payload(frames[idx]["payload"]); idx += 1
     assert len(lcon) == len(SAMPLE["constraints"])
     viz0 = mp.decode_viz_payload(frames[idx]["payload"]); idx += 1

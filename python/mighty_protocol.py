@@ -1,4 +1,5 @@
 import struct
+import math
 from typing import List, Tuple, Dict, Any, Optional
 
 HEADER_MAGIC = bytes([0xDE, 0xAD, 0xBE, 0xEF])
@@ -197,12 +198,26 @@ def decode_pose_payload(payload: bytes):
         raise ValueError("payload too short")
     pose_type, flags = struct.unpack(">II", payload[0:8])
     x, y, z = struct.unpack(">ddd", payload[8:32])
+    off = 32
     quat = None
     if flags & 0x1:
-        if len(payload) < 32+32:
+        if len(payload) < off + 32:
             raise ValueError("payload too short for quaternion")
-        quat = struct.unpack(">dddd", payload[32:64])
-    return {"pose_type": pose_type, "pose_flags": flags, "position": (x, y, z), "quat": quat}
+        quat = struct.unpack(">dddd", payload[off:off+32])
+        off += 32
+    confidence = 1.0
+    if len(payload) >= off + 4:
+        confidence = struct.unpack(">f", payload[off:off+4])[0]
+    if not math.isfinite(confidence):
+        confidence = 0.0
+    confidence = min(1.0, max(0.0, float(confidence)))
+    return {
+        "pose_type": pose_type,
+        "pose_flags": flags,
+        "position": (x, y, z),
+        "quat": quat,
+        "confidence": confidence,
+    }
 
 def decode_constraints_payload(payload: bytes):
     if len(payload) < 4:

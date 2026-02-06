@@ -29,8 +29,8 @@ const SAMPLE = {
   srawRightHeight: 1,
   srawRightFormat: proto.RAW_FORMAT.GRAY8,
   srawRightData: Buffer.from([0x31, 0x32]),
-  pose: { poseType: 0, poseFlags: 0x3, position: [1.1, 2.2, 3.3], quat: [0.1, 0.2, 0.3, 0.9] },
-  upose: { poseType: 0, poseFlags: 0x1, position: [4.4, 5.5, 6.6], quat: [0.4, 0.5, 0.6, 0.7] },
+  pose: { poseType: 0, poseFlags: 0x3, position: [1.1, 2.2, 3.3], quat: [0.1, 0.2, 0.3, 0.9], confidence: 0.82 },
+  upose: { poseType: 0, poseFlags: 0x1, position: [4.4, 5.5, 6.6], quat: [0.4, 0.5, 0.6, 0.7], confidence: 0.41 },
   constraints: [
     { type: 0, start: [0.1, 0.2, 0.3], end: [0.4, 0.5, 0.6] },
     { type: 1, start: [1.0, 1.1, 1.2], end: [1.3, 1.4, 1.5] },
@@ -157,6 +157,7 @@ function verifyFrame(frame, index) {
       assert.strictEqual(res.poseType, SAMPLE.pose.poseType);
       assert.strictEqual(res.poseFlags & 0x3, 0x3);
       res.position.forEach((v, i) => assert(almost(v, SAMPLE.pose.position[i])));
+      assert(almost(res.confidence, SAMPLE.pose.confidence, 1e-3));
       break;
     }
     case proto.TYPE.UPOSE: {
@@ -164,6 +165,7 @@ function verifyFrame(frame, index) {
       assert.strictEqual(res.poseType, SAMPLE.upose.poseType);
       assert(res.poseFlags & 0x1);
       assert(almost(res.position[2], SAMPLE.upose.position[2]));
+      assert(almost(res.confidence, SAMPLE.upose.confidence, 1e-3));
       break;
     }
     case proto.TYPE.LCON: {

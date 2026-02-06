@@ -1,9 +1,11 @@
 #pragma once
 
 #include <array>
+#include <algorithm>
 #include <cassert>
 #include <cstdint>
 #include <cstring>
+#include <cmath>
 #include <optional>
 #include <string>
 #include <vector>
@@ -371,25 +373,34 @@ inline std::vector<uint8_t> build_pose_payload(uint32_t pose_type,
                                                double x,
                                                double y,
                                                double z,
-                                               const double* quat_or_null) {
+                                               const double* quat_or_null,
+                                               float confidence01 = 1.0f) {
   std::vector<uint8_t> payload;
-  payload.reserve(4 + 4 + 8 * 3 + (has_quat ? 8 * 4 : 0));
+  // NOTE: payload is intentionally append-only for backward compatibility.
+  // New fields must be added at the end so older decoders can ignore them.
+  payload.reserve(4 + 4 + 8 * 3 + (has_quat ? 8 * 4 : 0) + 4);
   uint32_t flags = has_quat ? 1u : 0u;
   if (is_keyframe) flags |= (1u << 1);
 
   payload.resize(0);
-  uint8_t buf[8];
-  write_u32_be(buf, pose_type); payload.insert(payload.end(), buf, buf + 4);
-  write_u32_be(buf, flags); payload.insert(payload.end(), buf, buf + 4);
-  write_f64_be(buf, x); payload.insert(payload.end(), buf, buf + 8);
-  write_f64_be(buf, y); payload.insert(payload.end(), buf, buf + 8);
-  write_f64_be(buf, z); payload.insert(payload.end(), buf, buf + 8);
+  uint8_t buf8[8];
+  uint8_t buf4[4];
+  write_u32_be(buf4, pose_type); payload.insert(payload.end(), buf4, buf4 + 4);
+  write_u32_be(buf4, flags); payload.insert(payload.end(), buf4, buf4 + 4);
+  write_f64_be(buf8, x); payload.insert(payload.end(), buf8, buf8 + 8);
+  write_f64_be(buf8, y); payload.insert(payload.end(), buf8, buf8 + 8);
+  write_f64_be(buf8, z); payload.insert(payload.end(), buf8, buf8 + 8);
   if (has_quat && quat_or_null) {
-    write_f64_be(buf, quat_or_null[0]); payload.insert(payload.end(), buf, buf + 8);
-    write_f64_be(buf, quat_or_null[1]); payload.insert(payload.end(), buf, buf + 8);
-    write_f64_be(buf, quat_or_null[2]); payload.insert(payload.end(), buf, buf + 8);
-    write_f64_be(buf, quat_or_null[3]); payload.insert(payload.end(), buf, buf + 8);
+    write_f64_be(buf8, quat_or_null[0]); payload.insert(payload.end(), buf8, buf8 + 8);
+    write_f64_be(buf8, quat_or_null[1]); payload.insert(payload.end(), buf8, buf8 + 8);
+    write_f64_be(buf8, quat_or_null[2]); payload.insert(payload.end(), buf8, buf8 + 8);
+    write_f64_be(buf8, quat_or_null[3]); payload.insert(payload.end(), buf8, buf8 + 8);
   }
+  // Confidence in [0,1]. (float32 big-endian)
+  if (!std::isfinite(confidence01)) confidence01 = 0.0f;
+  confidence01 = std::min(1.0f, std::max(0.0f, confidence01));
+  write_f32_be(buf4, confidence01);
+  payload.insert(payload.end(), buf4, buf4 + 4);
   return payload;
 }
 
@@ -717,7 +728,8 @@ inline bool decode_pose_payload(const std::vector<uint8_t>& payload,
                                 double& x,
                                 double& y,
                                 double& z,
-                                std::optional<std::array<double,4>>& quat) {
+                                std::optional<std::array<double,4>>& quat,
+                                float* confidence01_or_null = nullptr) {
   if (payload.size() < 4 + 4 + 8 * 3) return false;
   auto rd_u32 = [&](size_t idx) -> uint32_t {
     return (static_cast<uint32_t>(payload[idx]) << 24) |
@@ -729,6 +741,13 @@ inline bool decode_pose_payload(const std::vector<uint8_t>& payload,
     uint64_t tmp = 0;
     for (int i = 0; i < 8; ++i) tmp = (tmp << 8) | payload[idx + i];
     std::memcpy(&out, &tmp, 8);
+  };
+  auto rd_f32 = [&](size_t idx, float& out) {
+    uint32_t tmp = (static_cast<uint32_t>(payload[idx]) << 24) |
+                   (static_cast<uint32_t>(payload[idx + 1]) << 16) |
+                   (static_cast<uint32_t>(payload[idx + 2]) << 8) |
+                   (static_cast<uint32_t>(payload[idx + 3]));
+    std::memcpy(&out, &tmp, 4);
   };
   size_t off = 0;
   pose_type = rd_u32(off); off += 4;
@@ -746,6 +765,15 @@ inline bool decode_pose_payload(const std::vector<uint8_t>& payload,
     quat = q;
   } else {
     quat.reset();
+  }
+  if (confidence01_or_null) {
+    float conf = 1.0f;
+    if (payload.size() >= off + 4) {
+      rd_f32(off, conf);
+    }
+    if (!std::isfinite(conf)) conf = 0.0f;
+    conf = std::min(1.0f, std::max(0.0f, conf));
+    *confidence01_or_null = conf;
   }
   return true;
 }
