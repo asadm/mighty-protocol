@@ -378,15 +378,18 @@ inline std::vector<uint8_t> build_pose_payload(uint32_t pose_type,
                                                const double* linvel_or_null = nullptr,
                                                const double* angvel_or_null = nullptr,
                                                const double* linacc_or_null = nullptr,
-                                               const double* angacc_or_null = nullptr) {
+                                               const double* angacc_or_null = nullptr,
+                                               std::optional<uint64_t> timestamp_ns = std::nullopt) {
   std::vector<uint8_t> payload;
   // NOTE: payload is intentionally append-only for backward compatibility.
   // New fields must be added at the end so older decoders can ignore them.
+  const bool has_timestamp = timestamp_ns.has_value() && timestamp_ns.value() > 0;
   payload.reserve(4 + 4 + 8 * 3 + (has_quat ? 8 * 4 : 0) + 4 +
                   (linvel_or_null ? 8 * 3 : 0) +
                   (angvel_or_null ? 8 * 3 : 0) +
                   (linacc_or_null ? 8 * 3 : 0) +
-                  (angacc_or_null ? 8 * 3 : 0));
+                  (angacc_or_null ? 8 * 3 : 0) +
+                  (has_timestamp ? 8 : 0));
 
   // Pose flags (uint32 big-endian)
   // Bit 0: has_quat
@@ -395,12 +398,14 @@ inline std::vector<uint8_t> build_pose_payload(uint32_t pose_type,
   // Bit 3: has_angvel (wx,wy,wz) float64[3]
   // Bit 4: has_linacc (ax,ay,az) float64[3]
   // Bit 5: has_angacc (alphax,alphay,alphaz) float64[3]
+  // Bit 6: has_timestamp (timestamp_ns) uint64 appended at the end
   uint32_t flags = has_quat ? 1u : 0u;
   if (is_keyframe) flags |= (1u << 1);
   if (linvel_or_null) flags |= (1u << 2);
   if (angvel_or_null) flags |= (1u << 3);
   if (linacc_or_null) flags |= (1u << 4);
   if (angacc_or_null) flags |= (1u << 5);
+  if (has_timestamp) flags |= (1u << 6);
 
   payload.resize(0);
   uint8_t buf8[8];
@@ -431,6 +436,10 @@ inline std::vector<uint8_t> build_pose_payload(uint32_t pose_type,
   if (angvel_or_null) append_f64x3(angvel_or_null);
   if (linacc_or_null) append_f64x3(linacc_or_null);
   if (angacc_or_null) append_f64x3(angacc_or_null);
+  if (has_timestamp) {
+    write_u64_be(buf8, timestamp_ns.value());
+    payload.insert(payload.end(), buf8, buf8 + 8);
+  }
   return payload;
 }
 
@@ -763,7 +772,8 @@ inline bool decode_pose_payload(const std::vector<uint8_t>& payload,
                                 std::optional<std::array<double,3>>* linvel_or_null = nullptr,
                                 std::optional<std::array<double,3>>* angvel_or_null = nullptr,
                                 std::optional<std::array<double,3>>* linacc_or_null = nullptr,
-                                std::optional<std::array<double,3>>* angacc_or_null = nullptr) {
+                                std::optional<std::array<double,3>>* angacc_or_null = nullptr,
+                                std::optional<uint64_t>* timestamp_ns_or_null = nullptr) {
   if (payload.size() < 4 + 4 + 8 * 3) return false;
   auto rd_u32 = [&](size_t idx) -> uint32_t {
     return (static_cast<uint32_t>(payload[idx]) << 24) |
@@ -835,6 +845,19 @@ inline bool decode_pose_payload(const std::vector<uint8_t>& payload,
   decode_vec3_if_present(/*flag_bit=*/3, angvel_or_null);
   decode_vec3_if_present(/*flag_bit=*/4, linacc_or_null);
   decode_vec3_if_present(/*flag_bit=*/5, angacc_or_null);
+
+  if (timestamp_ns_or_null) {
+    if ((pose_flags & (1u << 6)) == 0) {
+      timestamp_ns_or_null->reset();
+    } else if (payload.size() < off + 8) {
+      timestamp_ns_or_null->reset();
+    } else {
+      uint64_t ts = 0;
+      for (int i = 0; i < 8; ++i) ts = (ts << 8) | payload[off + i];
+      *timestamp_ns_or_null = ts;
+      off += 8;
+    }
+  }
   return true;
 }
 

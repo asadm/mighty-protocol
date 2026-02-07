@@ -95,6 +95,7 @@ class DecodedDispatcher {
     std::optional<std::array<double,3>> angvel;
     std::optional<std::array<double,3>> linacc;
     std::optional<std::array<double,3>> angacc;
+    std::optional<uint64_t> timestamp_ns;
   };
   struct RawFrame {
     uint64_t timestamp_ns;
@@ -193,9 +194,10 @@ class DecodedDispatcher {
       std::optional<std::array<double,3>> angvel;
       std::optional<std::array<double,3>> linacc;
       std::optional<std::array<double,3>> angacc;
+      std::optional<uint64_t> ts;
       if (decode_pose_payload(f.payload, pt, pf, x, y, z, q, &conf,
-                              &linvel, &angvel, &linacc, &angacc)) {
-        Pose p{pt, pf, x, y, z, q, conf, linvel, angvel, linacc, angacc};
+                              &linvel, &angvel, &linacc, &angacc, &ts)) {
+        Pose p{pt, pf, x, y, z, q, conf, linvel, angvel, linacc, angacc, ts};
         pose_handler_(p, type == "UPOS");
       }
     } else if (type == "LCON") {

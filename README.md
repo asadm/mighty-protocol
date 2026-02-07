@@ -44,6 +44,7 @@ This builds the C++ test binary and runs the Node roundtrip test plus a Python c
 - Bit 3: `angvel` present (float64[3]): **`omega_B`** angular velocity in body frame
 - Bit 4: `linacc` present (float64[3]): **`spec_force_B`** specific force (accelerometer) in body frame, gravity not included
 - Bit 5: `angacc` present (float64[3]): **`alpha_B`** angular acceleration in body frame (typically finite-differenced; noisy)
+- Bit 6: `timestamp_ns` present (uint64): pose timestamp in nanoseconds (appended at the end)
 
 ### C++ (producer/consumer)
 - Produce
