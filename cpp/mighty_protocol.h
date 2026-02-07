@@ -374,13 +374,33 @@ inline std::vector<uint8_t> build_pose_payload(uint32_t pose_type,
                                                double y,
                                                double z,
                                                const double* quat_or_null,
-                                               float confidence01 = 1.0f) {
+                                               float confidence01 = 1.0f,
+                                               const double* linvel_or_null = nullptr,
+                                               const double* angvel_or_null = nullptr,
+                                               const double* linacc_or_null = nullptr,
+                                               const double* angacc_or_null = nullptr) {
   std::vector<uint8_t> payload;
   // NOTE: payload is intentionally append-only for backward compatibility.
   // New fields must be added at the end so older decoders can ignore them.
-  payload.reserve(4 + 4 + 8 * 3 + (has_quat ? 8 * 4 : 0) + 4);
+  payload.reserve(4 + 4 + 8 * 3 + (has_quat ? 8 * 4 : 0) + 4 +
+                  (linvel_or_null ? 8 * 3 : 0) +
+                  (angvel_or_null ? 8 * 3 : 0) +
+                  (linacc_or_null ? 8 * 3 : 0) +
+                  (angacc_or_null ? 8 * 3 : 0));
+
+  // Pose flags (uint32 big-endian)
+  // Bit 0: has_quat
+  // Bit 1: is_keyframe
+  // Bit 2: has_linvel (vx,vy,vz) float64[3]
+  // Bit 3: has_angvel (wx,wy,wz) float64[3]
+  // Bit 4: has_linacc (ax,ay,az) float64[3]
+  // Bit 5: has_angacc (alphax,alphay,alphaz) float64[3]
   uint32_t flags = has_quat ? 1u : 0u;
   if (is_keyframe) flags |= (1u << 1);
+  if (linvel_or_null) flags |= (1u << 2);
+  if (angvel_or_null) flags |= (1u << 3);
+  if (linacc_or_null) flags |= (1u << 4);
+  if (angacc_or_null) flags |= (1u << 5);
 
   payload.resize(0);
   uint8_t buf8[8];
@@ -401,6 +421,16 @@ inline std::vector<uint8_t> build_pose_payload(uint32_t pose_type,
   confidence01 = std::min(1.0f, std::max(0.0f, confidence01));
   write_f32_be(buf4, confidence01);
   payload.insert(payload.end(), buf4, buf4 + 4);
+
+  auto append_f64x3 = [&](const double* v) {
+    write_f64_be(buf8, v[0]); payload.insert(payload.end(), buf8, buf8 + 8);
+    write_f64_be(buf8, v[1]); payload.insert(payload.end(), buf8, buf8 + 8);
+    write_f64_be(buf8, v[2]); payload.insert(payload.end(), buf8, buf8 + 8);
+  };
+  if (linvel_or_null) append_f64x3(linvel_or_null);
+  if (angvel_or_null) append_f64x3(angvel_or_null);
+  if (linacc_or_null) append_f64x3(linacc_or_null);
+  if (angacc_or_null) append_f64x3(angacc_or_null);
   return payload;
 }
 
@@ -729,7 +759,11 @@ inline bool decode_pose_payload(const std::vector<uint8_t>& payload,
                                 double& y,
                                 double& z,
                                 std::optional<std::array<double,4>>& quat,
-                                float* confidence01_or_null = nullptr) {
+                                float* confidence01_or_null = nullptr,
+                                std::optional<std::array<double,3>>* linvel_or_null = nullptr,
+                                std::optional<std::array<double,3>>* angvel_or_null = nullptr,
+                                std::optional<std::array<double,3>>* linacc_or_null = nullptr,
+                                std::optional<std::array<double,3>>* angacc_or_null = nullptr) {
   if (payload.size() < 4 + 4 + 8 * 3) return false;
   auto rd_u32 = [&](size_t idx) -> uint32_t {
     return (static_cast<uint32_t>(payload[idx]) << 24) |
@@ -749,6 +783,11 @@ inline bool decode_pose_payload(const std::vector<uint8_t>& payload,
                    (static_cast<uint32_t>(payload[idx + 3]));
     std::memcpy(&out, &tmp, 4);
   };
+  auto rd_f64x3 = [&](size_t idx, std::array<double,3>& out) {
+    rd_f64(idx + 0, out[0]);
+    rd_f64(idx + 8, out[1]);
+    rd_f64(idx + 16, out[2]);
+  };
   size_t off = 0;
   pose_type = rd_u32(off); off += 4;
   pose_flags = rd_u32(off); off += 4;
@@ -766,15 +805,36 @@ inline bool decode_pose_payload(const std::vector<uint8_t>& payload,
   } else {
     quat.reset();
   }
-  if (confidence01_or_null) {
-    float conf = 1.0f;
-    if (payload.size() >= off + 4) {
-      rd_f32(off, conf);
-    }
-    if (!std::isfinite(conf)) conf = 0.0f;
-    conf = std::min(1.0f, std::max(0.0f, conf));
-    *confidence01_or_null = conf;
+  float conf = 1.0f;
+  if (payload.size() >= off + 4) {
+    rd_f32(off, conf);
   }
+  if (!std::isfinite(conf)) conf = 0.0f;
+  conf = std::min(1.0f, std::max(0.0f, conf));
+  if (confidence01_or_null) *confidence01_or_null = conf;
+  off += 4;
+
+  auto decode_vec3_if_present = [&](uint32_t flag_bit,
+                                    std::optional<std::array<double,3>>* out_opt) {
+    if (!out_opt) return;
+    if ((pose_flags & (1u << flag_bit)) == 0) {
+      out_opt->reset();
+      return;
+    }
+    if (payload.size() < off + 24) {
+      out_opt->reset();
+      return;
+    }
+    std::array<double,3> v{};
+    rd_f64x3(off, v);
+    *out_opt = v;
+    off += 24;
+  };
+
+  decode_vec3_if_present(/*flag_bit=*/2, linvel_or_null);
+  decode_vec3_if_present(/*flag_bit=*/3, angvel_or_null);
+  decode_vec3_if_present(/*flag_bit=*/4, linacc_or_null);
+  decode_vec3_if_present(/*flag_bit=*/5, angacc_or_null);
   return true;
 }
 

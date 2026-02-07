@@ -211,12 +211,32 @@ def decode_pose_payload(payload: bytes):
     if not math.isfinite(confidence):
         confidence = 0.0
     confidence = min(1.0, max(0.0, float(confidence)))
+    off += 4
+
+    def read_vec3(flag_bit: int):
+        nonlocal off
+        if (flags & (1 << flag_bit)) == 0:
+            return None
+        if len(payload) < off + 24:
+            return None
+        v = struct.unpack(">ddd", payload[off:off+24])
+        off += 24
+        return v
+
+    linvel = read_vec3(2)
+    angvel = read_vec3(3)
+    linacc = read_vec3(4)
+    angacc = read_vec3(5)
     return {
         "pose_type": pose_type,
         "pose_flags": flags,
         "position": (x, y, z),
         "quat": quat,
         "confidence": confidence,
+        "linvel": linvel,
+        "angvel": angvel,
+        "linacc": linacc,
+        "angacc": angacc,
     }
 
 def decode_constraints_payload(payload: bytes):

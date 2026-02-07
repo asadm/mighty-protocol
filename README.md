@@ -25,6 +25,26 @@ This builds the C++ test binary and runs the Node roundtrip test plus a Python c
 
 ## API reference & examples
 
+## Pose Conventions (POSE/UPOSE)
+
+`POSE` and `UPOSE` share the same payload layout and are used for different pose streams.
+
+- `poseType` identifies the semantic frame of the pose:
+  - `0` = body/IMU state (`W<-B`), intended as the primary robotics/drone state
+  - `1` = camera pose (`W<-C`), derived from body pose + extrinsics (mainly for visualization)
+  - other values are allowed (e.g. ground truth streams)
+- Quaternion convention: `q` is **source->world** (e.g. `q_WB` maps vectors from `B` into `W`).
+- The protocol is **append-only**: new optional fields are appended after `confidence` and are gated by `poseFlags` bits so older decoders can safely ignore them.
+
+### POSE `poseFlags` bit table
+
+- Bit 0: has quaternion `quat` (float64[4] = `qx,qy,qz,qw`)
+- Bit 1: keyframe marker (no extra bytes)
+- Bit 2: `linvel` present (float64[3]): **`v_WB`** linear velocity in world frame
+- Bit 3: `angvel` present (float64[3]): **`omega_B`** angular velocity in body frame
+- Bit 4: `linacc` present (float64[3]): **`spec_force_B`** specific force (accelerometer) in body frame, gravity not included
+- Bit 5: `angacc` present (float64[3]): **`alpha_B`** angular acceleration in body frame (typically finite-differenced; noisy)
+
 ### C++ (producer/consumer)
 - Produce
   - `make_packet(payload, TYPE_*)` – wrap framing + CRC.
