@@ -55,10 +55,12 @@ struct SampleData {
   uint32_t pose_type = 0;
   double pose_xyz[3] = {1.1, 2.2, 3.3};
   double pose_quat[4] = {0.1, 0.2, 0.3, 0.9};
+  float pose_confidence01 = 0.82f;
 
   uint32_t upose_type = 0;
   double upose_xyz[3] = {4.4, 5.5, 6.6};
   double upose_quat[4] = {0.4, 0.5, 0.6, 0.7};
+  float upose_confidence01 = 0.41f;
 
   std::vector<PoseConstraintSegment> constraints = {
     PoseConstraintSegment{{0.1f, 0.2f, 0.3f}, {0.4f, 0.5f, 0.6f}, 0},
@@ -143,17 +145,21 @@ bool verify_frame(const Frame& f, int index, const SampleData& s) {
   }
   if (type_str == "POSE") {
     uint32_t pt, pf; double x, y, z; std::optional<std::array<double,4>> q;
-    if (!decode_pose_payload(f.payload, pt, pf, x, y, z, q)) return false;
+    float conf = 1.0f;
+    if (!decode_pose_payload(f.payload, pt, pf, x, y, z, q, &conf)) return false;
     return pt == s.pose_type && (pf & 0x3) == 0x3 &&
            approx(x, s.pose_xyz[0]) && approx(y, s.pose_xyz[1]) && approx(z, s.pose_xyz[2]) &&
-           q.has_value() && approx((*q)[0], s.pose_quat[0]) && approx((*q)[3], s.pose_quat[3]);
+           q.has_value() && approx((*q)[0], s.pose_quat[0]) && approx((*q)[3], s.pose_quat[3]) &&
+           approx(conf, s.pose_confidence01, 1e-3);
   }
   if (type_str == "UPOS") {
     uint32_t pt, pf; double x, y, z; std::optional<std::array<double,4>> q;
-    if (!decode_pose_payload(f.payload, pt, pf, x, y, z, q)) return false;
+    float conf = 1.0f;
+    if (!decode_pose_payload(f.payload, pt, pf, x, y, z, q, &conf)) return false;
     return pt == s.upose_type && (pf & 0x1) == 0x1 &&
            approx(x, s.upose_xyz[0]) && approx(z, s.upose_xyz[2]) &&
-           q.has_value() && approx((*q)[1], s.upose_quat[1]);
+           q.has_value() && approx((*q)[1], s.upose_quat[1]) &&
+           approx(conf, s.upose_confidence01, 1e-3);
   }
   if (type_str == "LCON") {
     std::vector<PoseConstraintSegment> segs;
@@ -213,8 +219,12 @@ std::vector<std::vector<uint8_t>> build_sample_packets(const SampleData& s) {
                                                          s.sraw_right_format,
                                                          s.sraw_right_data.data(),
                                                          s.sraw_right_data.size()), TYPE_SRAW));
-  packets.push_back(make_packet(build_pose_payload(s.pose_type, true, true, s.pose_xyz[0], s.pose_xyz[1], s.pose_xyz[2], s.pose_quat), TYPE_POSE));
-  packets.push_back(make_packet(build_pose_payload(s.upose_type, true, false, s.upose_xyz[0], s.upose_xyz[1], s.upose_xyz[2], s.upose_quat), TYPE_UPOSE));
+  packets.push_back(make_packet(build_pose_payload(s.pose_type, true, true,
+                                                   s.pose_xyz[0], s.pose_xyz[1], s.pose_xyz[2],
+                                                   s.pose_quat, s.pose_confidence01), TYPE_POSE));
+  packets.push_back(make_packet(build_pose_payload(s.upose_type, true, false,
+                                                   s.upose_xyz[0], s.upose_xyz[1], s.upose_xyz[2],
+                                                   s.upose_quat, s.upose_confidence01), TYPE_UPOSE));
   packets.push_back(make_packet(build_constraints_payload(s.constraints), TYPE_LCON));
   packets.push_back(make_packet(build_viz_payload(s.viz0), TYPE_VIZ));
   packets.push_back(make_packet(build_viz_payload(s.viz1), TYPE_VIZ));

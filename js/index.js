@@ -300,11 +300,12 @@ function buildStereoRawPayload({ left = {}, right = {} } = {}) {
   return fromU8(out);
 }
 
-function buildPosePayload({ poseType = 0, poseFlags = 0, position = [0, 0, 0], quat = null }) {
+function buildPosePayload({ poseType = 0, poseFlags = 0, position = [0, 0, 0], quat = null, confidence = 1.0 } = {}) {
   const hasQuat = Array.isArray(quat) && quat.length === 4;
   let flags = poseFlags;
   if (hasQuat) flags |= 0x1;
-  const len = 4 + 4 + 8 * 3 + (hasQuat ? 8 * 4 : 0);
+  // NOTE: Keep payload append-only for backward compatibility; new fields go at the end.
+  const len = 4 + 4 + 8 * 3 + (hasQuat ? 8 * 4 : 0) + 4;
   const buf = new Uint8Array(len);
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   let off = 0;
@@ -319,6 +320,11 @@ function buildPosePayload({ poseType = 0, poseFlags = 0, position = [0, 0, 0], q
     dv.setFloat64(off, quat[2], false); off += 8;
     dv.setFloat64(off, quat[3], false); off += 8;
   }
+  let c = Number(confidence);
+  if (!Number.isFinite(c)) c = 0.0;
+  if (c < 0) c = 0.0;
+  if (c > 1) c = 1.0;
+  dv.setFloat32(off, c, false);
   return fromU8(buf);
 }
 
@@ -577,8 +583,16 @@ function decodePosePayload(payload) {
       readF64BE(u8, off), readF64BE(u8, off + 8),
       readF64BE(u8, off + 16), readF64BE(u8, off + 24),
     ];
+    off += 32;
   }
-  return { poseType, poseFlags, position: [x, y, z], quat };
+  let confidence = 1.0;
+  if (u8.length >= off + 4) {
+    confidence = readF32BE(u8, off);
+  }
+  if (!Number.isFinite(confidence)) confidence = 0.0;
+  if (confidence < 0) confidence = 0.0;
+  if (confidence > 1) confidence = 1.0;
+  return { poseType, poseFlags, position: [x, y, z], quat, confidence };
 }
 
 function decodeConstraintsPayload(payload) {
