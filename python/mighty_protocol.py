@@ -227,6 +227,11 @@ def decode_pose_payload(payload: bytes):
     angvel = read_vec3(3)
     linacc = read_vec3(4)
     angacc = read_vec3(5)
+    timestamp_ns = None
+    if (flags & (1 << 6)) != 0:
+        if len(payload) >= off + 8:
+            timestamp_ns = struct.unpack(">Q", payload[off:off+8])[0]
+            off += 8
     return {
         "pose_type": pose_type,
         "pose_flags": flags,
@@ -237,6 +242,7 @@ def decode_pose_payload(payload: bytes):
         "angvel": angvel,
         "linacc": linacc,
         "angacc": angacc,
+        "timestamp_ns": timestamp_ns,
     }
 
 def decode_constraints_payload(payload: bytes):

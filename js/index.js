@@ -300,37 +300,51 @@ function buildStereoRawPayload({ left = {}, right = {} } = {}) {
   return fromU8(out);
 }
 
-	function buildPosePayload({
-	  poseType = 0,
-	  poseFlags = 0,
-	  position = [0, 0, 0],
-	  quat = null,
-	  confidence = 1.0,
-	  linvel = null,
-	  angvel = null,
-	  linacc = null,
-	  angacc = null,
-	} = {}) {
-	  const hasQuat = Array.isArray(quat) && quat.length === 4;
-	  const hasLinVel = Array.isArray(linvel) && linvel.length === 3;
-	  const hasAngVel = Array.isArray(angvel) && angvel.length === 3;
-	  const hasLinAcc = Array.isArray(linacc) && linacc.length === 3;
-	  const hasAngAcc = Array.isArray(angacc) && angacc.length === 3;
-	  let flags = poseFlags;
-	  if (hasQuat) flags |= 0x1;
-	  if (hasLinVel) flags |= (1 << 2);
-	  if (hasAngVel) flags |= (1 << 3);
-	  if (hasLinAcc) flags |= (1 << 4);
-	  if (hasAngAcc) flags |= (1 << 5);
-	  // NOTE: Keep payload append-only for backward compatibility; new fields go at the end.
-	  const len = 4 + 4 + 8 * 3 + (hasQuat ? 8 * 4 : 0) + 4 +
-	              (hasLinVel ? 8 * 3 : 0) +
-	              (hasAngVel ? 8 * 3 : 0) +
-	              (hasLinAcc ? 8 * 3 : 0) +
-	              (hasAngAcc ? 8 * 3 : 0);
-	  const buf = new Uint8Array(len);
-	  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
-	  let off = 0;
+		function buildPosePayload({
+		  poseType = 0,
+		  poseFlags = 0,
+		  position = [0, 0, 0],
+		  quat = null,
+		  confidence = 1.0,
+		  linvel = null,
+		  angvel = null,
+		  linacc = null,
+		  angacc = null,
+		  timestampNs = null,
+		} = {}) {
+		  const hasQuat = Array.isArray(quat) && quat.length === 4;
+		  const hasLinVel = Array.isArray(linvel) && linvel.length === 3;
+		  const hasAngVel = Array.isArray(angvel) && angvel.length === 3;
+		  const hasLinAcc = Array.isArray(linacc) && linacc.length === 3;
+		  const hasAngAcc = Array.isArray(angacc) && angacc.length === 3;
+		  let tsVal = 0n;
+		  let hasTs = false;
+		  if (timestampNs !== null && timestampNs !== undefined) {
+		    try {
+		      tsVal = typeof timestampNs === "bigint" ? timestampNs : BigInt(timestampNs);
+		      hasTs = tsVal > 0n;
+		    } catch (_) {
+		      hasTs = false;
+		      tsVal = 0n;
+		    }
+		  }
+		  let flags = poseFlags;
+		  if (hasQuat) flags |= 0x1;
+		  if (hasLinVel) flags |= (1 << 2);
+		  if (hasAngVel) flags |= (1 << 3);
+		  if (hasLinAcc) flags |= (1 << 4);
+		  if (hasAngAcc) flags |= (1 << 5);
+		  if (hasTs) flags |= (1 << 6);
+		  // NOTE: Keep payload append-only for backward compatibility; new fields go at the end.
+		  const len = 4 + 4 + 8 * 3 + (hasQuat ? 8 * 4 : 0) + 4 +
+		              (hasLinVel ? 8 * 3 : 0) +
+		              (hasAngVel ? 8 * 3 : 0) +
+		              (hasLinAcc ? 8 * 3 : 0) +
+		              (hasAngAcc ? 8 * 3 : 0) +
+		              (hasTs ? 8 : 0);
+		  const buf = new Uint8Array(len);
+		  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+		  let off = 0;
 	  dv.setUint32(off, poseType >>> 0, false); off += 4;
 	  dv.setUint32(off, flags >>> 0, false); off += 4;
 	  dv.setFloat64(off, position[0], false); off += 8;
@@ -354,12 +368,15 @@ function buildStereoRawPayload({ left = {}, right = {} } = {}) {
 	    dv.setFloat64(off, v[1], false); off += 8;
 	    dv.setFloat64(off, v[2], false); off += 8;
 	  };
-	  if (hasLinVel) writeVec3(linvel);
-	  if (hasAngVel) writeVec3(angvel);
-	  if (hasLinAcc) writeVec3(linacc);
-	  if (hasAngAcc) writeVec3(angacc);
-	  return fromU8(buf);
-	}
+		  if (hasLinVel) writeVec3(linvel);
+		  if (hasAngVel) writeVec3(angvel);
+		  if (hasLinAcc) writeVec3(linacc);
+		  if (hasAngAcc) writeVec3(angacc);
+		  if (hasTs) {
+		    dv.setBigUint64(off, tsVal, false); off += 8;
+		  }
+		  return fromU8(buf);
+		}
 
 function buildConstraintsPayload(segments = []) {
   const per = 1 + 6 * 4;
@@ -602,11 +619,11 @@ function decodeStereoRawPayload(payload) {
   };
 }
 
-	function decodePosePayload(payload) {
-	  const u8 = toU8(payload);
-	  let off = 0;
-	  const poseType = readU32BE(u8, off); off += 4;
-	  const poseFlags = readU32BE(u8, off); off += 4;
+		function decodePosePayload(payload) {
+		  const u8 = toU8(payload);
+		  let off = 0;
+		  const poseType = readU32BE(u8, off); off += 4;
+		  const poseFlags = readU32BE(u8, off); off += 4;
 	  const x = readF64BE(u8, off); off += 8;
 	  const y = readF64BE(u8, off); off += 8;
 	  const z = readF64BE(u8, off); off += 8;
@@ -633,13 +650,16 @@ function decodeStereoRawPayload(payload) {
 	    off += 24;
 	    return v;
 	  };
-	  const linvel = (poseFlags & (1 << 2)) ? readVec3() : null;
-	  const angvel = (poseFlags & (1 << 3)) ? readVec3() : null;
-	  const linacc = (poseFlags & (1 << 4)) ? readVec3() : null;
-	  const angacc = (poseFlags & (1 << 5)) ? readVec3() : null;
+		  const linvel = (poseFlags & (1 << 2)) ? readVec3() : null;
+		  const angvel = (poseFlags & (1 << 3)) ? readVec3() : null;
+		  const linacc = (poseFlags & (1 << 4)) ? readVec3() : null;
+		  const angacc = (poseFlags & (1 << 5)) ? readVec3() : null;
+		  const timestampNs =
+		    (poseFlags & (1 << 6)) && u8.length >= off + 8 ? readBigU64BE(u8, off) : null;
+		  if (timestampNs !== null) off += 8;
 
-	  return { poseType, poseFlags, position: [x, y, z], quat, confidence, linvel, angvel, linacc, angacc };
-	}
+		  return { poseType, poseFlags, position: [x, y, z], quat, confidence, linvel, angvel, linacc, angacc, timestampNs };
+		}
 
 function decodeConstraintsPayload(payload) {
   const u8 = toU8(payload);
