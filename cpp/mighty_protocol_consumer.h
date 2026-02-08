@@ -123,6 +123,7 @@ class DecodedDispatcher {
   using VizHandler = std::function<void(const std::vector<uint8_t>&)>;
   using ImuHandler = std::function<void(const std::vector<ImuSample>&)>;
   using StatusHandler = std::function<void(const std::string&)>;
+  using VioStateHandler = std::function<void(const VioState&)>;
   using ResetHandler = std::function<void()>;
   using CommandHandler = std::function<void(const CommandRequest&)>;
   using CommandResponseHandler = std::function<void(const CommandResponse&)>;
@@ -137,6 +138,7 @@ class DecodedDispatcher {
   void on_viz(VizHandler h) { viz_handler_ = std::move(h); }
   void on_imu(ImuHandler h) { imu_handler_ = std::move(h); }
   void on_status(StatusHandler h) { status_handler_ = std::move(h); }
+  void on_vio_state(VioStateHandler h) { vio_state_handler_ = std::move(h); }
   void on_reset(ResetHandler h) { reset_handler_ = std::move(h); }
   void on_command(CommandHandler h) { command_handler_ = std::move(h); }
   void on_command_response(CommandResponseHandler h) { command_response_handler_ = std::move(h); }
@@ -230,6 +232,10 @@ class DecodedDispatcher {
       if (!status_handler_) return;
       std::string text;
       if (decode_status_payload(f.payload, text)) status_handler_(text);
+    } else if (type == "VSTA") {
+      if (!vio_state_handler_) return;
+      VioState s{};
+      if (decode_vio_state_payload(f.payload, s)) vio_state_handler_(s);
     } else if (type == "RSET") {
       if (reset_handler_) reset_handler_();
     } else if (type == "CMD ") {
@@ -258,6 +264,7 @@ class DecodedDispatcher {
   VizHandler viz_handler_;
   ImuHandler imu_handler_;
   StatusHandler status_handler_;
+  VioStateHandler vio_state_handler_;
   ResetHandler reset_handler_;
   CommandHandler command_handler_;
   CommandResponseHandler command_response_handler_;

@@ -54,9 +54,21 @@ const SAMPLE = {
     ],
     pointSize: 1.5,
   },
+  vsta: {
+    version: 1,
+    state: 2,
+    flags: 0x1234,
+    timestampNs: 999n,
+    fpsCurrent: 31.5,
+    fpsAverage: 30.0,
+    poseConfidence: 0.75,
+    trackingRate: 0.88,
+    numFeatures: 321,
+    loopClosures: 7,
+  },
 };
 
-const EXPECTED_COUNT = 15;
+const EXPECTED_COUNT = 16;
 
 function buildPackets() {
   return [
@@ -97,6 +109,7 @@ function buildPackets() {
     proto.makePacket(proto.TYPE.VIZ, proto.buildVizPayload(SAMPLE.viz2)),
     proto.makePacket(proto.TYPE.IMU, proto.buildImuPayload(SAMPLE.imu)),
     proto.makePacket(proto.TYPE.STAT, proto.buildStatusPayload(SAMPLE.status)),
+    proto.makePacket(proto.TYPE.VSTA, proto.buildVioStatePayload(SAMPLE.vsta)),
     proto.makePacket(proto.TYPE.FEA3, proto.buildFea3Payload(SAMPLE.fea3)),
     proto.makePacket(proto.TYPE.PCLD, proto.buildPcldPayload(SAMPLE.pcld.points, SAMPLE.pcld.pointSize)),
   ];
@@ -192,6 +205,20 @@ function verifyFrame(frame, index) {
     case proto.TYPE.STAT:
       assert.strictEqual(proto.decodeStatusPayload(payload), SAMPLE.status);
       break;
+    case proto.TYPE.VSTA: {
+      const s = proto.decodeVioStatePayload(payload);
+      assert.strictEqual(s.version, SAMPLE.vsta.version);
+      assert.strictEqual(s.state, SAMPLE.vsta.state);
+      assert.strictEqual(s.flags, SAMPLE.vsta.flags);
+      assert.strictEqual(s.timestampNs, SAMPLE.vsta.timestampNs);
+      assert(almost(s.fpsCurrent, SAMPLE.vsta.fpsCurrent, 1e-3));
+      assert(almost(s.fpsAverage, SAMPLE.vsta.fpsAverage, 1e-3));
+      assert(almost(s.poseConfidence, SAMPLE.vsta.poseConfidence, 1e-3));
+      assert(almost(s.trackingRate, SAMPLE.vsta.trackingRate, 1e-3));
+      assert.strictEqual(s.numFeatures, SAMPLE.vsta.numFeatures);
+      assert.strictEqual(s.loopClosures, SAMPLE.vsta.loopClosures);
+      break;
+    }
     case proto.TYPE.FEA3: {
       const feats = proto.decodeFea3Payload(payload);
       assert.strictEqual(feats.length, SAMPLE.fea3.length);
@@ -278,17 +305,18 @@ async function main() {
 
 async function runFuzzTests() {
   const crypto = require('crypto');
-  const fuzzTypes = [
-    proto.TYPE.JPG,
-    proto.TYPE.RJPG,
-    proto.TYPE.RAW,
-    proto.TYPE.SRAW,
-    proto.TYPE.POSE,
-    proto.TYPE.UPOSE,
-    proto.TYPE.LCON,
-    proto.TYPE.IMU,
-    proto.TYPE.STAT,
-  ];
+	  const fuzzTypes = [
+	    proto.TYPE.JPG,
+	    proto.TYPE.RJPG,
+	    proto.TYPE.RAW,
+	    proto.TYPE.SRAW,
+	    proto.TYPE.POSE,
+	    proto.TYPE.UPOSE,
+	    proto.TYPE.LCON,
+	    proto.TYPE.IMU,
+	    proto.TYPE.STAT,
+	    proto.TYPE.VSTA,
+	  ];
 
   function randomJpgPayload(isRef) {
     const data = crypto.randomBytes(16);
@@ -330,9 +358,24 @@ async function runFuzzTests() {
     ]);
   }
 
-  function randomStatPayload() {
-    return proto.buildStatusPayload('fuzz');
-  }
+	  function randomStatPayload() {
+	    return proto.buildStatusPayload('fuzz');
+	  }
+
+	  function randomVstaPayload() {
+	    return proto.buildVioStatePayload({
+	      version: 1,
+	      state: 2,
+	      flags: 0,
+	      timestampNs: BigInt(Math.floor(Math.random() * 1e6)),
+	      fpsCurrent: Math.random() * 60,
+	      fpsAverage: Math.random() * 60,
+	      poseConfidence: Math.random(),
+	      trackingRate: Math.random(),
+	      numFeatures: Math.floor(Math.random() * 1000),
+	      loopClosures: Math.floor(Math.random() * 100),
+	    });
+	  }
 
   const builders = {
     [proto.TYPE.JPG]: () => randomJpgPayload(false),
@@ -345,9 +388,10 @@ async function runFuzzTests() {
     [proto.TYPE.POSE]: () => randomPosePayload(),
     [proto.TYPE.UPOSE]: () => randomPosePayload(),
     [proto.TYPE.LCON]: () => randomConstraintsPayload(),
-    [proto.TYPE.IMU]: () => randomImuPayload(),
-    [proto.TYPE.STAT]: () => randomStatPayload(),
-  };
+	    [proto.TYPE.IMU]: () => randomImuPayload(),
+	    [proto.TYPE.STAT]: () => randomStatPayload(),
+	    [proto.TYPE.VSTA]: () => randomVstaPayload(),
+	  };
 
   for (let iter = 0; iter < 50; iter++) {
     const pkts = [];
@@ -375,11 +419,12 @@ async function runFuzzTests() {
         case proto.TYPE.POSE:
         case proto.TYPE.UPOSE: proto.decodePosePayload(f.payload); break;
         case proto.TYPE.LCON: proto.decodeConstraintsPayload(f.payload); break;
-        case proto.TYPE.IMU: proto.decodeImuPayload(f.payload); break;
-        case proto.TYPE.STAT: proto.decodeStatusPayload(f.payload); break;
-      }
-    }
-  }
+	        case proto.TYPE.IMU: proto.decodeImuPayload(f.payload); break;
+	        case proto.TYPE.STAT: proto.decodeStatusPayload(f.payload); break;
+	        case proto.TYPE.VSTA: proto.decodeVioStatePayload(f.payload); break;
+	      }
+	    }
+	  }
   console.log('Node fuzz/dispatcher decode test passed');
 }
 

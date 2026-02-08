@@ -46,6 +46,22 @@ This builds the C++ test binary and runs the Node roundtrip test plus a Python c
 - Bit 5: `angacc` present (float64[3]): **`alpha_B`** angular acceleration in body frame (typically finite-differenced; noisy)
 - Bit 6: `timestamp_ns` present (uint64): pose timestamp in nanoseconds (appended at the end)
 
+## VIO State (VSTA)
+
+`VSTA` is a low-rate structured telemetry packet intended to replace ad-hoc parsing of `STAT` strings.
+
+Payload (big-endian), version 1:
+- `version` (u8) = 1
+- `state` (u8): producer-defined enum (recommended: 0=OFF, 1=INITIALIZING, 2=TRACKING, 3=DEGRADED, 4=LOST)
+- `flags` (u16): producer-defined bitfield (e.g. initialized/have_pose/have_kinematics)
+- `timestamp_ns` (u64): timestamp associated with the state sample (often the latest pose/image timestamp)
+- `fps_current` (f32)
+- `fps_average` (f32)
+- `pose_confidence01` (f32)
+- `tracking_rate` (f32)
+- `num_features` (u32)
+- `loop_closures` (u32)
+
 ### C++ (producer/consumer)
 - Produce
   - `make_packet(payload, TYPE_*)` – wrap framing + CRC.

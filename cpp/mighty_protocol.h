@@ -26,6 +26,7 @@ inline constexpr char TYPE_STAT[4] = {'S','T','A','T'};
 inline constexpr char TYPE_RSET[4] = {'R','S','E','T'};
 inline constexpr char TYPE_FEA3[4] = {'F','E','A','3'};
 inline constexpr char TYPE_PCLD[4] = {'P','C','L','D'};
+inline constexpr char TYPE_VSTA[4] = {'V','S','T','A'};
 inline constexpr char TYPE_CMD[4]  = {'C','M','D',' '};
 inline constexpr char TYPE_CRES[4] = {'C','R','E','S'};
 
@@ -247,6 +248,30 @@ struct CommandResponse {
   uint8_t status = 0; // 0=ok, 1=error
   std::string message;
   std::vector<uint8_t> data;
+};
+
+struct VioState {
+  // Payload layout (big-endian):
+  //   u8  version (currently 1)
+  //   u8  state   (enum chosen by producer)
+  //   u16 flags   (bitfield chosen by producer)
+  //   u64 timestamp_ns (typically pose/image timestamp; 0 if unknown)
+  //   f32 fps_current
+  //   f32 fps_average
+  //   f32 pose_confidence01
+  //   f32 tracking_rate
+  //   u32 num_features
+  //   u32 loop_closures
+  uint8_t version = 1;
+  uint8_t state = 0;
+  uint16_t flags = 0;
+  uint64_t timestamp_ns = 0;
+  float fps_current = 0.0f;
+  float fps_average = 0.0f;
+  float pose_confidence01 = 0.0f;
+  float tracking_rate = 0.0f;
+  uint32_t num_features = 0;
+  uint32_t loop_closures = 0;
 };
 
 // --------------------------------------------------------------------------
@@ -534,6 +559,24 @@ inline std::vector<uint8_t> build_imu_payload(const std::vector<ImuSample>& batc
 
 inline std::vector<uint8_t> build_status_payload(const std::string& text) {
   return std::vector<uint8_t>(text.begin(), text.end());
+}
+
+inline std::vector<uint8_t> build_vio_state_payload(const VioState& s) {
+  std::vector<uint8_t> payload;
+  payload.resize(1 + 1 + 2 + 8 + 4 + 4 + 4 + 4 + 4 + 4);
+  size_t off = 0;
+  payload[off++] = s.version;
+  payload[off++] = s.state;
+  payload[off++] = static_cast<uint8_t>((s.flags >> 8) & 0xFF);
+  payload[off++] = static_cast<uint8_t>(s.flags & 0xFF);
+  write_u64_be(payload.data() + off, s.timestamp_ns); off += 8;
+  write_f32_be(payload.data() + off, s.fps_current); off += 4;
+  write_f32_be(payload.data() + off, s.fps_average); off += 4;
+  write_f32_be(payload.data() + off, s.pose_confidence01); off += 4;
+  write_f32_be(payload.data() + off, s.tracking_rate); off += 4;
+  write_u32_be(payload.data() + off, s.num_features); off += 4;
+  write_u32_be(payload.data() + off, s.loop_closures); off += 4;
+  return payload;
 }
 
 inline std::vector<uint8_t> build_fea3_payload(const std::vector<Feature3D>& features) {
@@ -965,6 +1008,40 @@ inline bool decode_imu_payload(const std::vector<uint8_t>& payload,
 
 inline bool decode_status_payload(const std::vector<uint8_t>& payload, std::string& text) {
   text.assign(payload.begin(), payload.end());
+  return true;
+}
+
+inline bool decode_vio_state_payload(const std::vector<uint8_t>& payload, VioState& out) {
+  const size_t need = 1 + 1 + 2 + 8 + 4 + 4 + 4 + 4 + 4 + 4;
+  if (payload.size() < need) return false;
+  size_t off = 0;
+  out.version = payload[off++];
+  out.state = payload[off++];
+  out.flags = static_cast<uint16_t>((payload[off] << 8) | payload[off + 1]); off += 2;
+  out.timestamp_ns = 0;
+  for (int i = 0; i < 8; ++i) out.timestamp_ns = (out.timestamp_ns << 8) | payload[off + i];
+  off += 8;
+  auto rd_f32 = [&](float& v) {
+    uint32_t tmp = (static_cast<uint32_t>(payload[off]) << 24) |
+                   (static_cast<uint32_t>(payload[off + 1]) << 16) |
+                   (static_cast<uint32_t>(payload[off + 2]) << 8) |
+                   (static_cast<uint32_t>(payload[off + 3]));
+    std::memcpy(&v, &tmp, 4);
+    off += 4;
+  };
+  rd_f32(out.fps_current);
+  rd_f32(out.fps_average);
+  rd_f32(out.pose_confidence01);
+  rd_f32(out.tracking_rate);
+  out.num_features = (static_cast<uint32_t>(payload[off]) << 24) |
+                     (static_cast<uint32_t>(payload[off + 1]) << 16) |
+                     (static_cast<uint32_t>(payload[off + 2]) << 8) |
+                     (static_cast<uint32_t>(payload[off + 3]));
+  off += 4;
+  out.loop_closures = (static_cast<uint32_t>(payload[off]) << 24) |
+                      (static_cast<uint32_t>(payload[off + 1]) << 16) |
+                      (static_cast<uint32_t>(payload[off + 2]) << 8) |
+                      (static_cast<uint32_t>(payload[off + 3]));
   return true;
 }
 

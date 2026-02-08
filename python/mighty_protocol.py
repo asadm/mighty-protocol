@@ -16,6 +16,7 @@ TYPE = {
     "VIZ": b"VIZ ",
     "IMU": b"IMU ",
     "STAT": b"STAT",
+    "VSTA": b"VSTA",
     "RSET": b"RSET",
     "FEA3": b"FEA3",
     "PCLD": b"PCLD",
@@ -306,6 +307,33 @@ def decode_imu_payload(payload: bytes):
 
 def decode_status_payload(payload: bytes):
     return payload.decode("utf-8")
+
+def decode_vio_state_payload(payload: bytes):
+    if len(payload) < 1+1+2+8+4+4+4+4+4+4:
+        raise ValueError("payload too short")
+    off = 0
+    version = payload[off]; off += 1
+    state = payload[off]; off += 1
+    flags = struct.unpack(">H", payload[off:off+2])[0]; off += 2
+    timestamp_ns = struct.unpack(">Q", payload[off:off+8])[0]; off += 8
+    fps_current = struct.unpack(">f", payload[off:off+4])[0]; off += 4
+    fps_average = struct.unpack(">f", payload[off:off+4])[0]; off += 4
+    pose_confidence = struct.unpack(">f", payload[off:off+4])[0]; off += 4
+    tracking_rate = struct.unpack(">f", payload[off:off+4])[0]; off += 4
+    num_features = struct.unpack(">I", payload[off:off+4])[0]; off += 4
+    loop_closures = struct.unpack(">I", payload[off:off+4])[0]; off += 4
+    return {
+        "version": version,
+        "state": state,
+        "flags": flags,
+        "timestamp_ns": timestamp_ns,
+        "fps_current": fps_current,
+        "fps_average": fps_average,
+        "pose_confidence": pose_confidence,
+        "tracking_rate": tracking_rate,
+        "num_features": num_features,
+        "loop_closures": loop_closures,
+    }
 
 def decode_fea3_payload(payload: bytes):
     if len(payload) < 2:
