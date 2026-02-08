@@ -16,6 +16,7 @@ const TYPE = {
   VIZ: "VIZ ",
   IMU: "IMU ",
   STAT: "STAT",
+  VSTA: "VSTA",
   RSET: "RSET",
   FEA3: "FEA3",
   PCLD: "PCLD",
@@ -476,6 +477,34 @@ function buildImuPayload(samples = []) {
 const buildStatusPayload = (text = "") =>
   fromU8((textEncoder || new TextEncoder()).encode(text));
 
+function buildVioStatePayload({
+  version = 1,
+  state = 0,
+  flags = 0,
+  timestampNs = 0n,
+  fpsCurrent = 0.0,
+  fpsAverage = 0.0,
+  poseConfidence = 0.0,
+  trackingRate = 0.0,
+  numFeatures = 0,
+  loopClosures = 0,
+} = {}) {
+  const buf = new Uint8Array(1 + 1 + 2 + 8 + 4 + 4 + 4 + 4 + 4 + 4);
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  let off = 0;
+  dv.setUint8(off, version & 0xff); off += 1;
+  dv.setUint8(off, state & 0xff); off += 1;
+  dv.setUint16(off, flags & 0xffff, false); off += 2;
+  dv.setBigUint64(off, BigInt(timestampNs || 0n), false); off += 8;
+  dv.setFloat32(off, Number(fpsCurrent) || 0.0, false); off += 4;
+  dv.setFloat32(off, Number(fpsAverage) || 0.0, false); off += 4;
+  dv.setFloat32(off, Number(poseConfidence) || 0.0, false); off += 4;
+  dv.setFloat32(off, Number(trackingRate) || 0.0, false); off += 4;
+  dv.setUint32(off, (Number(numFeatures) || 0) >>> 0, false); off += 4;
+  dv.setUint32(off, (Number(loopClosures) || 0) >>> 0, false); off += 4;
+  return fromU8(buf);
+}
+
 function buildFea3Payload(features = []) {
   const buf = new Uint8Array(2 + features.length * (2 + 8 * 3));
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
@@ -740,6 +769,26 @@ function decodeImuPayload(payload) {
 const decodeStatusPayload = (payload) =>
   (textDecoder || new TextDecoder()).decode(toU8(payload));
 
+function decodeVioStatePayload(payload) {
+  const u8 = toU8(payload);
+  if (u8.length < 1 + 1 + 2 + 8 + 4 + 4 + 4 + 4 + 4 + 4) {
+    throw new Error("VSTA payload too short");
+  }
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  let off = 0;
+  const version = dv.getUint8(off); off += 1;
+  const state = dv.getUint8(off); off += 1;
+  const flags = dv.getUint16(off, false); off += 2;
+  const timestampNs = dv.getBigUint64(off, false); off += 8;
+  const fpsCurrent = dv.getFloat32(off, false); off += 4;
+  const fpsAverage = dv.getFloat32(off, false); off += 4;
+  const poseConfidence = dv.getFloat32(off, false); off += 4;
+  const trackingRate = dv.getFloat32(off, false); off += 4;
+  const numFeatures = dv.getUint32(off, false); off += 4;
+  const loopClosures = dv.getUint32(off, false); off += 4;
+  return { version, state, flags, timestampNs, fpsCurrent, fpsAverage, poseConfidence, trackingRate, numFeatures, loopClosures };
+}
+
 function decodeFea3Payload(payload) {
   const u8 = toU8(payload);
   let off = 0;
@@ -823,6 +872,7 @@ const api = {
   buildVizPayload,
   buildImuPayload,
   buildStatusPayload,
+  buildVioStatePayload,
   buildFea3Payload,
   buildPcldPayload,
   buildCommandPayload,
@@ -835,6 +885,7 @@ const api = {
   decodeVizPayload,
   decodeImuPayload,
   decodeStatusPayload,
+  decodeVioStatePayload,
   decodeFea3Payload,
   decodePcldPayload,
   decodeCommandPayload,

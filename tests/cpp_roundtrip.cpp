@@ -22,7 +22,7 @@ using namespace mighty_protocol;
 
 namespace {
 
-constexpr int kExpectedFrames = 15; // RSET + JPG + RJPG + RAW + SRAW + POSE + UPOSE + LCON + 3xVIZ + IMU + STAT + FEA3 + PCLD
+constexpr int kExpectedFrames = 16; // RSET + JPG + RJPG + RAW + SRAW + POSE + UPOSE + LCON + 3xVIZ + IMU + STAT + VSTA + FEA3 + PCLD
 
 struct SampleData {
   uint64_t jpg_ts = 111;
@@ -97,6 +97,7 @@ struct SampleData {
   };
 
   std::string status = "STATUS_OK";
+  VioState vsta{};
 
   std::vector<Feature3D> fea3 = {
     {1, 0.1, 0.2, 0.3},
@@ -108,6 +109,19 @@ struct SampleData {
     {4.f, 5.f, 6.f, 40, 50, 60},
   };
   float pcld_size = 1.5f;
+
+  SampleData() {
+    vsta.version = 1;
+    vsta.state = 2;
+    vsta.flags = 0x1234;
+    vsta.timestamp_ns = 999;
+    vsta.fps_current = 31.5f;
+    vsta.fps_average = 30.0f;
+    vsta.pose_confidence01 = 0.75f;
+    vsta.tracking_rate = 0.88f;
+    vsta.num_features = 321;
+    vsta.loop_closures = 7;
+  }
 };
 
 bool approx(double a, double b, double eps = 1e-6) {
@@ -192,6 +206,20 @@ bool verify_frame(const Frame& f, int index, const SampleData& s) {
     if (!decode_status_payload(f.payload, text)) return false;
     return text == s.status;
   }
+  if (type_str == "VSTA") {
+    VioState out{};
+    if (!decode_vio_state_payload(f.payload, out)) return false;
+    return out.version == s.vsta.version &&
+           out.state == s.vsta.state &&
+           out.flags == s.vsta.flags &&
+           out.timestamp_ns == s.vsta.timestamp_ns &&
+           approx(out.fps_current, s.vsta.fps_current, 1e-3) &&
+           approx(out.fps_average, s.vsta.fps_average, 1e-3) &&
+           approx(out.pose_confidence01, s.vsta.pose_confidence01, 1e-3) &&
+           approx(out.tracking_rate, s.vsta.tracking_rate, 1e-3) &&
+           out.num_features == s.vsta.num_features &&
+           out.loop_closures == s.vsta.loop_closures;
+  }
   if (type_str == "FEA3") {
     std::vector<Feature3D> out;
     if (!decode_fea3_payload(f.payload, out)) return false;
@@ -243,6 +271,7 @@ std::vector<std::vector<uint8_t>> build_sample_packets(const SampleData& s) {
   packets.push_back(make_packet(build_viz_payload(s.viz2), TYPE_VIZ));
   packets.push_back(make_packet(build_imu_payload(s.imu), TYPE_IMU));
   packets.push_back(make_packet(build_status_payload(s.status), TYPE_STAT));
+  packets.push_back(make_packet(build_vio_state_payload(s.vsta), TYPE_VSTA));
   packets.push_back(make_packet(build_fea3_payload(s.fea3), TYPE_FEA3));
   packets.push_back(make_packet(build_pcld_payload(s.pcld, s.pcld_size), TYPE_PCLD));
   return packets;

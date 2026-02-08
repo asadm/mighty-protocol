@@ -57,6 +57,18 @@ SAMPLE = {
         ],
         "point_size": 1.5,
     },
+    "vsta": {
+        "version": 1,
+        "state": 2,
+        "flags": 0x1234,
+        "timestamp_ns": 999,
+        "fps_current": 31.5,
+        "fps_average": 30.0,
+        "pose_confidence": 0.75,
+        "tracking_rate": 0.88,
+        "num_features": 321,
+        "loop_closures": 7,
+    },
 }
 
 def almost(a, b, eps=1e-6):
@@ -77,9 +89,25 @@ def build_packets():
     pkts.append(mp.make_packet(mp.TYPE["VIZ"], struct_viz(SAMPLE["viz2"])))
     pkts.append(mp.make_packet(mp.TYPE["IMU"], struct_imu()))
     pkts.append(mp.make_packet(mp.TYPE["STAT"], SAMPLE["status"].encode()))
+    pkts.append(mp.make_packet(mp.TYPE["VSTA"], struct_vsta()))
     pkts.append(mp.make_packet(mp.TYPE["FEA3"], struct_fea3()))
     pkts.append(mp.make_packet(mp.TYPE["PCLD"], struct_pcld()))
     return pkts
+
+def struct_vsta():
+    import struct
+    s = SAMPLE["vsta"]
+    return struct.pack(">BBHQffffII",
+                       int(s["version"]) & 0xff,
+                       int(s["state"]) & 0xff,
+                       int(s["flags"]) & 0xffff,
+                       int(s["timestamp_ns"]),
+                       float(s["fps_current"]),
+                       float(s["fps_average"]),
+                       float(s["pose_confidence"]),
+                       float(s["tracking_rate"]),
+                       int(s["num_features"]) & 0xffffffff,
+                       int(s["loop_closures"]) & 0xffffffff)
 
 def struct_jpg(is_ref):
     import struct
@@ -182,7 +210,7 @@ def main():
     stream = b"".join(build_packets())
     frames, rest = mp.parse_frames(stream)
     assert not rest
-    assert len(frames) == 15
+    assert len(frames) == 16
 
     idx = 0
     assert frames[idx]["type"] == "RSET"; idx += 1
@@ -225,6 +253,17 @@ def main():
     assert len(imu) == len(SAMPLE["imu"])
     stat = mp.decode_status_payload(frames[idx]["payload"]); idx += 1
     assert stat == SAMPLE["status"]
+    vsta = mp.decode_vio_state_payload(frames[idx]["payload"]); idx += 1
+    assert vsta["version"] == SAMPLE["vsta"]["version"]
+    assert vsta["state"] == SAMPLE["vsta"]["state"]
+    assert vsta["flags"] == SAMPLE["vsta"]["flags"]
+    assert vsta["timestamp_ns"] == SAMPLE["vsta"]["timestamp_ns"]
+    assert almost(vsta["fps_current"], SAMPLE["vsta"]["fps_current"], 1e-3)
+    assert almost(vsta["fps_average"], SAMPLE["vsta"]["fps_average"], 1e-3)
+    assert almost(vsta["pose_confidence"], SAMPLE["vsta"]["pose_confidence"], 1e-3)
+    assert almost(vsta["tracking_rate"], SAMPLE["vsta"]["tracking_rate"], 1e-3)
+    assert vsta["num_features"] == SAMPLE["vsta"]["num_features"]
+    assert vsta["loop_closures"] == SAMPLE["vsta"]["loop_closures"]
     fea3 = mp.decode_fea3_payload(frames[idx]["payload"]); idx += 1
     assert fea3[1]["id"] == 2
     pcld = mp.decode_pcld_payload(frames[idx]["payload"]); idx += 1
@@ -237,7 +276,7 @@ def main():
     d = FrameDispatcher(lambda f: seen.append(f["type"]))
     chunked = stream[:20] + stream[20:]  # two chunks
     d.feed(chunked)
-    assert len(seen) == 15
+    assert len(seen) == 16
 
     # Decoded dispatcher sanity
     from decoded_dispatcher import DecodedDispatcher
@@ -257,7 +296,7 @@ def main():
     assert len(decoded_seen) >= 8
 
     # Fuzz decode/dispatch
-    types = ["JPG", "RJPG", "RAW", "SRAW", "POSE", "UPOSE", "LCON", "IMU", "STAT"]
+    types = ["JPG", "RJPG", "RAW", "SRAW", "POSE", "UPOSE", "LCON", "IMU", "STAT", "VSTA"]
     for _ in range(20):
       pkts = []
       for _ in range(5):
@@ -279,6 +318,8 @@ def main():
           payload = struct_imu()
         elif t == "STAT":
           payload = b"fuzz"
+        elif t == "VSTA":
+          payload = struct_vsta()
         pkts.append(mp.make_packet(mp.TYPE[t], payload))
       merged = b"".join(pkts)
       # parse_frames robustness

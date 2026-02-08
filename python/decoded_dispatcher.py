@@ -14,6 +14,7 @@ class DecodedDispatcher:
       on_viz(payload_bytes)
       on_imu(samples_list)
       on_status(text)
+      on_vio_state(state_dict)
       on_reset()
     """
     def __init__(self):
@@ -27,6 +28,7 @@ class DecodedDispatcher:
         self.on_viz = None
         self.on_imu = None
         self.on_status = None
+        self.on_vio_state = None
         self.on_reset = None
         self._buffer = b""
 
@@ -78,5 +80,7 @@ class DecodedDispatcher:
                 if self.on_imu: self.on_imu(mp.decode_imu_payload(p))
             elif t == "STAT":
                 if self.on_status: self.on_status(mp.decode_status_payload(p))
+            elif t == "VSTA":
+                if self.on_vio_state: self.on_vio_state(mp.decode_vio_state_payload(p))
             elif t == "RSET":
                 if self.on_reset: self.on_reset()
