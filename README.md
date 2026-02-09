@@ -50,7 +50,9 @@ This builds the C++ test binary and runs the Node roundtrip test plus a Python c
 
 `VSTA` is a low-rate structured telemetry packet intended to replace ad-hoc parsing of `STAT` strings.
 
-Payload (big-endian), version 1:
+Payload (big-endian):
+
+Version 1:
 - `version` (u8) = 1
 - `state` (u8): producer-defined enum (recommended: 0=OFF, 1=INITIALIZING, 2=TRACKING, 3=DEGRADED, 4=LOST)
 - `flags` (u16): producer-defined bitfield (e.g. initialized/have_pose/have_kinematics)
@@ -61,6 +63,10 @@ Payload (big-endian), version 1:
 - `tracking_rate` (f32)
 - `num_features` (u32)
 - `loop_closures` (u32)
+
+Version 2: appends
+- `build_version_len` (u8)
+- `build_version` (u8[build_version_len]) ASCII build/version string (e.g. `Mighty v.YYYYMMDD-<hash>`)
 
 ### C++ (producer/consumer)
 - Produce

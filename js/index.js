@@ -488,11 +488,16 @@ function buildVioStatePayload({
   trackingRate = 0.0,
   numFeatures = 0,
   loopClosures = 0,
+  buildVersion = "",
 } = {}) {
-  const buf = new Uint8Array(1 + 1 + 2 + 8 + 4 + 4 + 4 + 4 + 4 + 4);
+  const enc = textEncoder || new TextEncoder();
+  const buildBytes = typeof buildVersion === "string" ? enc.encode(buildVersion) : new Uint8Array();
+  const buildLen = Math.min(255, buildBytes.length);
+  const ver = buildLen > 0 ? 2 : (version & 0xff);
+  const buf = new Uint8Array((1 + 1 + 2 + 8 + 4 + 4 + 4 + 4 + 4 + 4) + (ver >= 2 ? (1 + buildLen) : 0));
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   let off = 0;
-  dv.setUint8(off, version & 0xff); off += 1;
+  dv.setUint8(off, ver); off += 1;
   dv.setUint8(off, state & 0xff); off += 1;
   dv.setUint16(off, flags & 0xffff, false); off += 2;
   dv.setBigUint64(off, BigInt(timestampNs || 0n), false); off += 8;
@@ -502,6 +507,12 @@ function buildVioStatePayload({
   dv.setFloat32(off, Number(trackingRate) || 0.0, false); off += 4;
   dv.setUint32(off, (Number(numFeatures) || 0) >>> 0, false); off += 4;
   dv.setUint32(off, (Number(loopClosures) || 0) >>> 0, false); off += 4;
+  if (ver >= 2) {
+    dv.setUint8(off, buildLen); off += 1;
+    if (buildLen > 0) {
+      buf.set(buildBytes.subarray(0, buildLen), off);
+    }
+  }
   return fromU8(buf);
 }
 
@@ -786,7 +797,16 @@ function decodeVioStatePayload(payload) {
   const trackingRate = dv.getFloat32(off, false); off += 4;
   const numFeatures = dv.getUint32(off, false); off += 4;
   const loopClosures = dv.getUint32(off, false); off += 4;
-  return { version, state, flags, timestampNs, fpsCurrent, fpsAverage, poseConfidence, trackingRate, numFeatures, loopClosures };
+  const dec = textDecoder || new TextDecoder();
+  let buildVersion = "";
+  if (version >= 2 && off < u8.length) {
+    const ll = dv.getUint8(off); off += 1;
+    if (ll > 0) {
+      if (off + ll > u8.length) throw new Error("VSTA buildVersion truncated");
+      buildVersion = dec.decode(u8.subarray(off, off + ll));
+    }
+  }
+  return { version, state, flags, timestampNs, fpsCurrent, fpsAverage, poseConfidence, trackingRate, numFeatures, loopClosures, buildVersion };
 }
 
 function decodeFea3Payload(payload) {

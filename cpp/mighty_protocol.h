@@ -252,7 +252,7 @@ struct CommandResponse {
 
 struct VioState {
   // Payload layout (big-endian):
-  //   u8  version (currently 1)
+  //   u8  version
   //   u8  state   (enum chosen by producer)
   //   u16 flags   (bitfield chosen by producer)
   //   u64 timestamp_ns (typically pose/image timestamp; 0 if unknown)
@@ -262,6 +262,10 @@ struct VioState {
   //   f32 tracking_rate
   //   u32 num_features
   //   u32 loop_closures
+  //
+  // Version 2+ appends:
+  //   u8  build_version_len
+  //   u8[build_version_len] build_version (ASCII)
   uint8_t version = 1;
   uint8_t state = 0;
   uint16_t flags = 0;
@@ -272,6 +276,7 @@ struct VioState {
   float tracking_rate = 0.0f;
   uint32_t num_features = 0;
   uint32_t loop_closures = 0;
+  std::string build_version;
 };
 
 // --------------------------------------------------------------------------
@@ -562,8 +567,9 @@ inline std::vector<uint8_t> build_status_payload(const std::string& text) {
 }
 
 inline std::vector<uint8_t> build_vio_state_payload(const VioState& s) {
+  const uint8_t build_len = static_cast<uint8_t>(std::min<size_t>(255, s.build_version.size()));
   std::vector<uint8_t> payload;
-  payload.resize(1 + 1 + 2 + 8 + 4 + 4 + 4 + 4 + 4 + 4);
+  payload.resize(1 + 1 + 2 + 8 + 4 + 4 + 4 + 4 + 4 + 4 + (s.version >= 2 ? (1 + build_len) : 0));
   size_t off = 0;
   payload[off++] = s.version;
   payload[off++] = s.state;
@@ -576,6 +582,12 @@ inline std::vector<uint8_t> build_vio_state_payload(const VioState& s) {
   write_f32_be(payload.data() + off, s.tracking_rate); off += 4;
   write_u32_be(payload.data() + off, s.num_features); off += 4;
   write_u32_be(payload.data() + off, s.loop_closures); off += 4;
+  if (s.version >= 2) {
+    payload[off++] = build_len;
+    if (build_len > 0) {
+      std::memcpy(payload.data() + off, s.build_version.data(), build_len);
+    }
+  }
   return payload;
 }
 
@@ -1042,6 +1054,19 @@ inline bool decode_vio_state_payload(const std::vector<uint8_t>& payload, VioSta
                       (static_cast<uint32_t>(payload[off + 1]) << 16) |
                       (static_cast<uint32_t>(payload[off + 2]) << 8) |
                       (static_cast<uint32_t>(payload[off + 3]));
+  off += 4;
+
+  out.build_version.clear();
+  if (out.version >= 2) {
+    if (off < payload.size()) {
+      const uint8_t ll = payload[off++];
+      if (ll > 0) {
+        if (payload.size() < off + ll) return false;
+        out.build_version.assign(reinterpret_cast<const char*>(payload.data() + off),
+                                 reinterpret_cast<const char*>(payload.data() + off + ll));
+      }
+    }
+  }
   return true;
 }
 

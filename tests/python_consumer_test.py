@@ -58,7 +58,7 @@ SAMPLE = {
         "point_size": 1.5,
     },
     "vsta": {
-        "version": 1,
+        "version": 2,
         "state": 2,
         "flags": 0x1234,
         "timestamp_ns": 999,
@@ -68,6 +68,7 @@ SAMPLE = {
         "tracking_rate": 0.88,
         "num_features": 321,
         "loop_closures": 7,
+        "build_version": "Mighty v.20260208-deadbeef",
     },
 }
 
@@ -97,7 +98,7 @@ def build_packets():
 def struct_vsta():
     import struct
     s = SAMPLE["vsta"]
-    return struct.pack(">BBHQffffII",
+    base = struct.pack(">BBHQffffII",
                        int(s["version"]) & 0xff,
                        int(s["state"]) & 0xff,
                        int(s["flags"]) & 0xffff,
@@ -108,6 +109,10 @@ def struct_vsta():
                        float(s["tracking_rate"]),
                        int(s["num_features"]) & 0xffffffff,
                        int(s["loop_closures"]) & 0xffffffff)
+    if int(s["version"]) >= 2:
+        bv = (s.get("build_version") or "").encode("utf-8")[:255]
+        return base + bytes([len(bv)]) + bv
+    return base
 
 def struct_jpg(is_ref):
     import struct
@@ -264,6 +269,7 @@ def main():
     assert almost(vsta["tracking_rate"], SAMPLE["vsta"]["tracking_rate"], 1e-3)
     assert vsta["num_features"] == SAMPLE["vsta"]["num_features"]
     assert vsta["loop_closures"] == SAMPLE["vsta"]["loop_closures"]
+    assert vsta.get("build_version", "") == SAMPLE["vsta"]["build_version"]
     fea3 = mp.decode_fea3_payload(frames[idx]["payload"]); idx += 1
     assert fea3[1]["id"] == 2
     pcld = mp.decode_pcld_payload(frames[idx]["payload"]); idx += 1

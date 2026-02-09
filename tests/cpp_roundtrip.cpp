@@ -111,7 +111,7 @@ struct SampleData {
   float pcld_size = 1.5f;
 
   SampleData() {
-    vsta.version = 1;
+    vsta.version = 2;
     vsta.state = 2;
     vsta.flags = 0x1234;
     vsta.timestamp_ns = 999;
@@ -121,6 +121,7 @@ struct SampleData {
     vsta.tracking_rate = 0.88f;
     vsta.num_features = 321;
     vsta.loop_closures = 7;
+    vsta.build_version = "Mighty v.20260208-deadbeef";
   }
 };
 
@@ -218,7 +219,8 @@ bool verify_frame(const Frame& f, int index, const SampleData& s) {
            approx(out.pose_confidence01, s.vsta.pose_confidence01, 1e-3) &&
            approx(out.tracking_rate, s.vsta.tracking_rate, 1e-3) &&
            out.num_features == s.vsta.num_features &&
-           out.loop_closures == s.vsta.loop_closures;
+           out.loop_closures == s.vsta.loop_closures &&
+           out.build_version == s.vsta.build_version;
   }
   if (type_str == "FEA3") {
     std::vector<Feature3D> out;
