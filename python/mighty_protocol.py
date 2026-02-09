@@ -322,6 +322,13 @@ def decode_vio_state_payload(payload: bytes):
     tracking_rate = struct.unpack(">f", payload[off:off+4])[0]; off += 4
     num_features = struct.unpack(">I", payload[off:off+4])[0]; off += 4
     loop_closures = struct.unpack(">I", payload[off:off+4])[0]; off += 4
+    build_version = ""
+    if version >= 2 and off < len(payload):
+        ll = payload[off]; off += 1
+        if ll > 0:
+            if off + ll > len(payload):
+                raise ValueError("VSTA build_version truncated")
+            build_version = payload[off:off+ll].decode("utf-8", errors="replace")
     return {
         "version": version,
         "state": state,
@@ -333,6 +340,7 @@ def decode_vio_state_payload(payload: bytes):
         "tracking_rate": tracking_rate,
         "num_features": num_features,
         "loop_closures": loop_closures,
+        "build_version": build_version,
     }
 
 def decode_fea3_payload(payload: bytes):

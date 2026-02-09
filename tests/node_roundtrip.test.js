@@ -55,7 +55,7 @@ const SAMPLE = {
     pointSize: 1.5,
   },
   vsta: {
-    version: 1,
+    version: 2,
     state: 2,
     flags: 0x1234,
     timestampNs: 999n,
@@ -65,6 +65,7 @@ const SAMPLE = {
     trackingRate: 0.88,
     numFeatures: 321,
     loopClosures: 7,
+    buildVersion: "Mighty v.20260208-deadbeef",
   },
 };
 
@@ -217,6 +218,7 @@ function verifyFrame(frame, index) {
       assert(almost(s.trackingRate, SAMPLE.vsta.trackingRate, 1e-3));
       assert.strictEqual(s.numFeatures, SAMPLE.vsta.numFeatures);
       assert.strictEqual(s.loopClosures, SAMPLE.vsta.loopClosures);
+      assert.strictEqual(s.buildVersion, SAMPLE.vsta.buildVersion);
       break;
     }
     case proto.TYPE.FEA3: {
@@ -249,19 +251,25 @@ async function main() {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   // Robust connect with retries to avoid races with server startup.
-  let sock;
-  for (let attempt = 0; attempt < 10; attempt++) {
-    await sleep(300);
-    try {
-      sock = net.createConnection({ port }, () => {
-        for (const p of packets) sock.write(p);
-      });
+  let sock = null;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    await sleep(150);
+    const s = net.createConnection({ host: '127.0.0.1', port });
+    const ok = await new Promise((resolve) => {
+      s.once('connect', () => resolve(true));
+      s.once('error', () => resolve(false));
+    });
+    if (ok) {
+      sock = s;
+      for (const p of packets) sock.write(p);
       break;
-    } catch (e) {
-      if (attempt === 9) throw e;
     }
+    s.destroy();
   }
-  if (!sock) throw new Error('failed to create socket');
+  if (!sock) {
+    server.kill();
+    throw new Error(`connect failed: 127.0.0.1:${port}`);
+  }
 
   let buffer = Buffer.alloc(0);
   let recvCount = 0;
