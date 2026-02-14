@@ -67,9 +67,24 @@ const SAMPLE = {
     loopClosures: 7,
     buildVersion: "Mighty v.20260208-deadbeef",
   },
+  cfgq: {
+    version: 1,
+    op: proto.CONFIG_OP.SET,
+    key: "calib",
+    value: Buffer.from("cam0:\n  intrinsics: [369.5, 369.2, 311.2, 200.4]\n"),
+  },
+  cfgr: {
+    version: 1,
+    op: proto.CONFIG_OP.SET,
+    success: 1,
+    hasValue: true,
+    key: "calib",
+    message: "saved calib.yaml",
+    value: Buffer.from("%YAML:1.0\ncam0:\n  intrinsics: [369.5, 369.2, 311.2, 200.4]\n"),
+  },
 };
 
-const EXPECTED_COUNT = 16;
+const EXPECTED_COUNT = 18;
 
 function buildPackets() {
   return [
@@ -113,6 +128,8 @@ function buildPackets() {
     proto.makePacket(proto.TYPE.VSTA, proto.buildVioStatePayload(SAMPLE.vsta)),
     proto.makePacket(proto.TYPE.FEA3, proto.buildFea3Payload(SAMPLE.fea3)),
     proto.makePacket(proto.TYPE.PCLD, proto.buildPcldPayload(SAMPLE.pcld.points, SAMPLE.pcld.pointSize)),
+    proto.makePacket(proto.TYPE.CFGQ, proto.buildConfigRequestPayload(SAMPLE.cfgq)),
+    proto.makePacket(proto.TYPE.CFGR, proto.buildConfigResponsePayload(SAMPLE.cfgr)),
   ];
 }
 
@@ -233,6 +250,25 @@ function verifyFrame(frame, index) {
       assert(almost(res.pointSize, SAMPLE.pcld.pointSize, 1e-4));
       break;
     }
+    case proto.TYPE.CFGQ: {
+      const res = proto.decodeConfigRequestPayload(payload);
+      assert.strictEqual(res.version, SAMPLE.cfgq.version);
+      assert.strictEqual(res.op, SAMPLE.cfgq.op);
+      assert.strictEqual(res.key, SAMPLE.cfgq.key);
+      assert.deepStrictEqual(res.value, SAMPLE.cfgq.value);
+      break;
+    }
+    case proto.TYPE.CFGR: {
+      const res = proto.decodeConfigResponsePayload(payload);
+      assert.strictEqual(res.version, SAMPLE.cfgr.version);
+      assert.strictEqual(res.op, SAMPLE.cfgr.op);
+      assert.strictEqual(res.success, SAMPLE.cfgr.success);
+      assert.strictEqual(res.hasValue, SAMPLE.cfgr.hasValue);
+      assert.strictEqual(res.key, SAMPLE.cfgr.key);
+      assert.strictEqual(res.message, SAMPLE.cfgr.message);
+      assert.deepStrictEqual(res.value, SAMPLE.cfgr.value);
+      break;
+    }
     default:
       throw new Error(`Unknown type ${type}`);
   }
@@ -324,6 +360,8 @@ async function runFuzzTests() {
 	    proto.TYPE.IMU,
 	    proto.TYPE.STAT,
 	    proto.TYPE.VSTA,
+      proto.TYPE.CFGQ,
+      proto.TYPE.CFGR,
 	  ];
 
   function randomJpgPayload(isRef) {
@@ -385,6 +423,27 @@ async function runFuzzTests() {
 	    });
 	  }
 
+  function randomCfgqPayload() {
+    return proto.buildConfigRequestPayload({
+      version: 1,
+      op: Math.random() > 0.5 ? proto.CONFIG_OP.GET : proto.CONFIG_OP.SET,
+      key: "calib",
+      value: crypto.randomBytes(12),
+    });
+  }
+
+  function randomCfgrPayload() {
+    return proto.buildConfigResponsePayload({
+      version: 1,
+      op: Math.random() > 0.5 ? proto.CONFIG_OP.GET : proto.CONFIG_OP.SET,
+      success: Math.random() > 0.5 ? 1 : 0,
+      hasValue: Math.random() > 0.5,
+      key: "calib",
+      message: "fuzz",
+      value: crypto.randomBytes(14),
+    });
+  }
+
   const builders = {
     [proto.TYPE.JPG]: () => randomJpgPayload(false),
     [proto.TYPE.RJPG]: () => randomJpgPayload(true),
@@ -399,6 +458,8 @@ async function runFuzzTests() {
 	    [proto.TYPE.IMU]: () => randomImuPayload(),
 	    [proto.TYPE.STAT]: () => randomStatPayload(),
 	    [proto.TYPE.VSTA]: () => randomVstaPayload(),
+      [proto.TYPE.CFGQ]: () => randomCfgqPayload(),
+      [proto.TYPE.CFGR]: () => randomCfgrPayload(),
 	  };
 
   for (let iter = 0; iter < 50; iter++) {
@@ -430,6 +491,8 @@ async function runFuzzTests() {
 	        case proto.TYPE.IMU: proto.decodeImuPayload(f.payload); break;
 	        case proto.TYPE.STAT: proto.decodeStatusPayload(f.payload); break;
 	        case proto.TYPE.VSTA: proto.decodeVioStatePayload(f.payload); break;
+          case proto.TYPE.CFGQ: proto.decodeConfigRequestPayload(f.payload); break;
+          case proto.TYPE.CFGR: proto.decodeConfigResponsePayload(f.payload); break;
 	      }
 	    }
 	  }

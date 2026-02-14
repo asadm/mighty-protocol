@@ -25,6 +25,33 @@ This builds the C++ test binary and runs the Node roundtrip test plus a Python c
 
 ## API reference & examples
 
+## Config Requests (CFGQ/CFGR)
+
+`CFGQ` and `CFGR` carry typed config get/set payloads.
+
+- `CFGQ` (`ConfigRequest`) fields:
+  - `version` (u8)
+  - `op` (u8): `0=get`, `1=set`
+  - `key_len` (u8)
+  - `key` (bytes)
+  - `value_len` (u32)
+  - `value` (bytes)
+- `CFGR` (`ConfigResponse`) fields:
+  - `version` (u8)
+  - `op` (u8): mirrors request
+  - `success` (u8): `0/1`
+  - `has_value` (u8): `0/1` (useful for GET missing key)
+  - `key_len` (u8)
+  - `key` (bytes)
+  - `msg_len` (u16)
+  - `message` (bytes)
+  - `value_len` (u32)
+  - `value` (bytes)
+
+Notes:
+- In current app integration, config exchange is tunneled via `CMD`/`CRES` (`name="config"`) with `CFGQ`/`CFGR` payloads in `data`.
+- `DecodedDispatcher` supports direct `CFGQ`/`CFGR` frame handling as well.
+
 ## Pose Conventions (POSE/UPOSE)
 
 `POSE` and `UPOSE` share the same payload layout and are used for different pose streams.
@@ -71,12 +98,12 @@ Version 2: appends
 ### C++ (producer/consumer)
 - Produce
   - `make_packet(payload, TYPE_*)` – wrap framing + CRC.
-  - Builders: `build_jpg_payload`, `build_raw_payload`, `build_stereo_raw_payload`, `build_pose_payload`, `build_constraints_payload`, `build_viz_payload`, `build_imu_payload`, `build_status_payload`, `build_fea3_payload`, `build_pcld_payload`.
-  - Type codes: `TYPE_JPG`, `TYPE_RJPG`, `TYPE_RAW`, `TYPE_SRAW`, `TYPE_POSE`, `TYPE_UPOSE`, `TYPE_LCON`, `TYPE_VIZ`, `TYPE_IMU`, `TYPE_STAT`, `TYPE_RSET`, `TYPE_FEA3`, `TYPE_PCLD`.
+  - Builders: `build_jpg_payload`, `build_raw_payload`, `build_stereo_raw_payload`, `build_pose_payload`, `build_constraints_payload`, `build_viz_payload`, `build_imu_payload`, `build_status_payload`, `build_fea3_payload`, `build_pcld_payload`, `build_command_payload`, `build_command_response_payload`, `build_config_request_payload`, `build_config_response_payload`.
+  - Type codes: `TYPE_JPG`, `TYPE_RJPG`, `TYPE_RAW`, `TYPE_SRAW`, `TYPE_POSE`, `TYPE_UPOSE`, `TYPE_LCON`, `TYPE_VIZ`, `TYPE_IMU`, `TYPE_STAT`, `TYPE_VSTA`, `TYPE_RSET`, `TYPE_FEA3`, `TYPE_PCLD`, `TYPE_CMD`, `TYPE_CRES`, `TYPE_CFGQ`, `TYPE_CFGR`.
 - Consume
   - `parse_frame` (single-frame parser) or `FrameConsumer` (`feed`, `try_pop`, `drain`) or `FrameDispatcher` (`set_handler`, `feed`).
-  - `DecodedDispatcher` for per-type decoded callbacks (e.g., `on_jpg`, `on_raw`, `on_stereo_raw`, `on_pose`, `on_constraints`, `on_features`, `on_pointcloud`, `on_viz`, `on_imu`, `on_status`, `on_reset`).
-  - Decoders: `decode_jpg_payload`, `decode_raw_payload`, `decode_stereo_raw_payload`, `decode_pose_payload`, `decode_constraints_payload`, `decode_viz_payload`, `decode_imu_payload`, `decode_status_payload`, `decode_fea3_payload`, `decode_pcld_payload`.
+  - `DecodedDispatcher` for per-type decoded callbacks (e.g., `on_jpg`, `on_raw`, `on_stereo_raw`, `on_pose`, `on_constraints`, `on_features`, `on_pointcloud`, `on_viz`, `on_imu`, `on_status`, `on_vio_state`, `on_reset`, `on_command`, `on_command_response`, `on_config_request`, `on_config_response`).
+  - Decoders: `decode_jpg_payload`, `decode_raw_payload`, `decode_stereo_raw_payload`, `decode_pose_payload`, `decode_constraints_payload`, `decode_viz_payload`, `decode_imu_payload`, `decode_status_payload`, `decode_vio_state_payload`, `decode_fea3_payload`, `decode_pcld_payload`, `decode_command_payload`, `decode_command_response_payload`, `decode_config_request_payload`, `decode_config_response_payload`.
 
 ```cpp
 #include "mighty-protocol/cpp/mighty_protocol.h"
@@ -119,11 +146,32 @@ dd.feed(bytes, len);  // can be called repeatedly with stream chunks
 ### JavaScript / Node / browser
 - Produce
   - `makePacket(type, payload)`
-  - Builders: `buildJpgPayload`, `buildRawPayload`, `buildStereoRawPayload`, `buildPosePayload`, `buildConstraintsPayload`, `buildVizPayload`, `buildImuPayload`, `buildStatusPayload`, `buildFea3Payload`, `buildPcldPayload`
-  - Types: `TYPE` map (`TYPE.JPG`, `TYPE.RJPG`, `TYPE.RAW`, `TYPE.SRAW`, `TYPE.POSE`, `TYPE.UPOSE`, `TYPE.LCON`, `TYPE.VIZ`, `TYPE.IMU`, `TYPE.STAT`, `TYPE.RSET`, `TYPE.FEA3`, `TYPE.PCLD`)
+  - Builders: `buildJpgPayload`, `buildRawPayload`, `buildStereoRawPayload`, `buildPosePayload`, `buildConstraintsPayload`, `buildVizPayload`, `buildImuPayload`, `buildStatusPayload`, `buildVioStatePayload`, `buildFea3Payload`, `buildPcldPayload`, `buildCommandPayload`, `buildCommandResponsePayload`, `buildConfigRequestPayload`, `buildConfigResponsePayload`
+  - Config op constants: `CONFIG_OP.GET`, `CONFIG_OP.SET`
+  - Types: `TYPE` map (`TYPE.JPG`, `TYPE.RJPG`, `TYPE.RAW`, `TYPE.SRAW`, `TYPE.POSE`, `TYPE.UPOSE`, `TYPE.LCON`, `TYPE.VIZ`, `TYPE.IMU`, `TYPE.STAT`, `TYPE.VSTA`, `TYPE.RSET`, `TYPE.FEA3`, `TYPE.PCLD`, `TYPE.CMD`, `TYPE.CRES`, `TYPE.CFGQ`, `TYPE.CFGR`)
 - Consume
   - `parseFrames(buffer) -> {frames, rest}` or `new FrameDispatcher(onFrame).feed(bytes)` (browser-friendly version is in `main/web/mighty-protocol.js`)
-  - Decoders: `decodeJpgPayload`, `decodeRawPayload`, `decodeStereoRawPayload`, `decodePosePayload`, `decodeConstraintsPayload`, `decodeVizPayload`, `decodeImuPayload`, `decodeStatusPayload`, `decodeFea3Payload`, `decodePcldPayload`
+  - Decoders: `decodeJpgPayload`, `decodeRawPayload`, `decodeStereoRawPayload`, `decodePosePayload`, `decodeConstraintsPayload`, `decodeVizPayload`, `decodeImuPayload`, `decodeStatusPayload`, `decodeVioStatePayload`, `decodeFea3Payload`, `decodePcldPayload`, `decodeCommandPayload`, `decodeCommandResponsePayload`, `decodeConfigRequestPayload`, `decodeConfigResponsePayload`
+
+#### JS config-over-command example
+```js
+const req = MightyProtocol.buildConfigRequestPayload({
+  version: 1,
+  op: MightyProtocol.CONFIG_OP.GET,
+  key: "calib",
+  value: new Uint8Array(),
+});
+
+const cmd = MightyProtocol.buildCommandPayload({
+  reqId: 1,
+  name: "config",
+  data: req,
+});
+
+// send `cmd` to /command endpoint
+// decode CRES body with decodeCommandResponsePayload, then:
+// const cfg = MightyProtocol.decodeConfigResponsePayload(commandRes.data);
+```
 
 ```js
 import proto from './mighty-protocol/js/index.js'; // Node (or use global MightyProtocol in browser)
@@ -158,6 +206,9 @@ disp.feed(chunkFromSocket);
   - `parse_frames(buf) -> (frames, rest)` or `FrameDispatcher(on_frame).feed(bytes)`
   - `DecodedDispatcher` in `python/decoded_dispatcher.py` for per-type decoded callbacks (`on_jpg`, `on_pose`, etc.).
   - Decoders: `decode_jpg_payload(payload, is_ref)`, `decode_raw_payload`, `decode_stereo_raw_payload`, `decode_pose_payload`, `decode_constraints_payload`, `decode_viz_payload`, `decode_imu_payload`, `decode_status_payload`, `decode_fea3_payload`, `decode_pcld_payload`
+
+Python note:
+- `CFGQ`/`CFGR` helper builders/decoders are currently implemented in C++ and JS helpers.
 
 ```python
 # PYTHONPATH needs to include mighty-protocol/python
