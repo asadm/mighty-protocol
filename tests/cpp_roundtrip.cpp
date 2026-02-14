@@ -22,7 +22,7 @@ using namespace mighty_protocol;
 
 namespace {
 
-constexpr int kExpectedFrames = 16; // RSET + JPG + RJPG + RAW + SRAW + POSE + UPOSE + LCON + 3xVIZ + IMU + STAT + VSTA + FEA3 + PCLD
+constexpr int kExpectedFrames = 18; // + CFGQ + CFGR
 
 struct SampleData {
   uint64_t jpg_ts = 111;
@@ -110,6 +110,9 @@ struct SampleData {
   };
   float pcld_size = 1.5f;
 
+  ConfigRequest cfgq{};
+  ConfigResponse cfgr{};
+
   SampleData() {
     vsta.version = 2;
     vsta.state = 2;
@@ -122,6 +125,30 @@ struct SampleData {
     vsta.num_features = 321;
     vsta.loop_closures = 7;
     vsta.build_version = "Mighty v.20260208-deadbeef";
+
+    cfgq.version = 1;
+    cfgq.op = static_cast<uint8_t>(ConfigOp::kSet);
+    cfgq.key = "calib";
+    {
+      const std::string cfgq_value =
+          "cam0:\n"
+          "  intrinsics: [369.5, 369.2, 311.2, 200.4]\n";
+      cfgq.value.assign(cfgq_value.begin(), cfgq_value.end());
+    }
+
+    cfgr.version = 1;
+    cfgr.op = static_cast<uint8_t>(ConfigOp::kSet);
+    cfgr.success = 1;
+    cfgr.has_value = true;
+    cfgr.key = "calib";
+    cfgr.message = "saved calib.yaml";
+    {
+      const std::string cfgr_value =
+          "%YAML:1.0\n"
+          "cam0:\n"
+          "  intrinsics: [369.5, 369.2, 311.2, 200.4]\n";
+      cfgr.value.assign(cfgr_value.begin(), cfgr_value.end());
+    }
   }
 };
 
@@ -232,6 +259,25 @@ bool verify_frame(const Frame& f, int index, const SampleData& s) {
     if (!decode_pcld_payload(f.payload, pts, ps)) return false;
     return pts.size() == s.pcld.size() && ps.has_value() && approx(ps.value(), s.pcld_size, 1e-5);
   }
+  if (type_str == "CFGQ") {
+    ConfigRequest out{};
+    if (!decode_config_request_payload(f.payload, out)) return false;
+    return out.version == s.cfgq.version &&
+           out.op == s.cfgq.op &&
+           out.key == s.cfgq.key &&
+           out.value == s.cfgq.value;
+  }
+  if (type_str == "CFGR") {
+    ConfigResponse out{};
+    if (!decode_config_response_payload(f.payload, out)) return false;
+    return out.version == s.cfgr.version &&
+           out.op == s.cfgr.op &&
+           out.success == s.cfgr.success &&
+           out.has_value == s.cfgr.has_value &&
+           out.key == s.cfgr.key &&
+           out.message == s.cfgr.message &&
+           out.value == s.cfgr.value;
+  }
   return false;
 }
 
@@ -276,6 +322,8 @@ std::vector<std::vector<uint8_t>> build_sample_packets(const SampleData& s) {
   packets.push_back(make_packet(build_vio_state_payload(s.vsta), TYPE_VSTA));
   packets.push_back(make_packet(build_fea3_payload(s.fea3), TYPE_FEA3));
   packets.push_back(make_packet(build_pcld_payload(s.pcld, s.pcld_size), TYPE_PCLD));
+  packets.push_back(make_packet(build_config_request_payload(s.cfgq), TYPE_CFGQ));
+  packets.push_back(make_packet(build_config_response_payload(s.cfgr), TYPE_CFGR));
   return packets;
 }
 

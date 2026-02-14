@@ -127,6 +127,8 @@ class DecodedDispatcher {
   using ResetHandler = std::function<void()>;
   using CommandHandler = std::function<void(const CommandRequest&)>;
   using CommandResponseHandler = std::function<void(const CommandResponse&)>;
+  using ConfigRequestHandler = std::function<void(const ConfigRequest&)>;
+  using ConfigResponseHandler = std::function<void(const ConfigResponse&)>;
 
   void on_jpg(JpgHandler h) { jpg_handler_ = std::move(h); }
   void on_raw(RawHandler h) { raw_handler_ = std::move(h); }
@@ -142,6 +144,8 @@ class DecodedDispatcher {
   void on_reset(ResetHandler h) { reset_handler_ = std::move(h); }
   void on_command(CommandHandler h) { command_handler_ = std::move(h); }
   void on_command_response(CommandResponseHandler h) { command_response_handler_ = std::move(h); }
+  void on_config_request(ConfigRequestHandler h) { config_request_handler_ = std::move(h); }
+  void on_config_response(ConfigResponseHandler h) { config_response_handler_ = std::move(h); }
 
   void feed(const uint8_t* data, size_t len) {
     consumer_.feed(data, len);
@@ -250,6 +254,18 @@ class DecodedDispatcher {
       if (decode_command_response_payload(f.payload, resp)) {
         command_response_handler_(resp);
       }
+    } else if (type == "CFGQ") {
+      if (!config_request_handler_) return;
+      ConfigRequest req{};
+      if (decode_config_request_payload(f.payload, req)) {
+        config_request_handler_(req);
+      }
+    } else if (type == "CFGR") {
+      if (!config_response_handler_) return;
+      ConfigResponse resp{};
+      if (decode_config_response_payload(f.payload, resp)) {
+        config_response_handler_(resp);
+      }
     }
   }
 
@@ -268,6 +284,8 @@ class DecodedDispatcher {
   ResetHandler reset_handler_;
   CommandHandler command_handler_;
   CommandResponseHandler command_response_handler_;
+  ConfigRequestHandler config_request_handler_;
+  ConfigResponseHandler config_response_handler_;
 };
 
 } // namespace mighty_protocol

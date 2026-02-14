@@ -29,6 +29,8 @@ inline constexpr char TYPE_PCLD[4] = {'P','C','L','D'};
 inline constexpr char TYPE_VSTA[4] = {'V','S','T','A'};
 inline constexpr char TYPE_CMD[4]  = {'C','M','D',' '};
 inline constexpr char TYPE_CRES[4] = {'C','R','E','S'};
+inline constexpr char TYPE_CFGQ[4] = {'C','F','G','Q'};
+inline constexpr char TYPE_CFGR[4] = {'C','F','G','R'};
 
 // Raw frame formats (payload data is tightly packed)
 enum class RawFormat : uint8_t {
@@ -248,6 +250,28 @@ struct CommandResponse {
   uint8_t status = 0; // 0=ok, 1=error
   std::string message;
   std::vector<uint8_t> data;
+};
+
+enum class ConfigOp : uint8_t {
+  kGet = 0,
+  kSet = 1,
+};
+
+struct ConfigRequest {
+  uint8_t version = 1;
+  uint8_t op = static_cast<uint8_t>(ConfigOp::kGet);
+  std::string key;
+  std::vector<uint8_t> value;
+};
+
+struct ConfigResponse {
+  uint8_t version = 1;
+  uint8_t op = static_cast<uint8_t>(ConfigOp::kGet);
+  uint8_t success = 0;
+  bool has_value = false;
+  std::string key;
+  std::string message;
+  std::vector<uint8_t> value;
 };
 
 struct VioState {
@@ -675,6 +699,46 @@ inline std::vector<uint8_t> build_command_response_payload(const CommandResponse
   write_u32_be(buf, data_len); payload.insert(payload.end(), buf, buf + 4);
   if (data_len > 0) {
     payload.insert(payload.end(), res.data.begin(), res.data.end());
+  }
+  return payload;
+}
+
+inline std::vector<uint8_t> build_config_request_payload(const ConfigRequest& req) {
+  const uint8_t key_len = static_cast<uint8_t>(std::min<size_t>(255, req.key.size()));
+  const uint32_t value_len = static_cast<uint32_t>(req.value.size());
+  std::vector<uint8_t> payload;
+  payload.reserve(1 + 1 + 1 + key_len + 4 + value_len);
+  uint8_t buf[8];
+  payload.push_back(req.version);
+  payload.push_back(req.op);
+  payload.push_back(key_len);
+  payload.insert(payload.end(), req.key.data(), req.key.data() + key_len);
+  write_u32_be(buf, value_len); payload.insert(payload.end(), buf, buf + 4);
+  if (value_len > 0) {
+    payload.insert(payload.end(), req.value.begin(), req.value.end());
+  }
+  return payload;
+}
+
+inline std::vector<uint8_t> build_config_response_payload(const ConfigResponse& res) {
+  const uint8_t key_len = static_cast<uint8_t>(std::min<size_t>(255, res.key.size()));
+  const uint16_t msg_len = static_cast<uint16_t>(std::min<size_t>(65535, res.message.size()));
+  const uint32_t value_len = static_cast<uint32_t>(res.value.size());
+  std::vector<uint8_t> payload;
+  payload.reserve(1 + 1 + 1 + 1 + 1 + key_len + 2 + msg_len + 4 + value_len);
+  uint8_t buf[8];
+  payload.push_back(res.version);
+  payload.push_back(res.op);
+  payload.push_back(res.success);
+  payload.push_back(res.has_value ? 1 : 0);
+  payload.push_back(key_len);
+  payload.insert(payload.end(), res.key.data(), res.key.data() + key_len);
+  payload.push_back(static_cast<uint8_t>((msg_len >> 8) & 0xFF));
+  payload.push_back(static_cast<uint8_t>(msg_len & 0xFF));
+  payload.insert(payload.end(), res.message.data(), res.message.data() + msg_len);
+  write_u32_be(buf, value_len); payload.insert(payload.end(), buf, buf + 4);
+  if (value_len > 0) {
+    payload.insert(payload.end(), res.value.begin(), res.value.end());
   }
   return payload;
 }
@@ -1149,6 +1213,27 @@ inline bool decode_command_payload(const std::vector<uint8_t>& payload,
   return true;
 }
 
+inline bool decode_config_request_payload(const std::vector<uint8_t>& payload,
+                                          ConfigRequest& out) {
+  const size_t min_size = 1 + 1 + 1 + 4;
+  if (payload.size() < min_size) return false;
+  size_t off = 0;
+  out.version = payload[off++];
+  out.op = payload[off++];
+  const uint8_t key_len = payload[off++];
+  if (payload.size() < off + key_len + 4) return false;
+  out.key.assign(reinterpret_cast<const char*>(payload.data() + off), key_len);
+  off += key_len;
+  const uint32_t value_len = (static_cast<uint32_t>(payload[off]) << 24) |
+                             (static_cast<uint32_t>(payload[off + 1]) << 16) |
+                             (static_cast<uint32_t>(payload[off + 2]) << 8) |
+                             (static_cast<uint32_t>(payload[off + 3]));
+  off += 4;
+  if (payload.size() < off + value_len) return false;
+  out.value.assign(payload.begin() + off, payload.begin() + off + value_len);
+  return true;
+}
+
 inline bool decode_command_response_payload(const std::vector<uint8_t>& payload,
                                             CommandResponse& out) {
   const size_t min_size = 4 + 1 + 2 + 4;
@@ -1172,6 +1257,34 @@ inline bool decode_command_response_payload(const std::vector<uint8_t>& payload,
   off += 4;
   if (payload.size() < off + data_len) return false;
   out.data.assign(payload.begin() + off, payload.begin() + off + data_len);
+  return true;
+}
+
+inline bool decode_config_response_payload(const std::vector<uint8_t>& payload,
+                                           ConfigResponse& out) {
+  const size_t min_size = 1 + 1 + 1 + 1 + 1 + 2 + 4;
+  if (payload.size() < min_size) return false;
+  size_t off = 0;
+  out.version = payload[off++];
+  out.op = payload[off++];
+  out.success = payload[off++];
+  out.has_value = payload[off++] != 0;
+  const uint8_t key_len = payload[off++];
+  if (payload.size() < off + key_len + 2 + 4) return false;
+  out.key.assign(reinterpret_cast<const char*>(payload.data() + off), key_len);
+  off += key_len;
+  const uint16_t msg_len = static_cast<uint16_t>((payload[off] << 8) | payload[off + 1]);
+  off += 2;
+  if (payload.size() < off + msg_len + 4) return false;
+  out.message.assign(reinterpret_cast<const char*>(payload.data() + off), msg_len);
+  off += msg_len;
+  const uint32_t value_len = (static_cast<uint32_t>(payload[off]) << 24) |
+                             (static_cast<uint32_t>(payload[off + 1]) << 16) |
+                             (static_cast<uint32_t>(payload[off + 2]) << 8) |
+                             (static_cast<uint32_t>(payload[off + 3]));
+  off += 4;
+  if (payload.size() < off + value_len) return false;
+  out.value.assign(payload.begin() + off, payload.begin() + off + value_len);
   return true;
 }
 

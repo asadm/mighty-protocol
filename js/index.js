@@ -22,6 +22,8 @@ const TYPE = {
   PCLD: "PCLD",
   CMD: "CMD ",
   CRES: "CRES",
+  CFGQ: "CFGQ",
+  CFGR: "CFGR",
 };
 
 const RAW_FORMAT = {
@@ -33,6 +35,11 @@ const RAW_FORMAT = {
   BGRA32: 5,
   YUV420SP: 6,
   YUV420P: 7,
+};
+
+const CONFIG_OP = {
+  GET: 0,
+  SET: 1,
 };
 
 const HEADER_BYTES = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
@@ -581,6 +588,52 @@ function buildCommandResponsePayload({ reqId = 0, status = 0, message = "", data
   return fromU8(buf);
 }
 
+function buildConfigRequestPayload({ version = 1, op = CONFIG_OP.GET, key = "", value = new Uint8Array() } = {}) {
+  const keyBytes = (textEncoder || new TextEncoder()).encode(key || "");
+  const keyLen = Math.min(255, keyBytes.length);
+  const valueU8 = toU8(value);
+  const buf = new Uint8Array(1 + 1 + 1 + keyLen + 4 + valueU8.length);
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  let off = 0;
+  dv.setUint8(off, version & 0xff); off += 1;
+  dv.setUint8(off, op & 0xff); off += 1;
+  dv.setUint8(off, keyLen); off += 1;
+  buf.set(keyBytes.subarray(0, keyLen), off); off += keyLen;
+  dv.setUint32(off, valueU8.length >>> 0, false); off += 4;
+  buf.set(valueU8, off);
+  return fromU8(buf);
+}
+
+function buildConfigResponsePayload({
+  version = 1,
+  op = CONFIG_OP.GET,
+  success = 0,
+  hasValue = false,
+  key = "",
+  message = "",
+  value = new Uint8Array(),
+} = {}) {
+  const keyBytes = (textEncoder || new TextEncoder()).encode(key || "");
+  const keyLen = Math.min(255, keyBytes.length);
+  const msgBytes = (textEncoder || new TextEncoder()).encode(message || "");
+  const msgLen = Math.min(65535, msgBytes.length);
+  const valueU8 = toU8(value);
+  const buf = new Uint8Array(1 + 1 + 1 + 1 + 1 + keyLen + 2 + msgLen + 4 + valueU8.length);
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  let off = 0;
+  dv.setUint8(off, version & 0xff); off += 1;
+  dv.setUint8(off, op & 0xff); off += 1;
+  dv.setUint8(off, success ? 1 : 0); off += 1;
+  dv.setUint8(off, hasValue ? 1 : 0); off += 1;
+  dv.setUint8(off, keyLen); off += 1;
+  buf.set(keyBytes.subarray(0, keyLen), off); off += keyLen;
+  dv.setUint16(off, msgLen, false); off += 2;
+  buf.set(msgBytes.subarray(0, msgLen), off); off += msgLen;
+  dv.setUint32(off, valueU8.length >>> 0, false); off += 4;
+  buf.set(valueU8, off);
+  return fromU8(buf);
+}
+
 // ---------------------------------------------------------------------------
 // Payload decoders
 // ---------------------------------------------------------------------------
@@ -876,9 +929,45 @@ function decodeCommandResponsePayload(payload) {
   return { reqId, status, message, data };
 }
 
+function decodeConfigRequestPayload(payload) {
+  const u8 = toU8(payload);
+  if (u8.length < 1 + 1 + 1 + 4) throw new Error("CFGQ payload too short");
+  let off = 0;
+  const version = readU8(u8, off); off += 1;
+  const op = readU8(u8, off); off += 1;
+  const keyLen = readU8(u8, off); off += 1;
+  if (u8.length < off + keyLen + 4) throw new Error("CFGQ payload truncated");
+  const key = (textDecoder || new TextDecoder()).decode(u8.subarray(off, off + keyLen)); off += keyLen;
+  const valueLen = readU32BE(u8, off); off += 4;
+  if (u8.length < off + valueLen) throw new Error("CFGQ value truncated");
+  const value = fromU8(u8.subarray(off, off + valueLen));
+  return { version, op, key, value };
+}
+
+function decodeConfigResponsePayload(payload) {
+  const u8 = toU8(payload);
+  if (u8.length < 1 + 1 + 1 + 1 + 1 + 2 + 4) throw new Error("CFGR payload too short");
+  let off = 0;
+  const version = readU8(u8, off); off += 1;
+  const op = readU8(u8, off); off += 1;
+  const success = readU8(u8, off); off += 1;
+  const hasValue = readU8(u8, off) !== 0; off += 1;
+  const keyLen = readU8(u8, off); off += 1;
+  if (u8.length < off + keyLen + 2 + 4) throw new Error("CFGR payload truncated");
+  const key = (textDecoder || new TextDecoder()).decode(u8.subarray(off, off + keyLen)); off += keyLen;
+  const msgLen = readU16BE(u8, off); off += 2;
+  if (u8.length < off + msgLen + 4) throw new Error("CFGR payload truncated");
+  const message = (textDecoder || new TextDecoder()).decode(u8.subarray(off, off + msgLen)); off += msgLen;
+  const valueLen = readU32BE(u8, off); off += 4;
+  if (u8.length < off + valueLen) throw new Error("CFGR value truncated");
+  const value = fromU8(u8.subarray(off, off + valueLen));
+  return { version, op, success, hasValue, key, message, value };
+}
+
 const api = {
   TYPE,
   RAW_FORMAT,
+  CONFIG_OP,
   HEADER_MAGIC,
   FOOTER_MAGIC,
   makePacket,
@@ -897,6 +986,8 @@ const api = {
   buildPcldPayload,
   buildCommandPayload,
   buildCommandResponsePayload,
+  buildConfigRequestPayload,
+  buildConfigResponsePayload,
   decodeJpgPayload,
   decodeRawPayload,
   decodeStereoRawPayload,
@@ -910,6 +1001,8 @@ const api = {
   decodePcldPayload,
   decodeCommandPayload,
   decodeCommandResponsePayload,
+  decodeConfigRequestPayload,
+  decodeConfigResponsePayload,
 };
 
 if (typeof module !== "undefined" && module.exports) {
