@@ -290,6 +290,10 @@ struct VioState {
   // Version 2+ appends:
   //   u8  build_version_len
   //   u8[build_version_len] build_version (ASCII)
+  //
+  // Version 3+ appends (after optional build_version):
+  //   f32 imu_hz_current
+  //   f32 imu_hz_average_5s
   uint8_t version = 1;
   uint8_t state = 0;
   uint16_t flags = 0;
@@ -301,6 +305,8 @@ struct VioState {
   uint32_t num_features = 0;
   uint32_t loop_closures = 0;
   std::string build_version;
+  float imu_hz_current = 0.0f;
+  float imu_hz_average_5s = 0.0f;
 };
 
 // --------------------------------------------------------------------------
@@ -591,9 +597,13 @@ inline std::vector<uint8_t> build_status_payload(const std::string& text) {
 }
 
 inline std::vector<uint8_t> build_vio_state_payload(const VioState& s) {
+  const bool include_build = (s.version >= 2);
+  const bool include_imu_hz = (s.version >= 3);
   const uint8_t build_len = static_cast<uint8_t>(std::min<size_t>(255, s.build_version.size()));
   std::vector<uint8_t> payload;
-  payload.resize(1 + 1 + 2 + 8 + 4 + 4 + 4 + 4 + 4 + 4 + (s.version >= 2 ? (1 + build_len) : 0));
+  payload.resize(1 + 1 + 2 + 8 + 4 + 4 + 4 + 4 + 4 + 4 +
+                 (include_build ? (1 + build_len) : 0) +
+                 (include_imu_hz ? (4 + 4) : 0));
   size_t off = 0;
   payload[off++] = s.version;
   payload[off++] = s.state;
@@ -606,11 +616,16 @@ inline std::vector<uint8_t> build_vio_state_payload(const VioState& s) {
   write_f32_be(payload.data() + off, s.tracking_rate); off += 4;
   write_u32_be(payload.data() + off, s.num_features); off += 4;
   write_u32_be(payload.data() + off, s.loop_closures); off += 4;
-  if (s.version >= 2) {
+  if (include_build) {
     payload[off++] = build_len;
     if (build_len > 0) {
       std::memcpy(payload.data() + off, s.build_version.data(), build_len);
+      off += build_len;
     }
+  }
+  if (include_imu_hz) {
+    write_f32_be(payload.data() + off, s.imu_hz_current); off += 4;
+    write_f32_be(payload.data() + off, s.imu_hz_average_5s); off += 4;
   }
   return payload;
 }
@@ -1121,6 +1136,8 @@ inline bool decode_vio_state_payload(const std::vector<uint8_t>& payload, VioSta
   off += 4;
 
   out.build_version.clear();
+  out.imu_hz_current = 0.0f;
+  out.imu_hz_average_5s = 0.0f;
   if (out.version >= 2) {
     if (off < payload.size()) {
       const uint8_t ll = payload[off++];
@@ -1128,8 +1145,13 @@ inline bool decode_vio_state_payload(const std::vector<uint8_t>& payload, VioSta
         if (payload.size() < off + ll) return false;
         out.build_version.assign(reinterpret_cast<const char*>(payload.data() + off),
                                  reinterpret_cast<const char*>(payload.data() + off + ll));
+        off += ll;
       }
     }
+  }
+  if (out.version >= 3 && payload.size() >= off + 8) {
+    rd_f32(out.imu_hz_current);
+    rd_f32(out.imu_hz_average_5s);
   }
   return true;
 }

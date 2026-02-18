@@ -114,12 +114,14 @@ struct SampleData {
   ConfigResponse cfgr{};
 
   SampleData() {
-    vsta.version = 2;
+    vsta.version = 3;
     vsta.state = 2;
     vsta.flags = 0x1234;
     vsta.timestamp_ns = 999;
     vsta.fps_current = 31.5f;
     vsta.fps_average = 30.0f;
+    vsta.imu_hz_current = 60.0f;
+    vsta.imu_hz_average_5s = 59.7f;
     vsta.pose_confidence01 = 0.75f;
     vsta.tracking_rate = 0.88f;
     vsta.num_features = 321;
@@ -243,6 +245,8 @@ bool verify_frame(const Frame& f, int index, const SampleData& s) {
            out.timestamp_ns == s.vsta.timestamp_ns &&
            approx(out.fps_current, s.vsta.fps_current, 1e-3) &&
            approx(out.fps_average, s.vsta.fps_average, 1e-3) &&
+           approx(out.imu_hz_current, s.vsta.imu_hz_current, 1e-3) &&
+           approx(out.imu_hz_average_5s, s.vsta.imu_hz_average_5s, 1e-3) &&
            approx(out.pose_confidence01, s.vsta.pose_confidence01, 1e-3) &&
            approx(out.tracking_rate, s.vsta.tracking_rate, 1e-3) &&
            out.num_features == s.vsta.num_features &&

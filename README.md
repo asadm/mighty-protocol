@@ -95,6 +95,10 @@ Version 2: appends
 - `build_version_len` (u8)
 - `build_version` (u8[build_version_len]) ASCII build/version string (e.g. `Mighty v.YYYYMMDD-<hash>`)
 
+Version 3: appends (after optional `build_version`)
+- `imu_hz_current` (f32)
+- `imu_hz_average_5s` (f32)
+
 ### C++ (producer/consumer)
 - Produce
   - `make_packet(payload, TYPE_*)` – wrap framing + CRC.
