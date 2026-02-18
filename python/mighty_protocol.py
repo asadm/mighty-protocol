@@ -323,12 +323,18 @@ def decode_vio_state_payload(payload: bytes):
     num_features = struct.unpack(">I", payload[off:off+4])[0]; off += 4
     loop_closures = struct.unpack(">I", payload[off:off+4])[0]; off += 4
     build_version = ""
+    imu_hz_current = 0.0
+    imu_hz_average_5s = 0.0
     if version >= 2 and off < len(payload):
         ll = payload[off]; off += 1
         if ll > 0:
             if off + ll > len(payload):
                 raise ValueError("VSTA build_version truncated")
             build_version = payload[off:off+ll].decode("utf-8", errors="replace")
+            off += ll
+    if version >= 3 and off + 8 <= len(payload):
+        imu_hz_current = struct.unpack(">f", payload[off:off+4])[0]; off += 4
+        imu_hz_average_5s = struct.unpack(">f", payload[off:off+4])[0]; off += 4
     return {
         "version": version,
         "state": state,
@@ -341,6 +347,8 @@ def decode_vio_state_payload(payload: bytes):
         "num_features": num_features,
         "loop_closures": loop_closures,
         "build_version": build_version,
+        "imu_hz_current": imu_hz_current,
+        "imu_hz_average_5s": imu_hz_average_5s,
     }
 
 def decode_fea3_payload(payload: bytes):

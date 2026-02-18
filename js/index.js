@@ -495,13 +495,21 @@ function buildVioStatePayload({
   trackingRate = 0.0,
   numFeatures = 0,
   loopClosures = 0,
+  imuHzCurrent = undefined,
+  imuHzAverage5s = undefined,
   buildVersion = "",
 } = {}) {
   const enc = textEncoder || new TextEncoder();
   const buildBytes = typeof buildVersion === "string" ? enc.encode(buildVersion) : new Uint8Array();
   const buildLen = Math.min(255, buildBytes.length);
-  const ver = buildLen > 0 ? 2 : (version & 0xff);
-  const buf = new Uint8Array((1 + 1 + 2 + 8 + 4 + 4 + 4 + 4 + 4 + 4) + (ver >= 2 ? (1 + buildLen) : 0));
+  const hasImuHzCurrent = typeof imuHzCurrent === "number" && Number.isFinite(imuHzCurrent);
+  const hasImuHzAverage = typeof imuHzAverage5s === "number" && Number.isFinite(imuHzAverage5s);
+  let ver = version & 0xff;
+  if (buildLen > 0 && ver < 2) ver = 2;
+  if ((hasImuHzCurrent || hasImuHzAverage) && ver < 3) ver = 3;
+  const buf = new Uint8Array((1 + 1 + 2 + 8 + 4 + 4 + 4 + 4 + 4 + 4) +
+    (ver >= 2 ? (1 + buildLen) : 0) +
+    (ver >= 3 ? (4 + 4) : 0));
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   let off = 0;
   dv.setUint8(off, ver); off += 1;
@@ -518,7 +526,12 @@ function buildVioStatePayload({
     dv.setUint8(off, buildLen); off += 1;
     if (buildLen > 0) {
       buf.set(buildBytes.subarray(0, buildLen), off);
+      off += buildLen;
     }
+  }
+  if (ver >= 3) {
+    dv.setFloat32(off, hasImuHzCurrent ? Number(imuHzCurrent) : 0.0, false); off += 4;
+    dv.setFloat32(off, hasImuHzAverage ? Number(imuHzAverage5s) : 0.0, false); off += 4;
   }
   return fromU8(buf);
 }
@@ -857,9 +870,30 @@ function decodeVioStatePayload(payload) {
     if (ll > 0) {
       if (off + ll > u8.length) throw new Error("VSTA buildVersion truncated");
       buildVersion = dec.decode(u8.subarray(off, off + ll));
+      off += ll;
     }
   }
-  return { version, state, flags, timestampNs, fpsCurrent, fpsAverage, poseConfidence, trackingRate, numFeatures, loopClosures, buildVersion };
+  let imuHzCurrent = 0.0;
+  let imuHzAverage5s = 0.0;
+  if (version >= 3 && off + 8 <= u8.length) {
+    imuHzCurrent = dv.getFloat32(off, false); off += 4;
+    imuHzAverage5s = dv.getFloat32(off, false); off += 4;
+  }
+  return {
+    version,
+    state,
+    flags,
+    timestampNs,
+    fpsCurrent,
+    fpsAverage,
+    poseConfidence,
+    trackingRate,
+    numFeatures,
+    loopClosures,
+    buildVersion,
+    imuHzCurrent,
+    imuHzAverage5s,
+  };
 }
 
 function decodeFea3Payload(payload) {

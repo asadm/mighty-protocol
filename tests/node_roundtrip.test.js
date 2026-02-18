@@ -55,12 +55,14 @@ const SAMPLE = {
     pointSize: 1.5,
   },
   vsta: {
-    version: 2,
+    version: 3,
     state: 2,
     flags: 0x1234,
     timestampNs: 999n,
     fpsCurrent: 31.5,
     fpsAverage: 30.0,
+    imuHzCurrent: 60.0,
+    imuHzAverage5s: 59.7,
     poseConfidence: 0.75,
     trackingRate: 0.88,
     numFeatures: 321,
@@ -231,6 +233,8 @@ function verifyFrame(frame, index) {
       assert.strictEqual(s.timestampNs, SAMPLE.vsta.timestampNs);
       assert(almost(s.fpsCurrent, SAMPLE.vsta.fpsCurrent, 1e-3));
       assert(almost(s.fpsAverage, SAMPLE.vsta.fpsAverage, 1e-3));
+      assert(almost(s.imuHzCurrent, SAMPLE.vsta.imuHzCurrent, 1e-3));
+      assert(almost(s.imuHzAverage5s, SAMPLE.vsta.imuHzAverage5s, 1e-3));
       assert(almost(s.poseConfidence, SAMPLE.vsta.poseConfidence, 1e-3));
       assert(almost(s.trackingRate, SAMPLE.vsta.trackingRate, 1e-3));
       assert.strictEqual(s.numFeatures, SAMPLE.vsta.numFeatures);
@@ -410,12 +414,14 @@ async function runFuzzTests() {
 
 	  function randomVstaPayload() {
 	    return proto.buildVioStatePayload({
-	      version: 1,
+	      version: 3,
 	      state: 2,
 	      flags: 0,
 	      timestampNs: BigInt(Math.floor(Math.random() * 1e6)),
 	      fpsCurrent: Math.random() * 60,
 	      fpsAverage: Math.random() * 60,
+        imuHzCurrent: Math.random() * 200,
+        imuHzAverage5s: Math.random() * 200,
 	      poseConfidence: Math.random(),
 	      trackingRate: Math.random(),
 	      numFeatures: Math.floor(Math.random() * 1000),

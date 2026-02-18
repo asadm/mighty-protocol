@@ -58,12 +58,14 @@ SAMPLE = {
         "point_size": 1.5,
     },
     "vsta": {
-        "version": 2,
+        "version": 3,
         "state": 2,
         "flags": 0x1234,
         "timestamp_ns": 999,
         "fps_current": 31.5,
         "fps_average": 30.0,
+        "imu_hz_current": 60.0,
+        "imu_hz_average_5s": 59.7,
         "pose_confidence": 0.75,
         "tracking_rate": 0.88,
         "num_features": 321,
@@ -111,7 +113,11 @@ def struct_vsta():
                        int(s["loop_closures"]) & 0xffffffff)
     if int(s["version"]) >= 2:
         bv = (s.get("build_version") or "").encode("utf-8")[:255]
-        return base + bytes([len(bv)]) + bv
+        base += bytes([len(bv)]) + bv
+    if int(s["version"]) >= 3:
+        base += struct.pack(">ff",
+                            float(s.get("imu_hz_current", 0.0)),
+                            float(s.get("imu_hz_average_5s", 0.0)))
     return base
 
 def struct_jpg(is_ref):
@@ -265,6 +271,8 @@ def main():
     assert vsta["timestamp_ns"] == SAMPLE["vsta"]["timestamp_ns"]
     assert almost(vsta["fps_current"], SAMPLE["vsta"]["fps_current"], 1e-3)
     assert almost(vsta["fps_average"], SAMPLE["vsta"]["fps_average"], 1e-3)
+    assert almost(vsta["imu_hz_current"], SAMPLE["vsta"]["imu_hz_current"], 1e-3)
+    assert almost(vsta["imu_hz_average_5s"], SAMPLE["vsta"]["imu_hz_average_5s"], 1e-3)
     assert almost(vsta["pose_confidence"], SAMPLE["vsta"]["pose_confidence"], 1e-3)
     assert almost(vsta["tracking_rate"], SAMPLE["vsta"]["tracking_rate"], 1e-3)
     assert vsta["num_features"] == SAMPLE["vsta"]["num_features"]
