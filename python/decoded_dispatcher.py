@@ -16,6 +16,10 @@ class DecodedDispatcher:
       on_status(text)
       on_vio_state(state_dict)
       on_reset()
+      on_command(cmd_dict)
+      on_command_response(cres_dict)
+      on_config_request(cfgq_dict)
+      on_config_response(cfgr_dict)
     """
     def __init__(self):
         self.on_jpg = None
@@ -30,6 +34,10 @@ class DecodedDispatcher:
         self.on_status = None
         self.on_vio_state = None
         self.on_reset = None
+        self.on_command = None
+        self.on_command_response = None
+        self.on_config_request = None
+        self.on_config_response = None
         self._buffer = b""
 
     def feed(self, data: bytes):
@@ -84,3 +92,11 @@ class DecodedDispatcher:
                 if self.on_vio_state: self.on_vio_state(mp.decode_vio_state_payload(p))
             elif t == "RSET":
                 if self.on_reset: self.on_reset()
+            elif t == "CMD":
+                if self.on_command: self.on_command(mp.decode_command_payload(p))
+            elif t == "CRES":
+                if self.on_command_response: self.on_command_response(mp.decode_command_response_payload(p))
+            elif t == "CFGQ":
+                if self.on_config_request: self.on_config_request(mp.decode_config_request_payload(p))
+            elif t == "CFGR":
+                if self.on_config_response: self.on_config_response(mp.decode_config_response_payload(p))

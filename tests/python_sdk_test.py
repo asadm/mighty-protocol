@@ -1,0 +1,244 @@
+import os
+import struct
+import sys
+import threading
+import time
+
+HERE = os.path.dirname(__file__)
+sys.path.append(os.path.join(HERE, "..", "python"))
+
+import mighty_protocol as mp  # noqa: E402
+from mighty_sdk import MightyClient  # noqa: E402
+
+
+def build_pose_payload(pose_type=0, pose_flags=0, position=(0.0, 0.0, 0.0), quat=None, confidence=1.0, timestamp_ns=None):
+    buf = struct.pack(">II", int(pose_type), int(pose_flags))
+    buf += struct.pack(">ddd", float(position[0]), float(position[1]), float(position[2]))
+    if pose_flags & 0x1:
+        q = quat if quat is not None else (0.0, 0.0, 0.0, 1.0)
+        buf += struct.pack(">dddd", float(q[0]), float(q[1]), float(q[2]), float(q[3]))
+    buf += struct.pack(">f", float(confidence))
+    if (pose_flags & (1 << 6)) and timestamp_ns is not None:
+        buf += struct.pack(">Q", int(timestamp_ns))
+    return buf
+
+
+def build_imu_payload(samples):
+    buf = struct.pack(">I", len(samples))
+    for s in samples:
+        buf += struct.pack(">Q ddd ddd",
+                           int(s["timestamp_ns"]),
+                           float(s["ax"]), float(s["ay"]), float(s["az"]),
+                           float(s["gx"]), float(s["gy"]), float(s["gz"]))
+    return buf
+
+
+def build_vsta_payload():
+    return b"".join([
+        struct.pack(">B", 3),              # version
+        struct.pack(">B", 2),              # state
+        struct.pack(">H", 3),              # flags
+        struct.pack(">Q", 13),             # timestamp_ns
+        struct.pack(">f", 30.0),           # fps_current
+        struct.pack(">f", 29.0),           # fps_average
+        struct.pack(">f", 0.8),            # pose_confidence
+        struct.pack(">f", 0.9),            # tracking_rate
+        struct.pack(">I", 100),            # num_features
+        struct.pack(">I", 2),              # loop_closures
+        bytes([4]) + b"test",              # build_version
+        struct.pack(">f", 200.0),          # imu_hz_current
+        struct.pack(">f", 199.0),          # imu_hz_average_5s
+    ])
+
+
+def build_lcon_payload():
+    return b"".join([
+        struct.pack(">I", 1),
+        struct.pack(">B", 1),
+        struct.pack(">fff", 0.0, 0.0, 0.0),
+        struct.pack(">fff", 1.0, 1.0, 1.0),
+    ])
+
+
+class MockDevice:
+    def __init__(self):
+        self._on_bytes = None
+        self._connected = False
+        self._stop = threading.Event()
+        self._calib = b"%YAML:1.0\ncam0:\n  intrinsics: [1,2,3,4]\n"
+
+    def get_info(self):
+        return {"transport": "mock"}
+
+    def connect(self, on_bytes):
+        if self._connected:
+            raise RuntimeError("already connected")
+        self._connected = True
+        self._on_bytes = on_bytes
+        self._stop.clear()
+        self._stop.wait()
+        self._connected = False
+        self._on_bytes = None
+
+    def disconnect(self):
+        self._stop.set()
+
+    def emit_packet(self, pkt):
+        if self._on_bytes:
+            self._on_bytes(pkt)
+
+    def send_command_payload(self, cmd_payload):
+        cmd = mp.decode_command_payload(cmd_payload)
+        name = cmd["name"]
+
+        if name in ("start_vio", "stop_vio"):
+            return mp.build_command_response_payload(cmd["req_id"], 0, "ok", b"")
+
+        if name == "config":
+            cfgq = mp.decode_config_request_payload(cmd["data"])
+            if cfgq["key"] != "calib":
+                cfg_err = mp.build_config_response_payload(
+                    version=cfgq["version"],
+                    op=cfgq["op"],
+                    success=0,
+                    has_value=False,
+                    key=cfgq["key"],
+                    message="unknown key",
+                    value=b"",
+                )
+                return mp.build_command_response_payload(cmd["req_id"], 1, "config failed", cfg_err)
+
+            if cfgq["op"] == mp.CONFIG_OP["GET"]:
+                cfgr = mp.build_config_response_payload(
+                    version=cfgq["version"],
+                    op=cfgq["op"],
+                    success=1,
+                    has_value=True,
+                    key="calib",
+                    message="loaded",
+                    value=self._calib,
+                )
+                return mp.build_command_response_payload(cmd["req_id"], 0, "ok", cfgr)
+
+            if cfgq["op"] == mp.CONFIG_OP["SET"]:
+                self._calib = cfgq["value"]
+                cfgr = mp.build_config_response_payload(
+                    version=cfgq["version"],
+                    op=cfgq["op"],
+                    success=1,
+                    has_value=True,
+                    key="calib",
+                    message="saved",
+                    value=self._calib,
+                )
+                return mp.build_command_response_payload(cmd["req_id"], 0, "ok", cfgr)
+
+        return mp.build_command_response_payload(cmd["req_id"], 1, "unknown command", b"")
+
+
+def wait_until(pred, timeout_s=2.0):
+    start = time.time()
+    while time.time() - start < timeout_s:
+        if pred():
+            return True
+        time.sleep(0.01)
+    return False
+
+
+def main():
+    device = MockDevice()
+    client = MightyClient(device, auto_reconnect=False)
+
+    seen = {
+        "image": 0,
+        "pose": 0,
+        "imu": 0,
+        "vsta": 0,
+        "lcon": 0,
+        "status": 0,
+        "reset": 0,
+        "any": 0,
+        "error": 0,
+    }
+
+    last = {"image": None, "pose": None}
+
+    client.on_image(lambda v: (seen.__setitem__("image", seen["image"] + 1), last.__setitem__("image", v)))
+    client.on_pose(lambda v: (seen.__setitem__("pose", seen["pose"] + 1), last.__setitem__("pose", v)))
+    client.on_imu(lambda _: seen.__setitem__("imu", seen["imu"] + 1))
+    client.on_vio_state(lambda _: seen.__setitem__("vsta", seen["vsta"] + 1))
+    client.on_lcon(lambda _: seen.__setitem__("lcon", seen["lcon"] + 1))
+    client.on_status(lambda _: seen.__setitem__("status", seen["status"] + 1))
+    client.on_reset(lambda _: seen.__setitem__("reset", seen["reset"] + 1))
+    client.on_any(lambda _: seen.__setitem__("any", seen["any"] + 1))
+    client.on_error(lambda _: seen.__setitem__("error", seen["error"] + 1))
+
+    client.connect()
+    assert wait_until(lambda: client.is_connected(), timeout_s=1.0)
+
+    device.emit_packet(mp.make_packet(mp.TYPE["RAW"], mp.build_raw_payload(
+        10,
+        2,
+        1,
+        mp.RAW_FORMAT["GRAY8"],
+        "cam0",
+        b"\x01\x02",
+    )))
+
+    device.emit_packet(mp.make_packet(mp.TYPE["POSE"], build_pose_payload(
+        pose_type=0, pose_flags=0, position=(1.0, 2.0, 3.0), confidence=0.5, timestamp_ns=11)))
+
+    device.emit_packet(mp.make_packet(mp.TYPE["IMU"], build_imu_payload([
+        {"timestamp_ns": 12, "ax": 0.1, "ay": 0.2, "az": 0.3, "gx": 0.4, "gy": 0.5, "gz": 0.6}])))
+
+    device.emit_packet(mp.make_packet(mp.TYPE["VSTA"], build_vsta_payload()))
+
+    device.emit_packet(mp.make_packet(mp.TYPE["LCON"], build_lcon_payload()))
+
+    device.emit_packet(mp.make_packet(mp.TYPE["STAT"], b"hello"))
+    device.emit_packet(mp.make_packet(mp.TYPE["RSET"]))
+    device.emit_packet(mp.make_packet(b"ZZZZ", b"\xaa"))
+
+    assert wait_until(lambda: seen["any"] >= 8)
+
+    assert seen["image"] == 1
+    assert seen["pose"] == 1
+    assert seen["imu"] == 1
+    assert seen["vsta"] == 1
+    assert seen["lcon"] == 1
+    assert seen["status"] == 1
+    assert seen["reset"] == 1
+    assert last["image"]["kind"] == "raw"
+    assert last["image"]["channel"] == "cam0"
+    assert last["image"]["channel_alias"] == "cam0"
+    assert last["pose"]["stream"] == "optimized"
+    assert last["pose"]["pose_type"] == "body"
+
+    start_res = client.start_vio()
+    assert start_res["ok"]
+
+    cfg_get = client.config_get("calib", as_text=True)
+    assert cfg_get["ok"]
+    assert cfg_get["found"]
+    assert "intrinsics" in cfg_get["value"]
+
+    payload_text = "%YAML:1.0\nfoo: 1\n"
+    cfg_set = client.config_set("calib", payload_text)
+    assert cfg_set["ok"]
+
+    cfg_get2 = client.config_get("calib", as_text=True)
+    assert cfg_get2["ok"]
+    assert cfg_get2["value"] == payload_text
+
+    stats = client.stats()
+    assert stats["rx_frames"] >= 8
+    assert stats["rx_bytes"] > 0
+
+    client.disconnect()
+    assert not client.is_connected()
+
+    print("Python SDK unit test passed")
+
+
+if __name__ == "__main__":
+    main()

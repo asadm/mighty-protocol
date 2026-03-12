@@ -22,6 +22,13 @@ TYPE = {
     "PCLD": b"PCLD",
     "CMD": b"CMD ",
     "CRES": b"CRES",
+    "CFGQ": b"CFGQ",
+    "CFGR": b"CFGR",
+}
+
+CONFIG_OP = {
+    "GET": 0,
+    "SET": 1,
 }
 
 RAW_FORMAT = {
@@ -439,3 +446,95 @@ def decode_command_response_payload(payload: bytes) -> Dict[str, Any]:
         raise ValueError("payload truncated (data)")
     data = payload[off:off+data_len]
     return {"req_id": req_id, "status": status, "message": message, "data": data}
+
+
+# Config helpers
+def build_config_request_payload(version: int = 1,
+                                 op: int = CONFIG_OP["GET"],
+                                 key: str = "",
+                                 value: bytes = b"") -> bytes:
+    key_bytes = (key or "").encode("utf-8")
+    key_len = min(255, len(key_bytes))
+    value = value or b""
+    return b"".join([
+        struct.pack("B", version & 0xFF),
+        struct.pack("B", op & 0xFF),
+        struct.pack("B", key_len),
+        key_bytes[:key_len],
+        struct.pack(">I", len(value)),
+        value,
+    ])
+
+
+def build_config_response_payload(version: int = 1,
+                                  op: int = CONFIG_OP["GET"],
+                                  success: int = 0,
+                                  has_value: bool = False,
+                                  key: str = "",
+                                  message: str = "",
+                                  value: bytes = b"") -> bytes:
+    key_bytes = (key or "").encode("utf-8")
+    key_len = min(255, len(key_bytes))
+    msg_bytes = (message or "").encode("utf-8")
+    msg_len = min(65535, len(msg_bytes))
+    value = value or b""
+    return b"".join([
+        struct.pack("B", version & 0xFF),
+        struct.pack("B", op & 0xFF),
+        struct.pack("B", 1 if success else 0),
+        struct.pack("B", 1 if has_value else 0),
+        struct.pack("B", key_len),
+        key_bytes[:key_len],
+        struct.pack(">H", msg_len),
+        msg_bytes[:msg_len],
+        struct.pack(">I", len(value)),
+        value,
+    ])
+
+
+def decode_config_request_payload(payload: bytes) -> Dict[str, Any]:
+    if len(payload) < 1 + 1 + 1 + 4:
+        raise ValueError("payload too short")
+    off = 0
+    version = payload[off]; off += 1
+    op = payload[off]; off += 1
+    key_len = payload[off]; off += 1
+    if len(payload) < off + key_len + 4:
+        raise ValueError("payload truncated")
+    key = payload[off:off+key_len].decode("utf-8"); off += key_len
+    value_len = struct.unpack(">I", payload[off:off+4])[0]; off += 4
+    if len(payload) < off + value_len:
+        raise ValueError("payload truncated for value")
+    value = payload[off:off+value_len]
+    return {"version": version, "op": op, "key": key, "value": value}
+
+
+def decode_config_response_payload(payload: bytes) -> Dict[str, Any]:
+    if len(payload) < 1 + 1 + 1 + 1 + 1 + 2 + 4:
+        raise ValueError("payload too short")
+    off = 0
+    version = payload[off]; off += 1
+    op = payload[off]; off += 1
+    success = payload[off]; off += 1
+    has_value = payload[off] != 0; off += 1
+    key_len = payload[off]; off += 1
+    if len(payload) < off + key_len + 2 + 4:
+        raise ValueError("payload truncated")
+    key = payload[off:off+key_len].decode("utf-8"); off += key_len
+    msg_len = struct.unpack(">H", payload[off:off+2])[0]; off += 2
+    if len(payload) < off + msg_len + 4:
+        raise ValueError("payload truncated")
+    message = payload[off:off+msg_len].decode("utf-8"); off += msg_len
+    value_len = struct.unpack(">I", payload[off:off+4])[0]; off += 4
+    if len(payload) < off + value_len:
+        raise ValueError("payload truncated for value")
+    value = payload[off:off+value_len]
+    return {
+        "version": version,
+        "op": op,
+        "success": success,
+        "has_value": has_value,
+        "key": key,
+        "message": message,
+        "value": value,
+    }
