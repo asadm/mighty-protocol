@@ -2,9 +2,14 @@
 
 Shared protocol helpers for framing and payload encoding/decoding used by the web UI and server.
 
-- C++ helpers: `mighty-protocol/cpp/mighty_protocol.h` (builders/decoders) and `mighty-protocol/cpp/mighty_protocol_consumer.h` (stream consumer).
+- C++ helpers:
+  - Core wire protocol: `mighty-protocol/cpp/mighty_protocol.h` and `mighty-protocol/cpp/mighty_protocol_consumer.h`
+  - High-level SDK: `mighty-protocol/cpp/mighty_sdk.h` (`sdk/mighty_client.h`, `sdk/mighty_web_device.h`)
 - JS helpers: `mighty-protocol/js/index.js` (Node export + `window.MightyProtocol` in browsers).
+  - Core wire protocol: `mighty-protocol/js/core/protocol.js`
+  - High-level SDK: `mighty-protocol/js/sdk/client.js`, `mighty-protocol/js/sdk/device-web.js`
 - Python helpers: `mighty-protocol/python/mighty_protocol.py`.
+  - High-level SDK: `mighty-protocol/python/mighty_sdk/client.py`, `mighty-protocol/python/mighty_sdk/web_device.py`
 - Optional decoded dispatchers: C++ `DecodedDispatcher` and Python `decoded_dispatcher.py` (per-type callbacks with decoded payloads).
 - Tests: cross-language TCP roundtrip covering all packet types.
 
@@ -14,13 +19,29 @@ From repo root:
 ```bash
 mighty-protocol/tests/run_tests.sh
 ```
-This builds the C++ test binary and runs the Node roundtrip test plus a Python consumer test.
+This builds and runs C++ roundtrip + C++ SDK tests, then Node roundtrip + Node SDK tests, then Python consumer + Python SDK tests.
 
 ## Quickstart
 
 - C++ send: `auto payload = build_jpg_payload(ts,false,"preview",data,len); auto &pkt = make_packet(payload, TYPE_JPG); send(pkt.data(), pkt.size());`
 - C++ recv (decoded): `DecodedDispatcher dd; dd.on_jpg = [](auto ts, auto ch, auto &d, bool is_ref){...}; dd.feed(bytes,len);`
+- C++ high-level client:
+  - `auto device = std::make_shared<mighty_protocol::sdk::MightyWebDevice>(opts);`
+  - `mighty_protocol::sdk::MightyClient client(device);`
+  - `client.on_pose([](const auto& p) { /* ... */ });`
+  - `client.connect();`
 - JS recv (browser/Node): `const disp = new proto.FrameDispatcher(({type,payload}) => { ...switch on type... }); disp.feed(chunk);`
+- JS high-level client:
+  - `const dev = new proto.MightyWebDevice({ baseUrl: "http://127.0.0.1:8084" });`
+  - `const client = new proto.MightyClient(dev);`
+  - `client.onPose((p) => console.log(p.position));`
+  - `await client.connect();`
+- Python high-level client:
+  - `from mighty_sdk import MightyWebDevice, MightyClient`
+  - `dev = MightyWebDevice(base_url="http://127.0.0.1:8084")`
+  - `client = MightyClient(dev)`
+  - `client.on_pose(lambda p: print(p["position"]))`
+  - `client.connect()`
 - Python recv (decoded): `from decoded_dispatcher import DecodedDispatcher; dd=DecodedDispatcher(); dd.on_pose=lambda p,is_unopt:...; dd.feed(raw_bytes)`
 
 ## API reference & examples
@@ -157,6 +178,32 @@ dd.feed(bytes, len);  // can be called repeatedly with stream chunks
   - `parseFrames(buffer) -> {frames, rest}` or `new FrameDispatcher(onFrame).feed(bytes)` (browser-friendly version is in `main/web/mighty-protocol.js`)
   - Decoders: `decodeJpgPayload`, `decodeRawPayload`, `decodeStereoRawPayload`, `decodePosePayload`, `decodeConstraintsPayload`, `decodeVizPayload`, `decodeImuPayload`, `decodeStatusPayload`, `decodeVioStatePayload`, `decodeFea3Payload`, `decodePcldPayload`, `decodeCommandPayload`, `decodeCommandResponsePayload`, `decodeConfigRequestPayload`, `decodeConfigResponsePayload`
 
+#### JS high-level SDK (HTTP v1)
+- `MightyWebDevice`:
+  - transport implementation for `GET /stream` + `POST /command`.
+- `MightyClient`:
+  - typed subscriptions: `onImage`, `onPose`, `onImu`, `onVioState`, `onViz`, `onLcon`, `onReset`, `onStatus`, `onAny`, `onError`
+  - control/config methods: `command`, `configGet`, `configSet`, `startVio`, `stopVio`
+  - metrics: `stats()`
+
+```js
+import proto from './mighty-protocol/js';
+
+const device = new proto.MightyWebDevice({ baseUrl: 'http://127.0.0.1:8084' });
+const client = new proto.MightyClient(device, { autoReconnect: true });
+
+client.onImage((img) => {
+  if (img.kind === 'raw') console.log('image', img.width, img.height, img.channel);
+});
+client.onPose((p) => console.log('pose', p.stream, p.position));
+client.onVioState((s) => console.log('state', s.state, s.poseConfidence));
+client.onError((e) => console.error(e.scope, e.code, e.message));
+
+await client.connect();
+const res = await client.startVio();
+console.log('start_vio', res.ok, res.message);
+```
+
 #### JS config-over-command example
 ```js
 const req = MightyProtocol.buildConfigRequestPayload({
@@ -210,9 +257,6 @@ disp.feed(chunkFromSocket);
   - `parse_frames(buf) -> (frames, rest)` or `FrameDispatcher(on_frame).feed(bytes)`
   - `DecodedDispatcher` in `python/decoded_dispatcher.py` for per-type decoded callbacks (`on_jpg`, `on_pose`, etc.).
   - Decoders: `decode_jpg_payload(payload, is_ref)`, `decode_raw_payload`, `decode_stereo_raw_payload`, `decode_pose_payload`, `decode_constraints_payload`, `decode_viz_payload`, `decode_imu_payload`, `decode_status_payload`, `decode_fea3_payload`, `decode_pcld_payload`
-
-Python note:
-- `CFGQ`/`CFGR` helper builders/decoders are currently implemented in C++ and JS helpers.
 
 ```python
 # PYTHONPATH needs to include mighty-protocol/python
