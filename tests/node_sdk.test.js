@@ -140,6 +140,7 @@ async function main() {
     pose: 0,
     imu: 0,
     vsta: 0,
+    pcld: 0,
     lcon: 0,
     reset: 0,
     status: 0,
@@ -148,6 +149,7 @@ async function main() {
 
   let lastImage = null;
   let lastPose = null;
+  let lastPointCloud = null;
 
   client.onImage((f) => {
     seen.image += 1;
@@ -159,6 +161,10 @@ async function main() {
   });
   client.onImu(() => { seen.imu += 1; });
   client.onVioState(() => { seen.vsta += 1; });
+  client.onPointCloud((p) => {
+    seen.pcld += 1;
+    lastPointCloud = p;
+  });
   client.onLcon(() => { seen.lcon += 1; });
   client.onReset(() => { seen.reset += 1; });
   client.onStatus(() => { seen.status += 1; });
@@ -174,6 +180,12 @@ async function main() {
     format: proto.RAW_FORMAT.GRAY8,
     channel: "cam0",
     data: Buffer.from([0x01, 0x02]),
+  })));
+  device.emitPacket(proto.makePacket(proto.TYPE.JPG, proto.buildJpgPayload({
+    timestampNs: 10n,
+    channel: "cam0",
+    data: Buffer.from([0xff, 0xd8, 0xff, 0xd9]),
+    isRef: false,
   })));
 
   device.emitPacket(proto.makePacket(proto.TYPE.POSE, proto.buildPosePayload({
@@ -207,14 +219,17 @@ async function main() {
   device.emitPacket(proto.makePacket(proto.TYPE.LCON, proto.buildConstraintsPayload([
     { type: 1, start: [0, 0, 0], end: [1, 1, 1] },
   ])));
+  device.emitPacket(proto.makePacket(proto.TYPE.PCLD, proto.buildPcldPayload([
+    { x: 1, y: 2, z: 3, r: 10, g: 20, b: 30 },
+  ], 0.01)));
   device.emitPacket(proto.makePacket(proto.TYPE.STAT, proto.buildStatusPayload("hello")));
   device.emitPacket(proto.makePacket(proto.TYPE.RSET));
   device.emitPacket(proto.makePacket("ZZZZ", Buffer.from([0xaa])));
 
   await sleep(20);
 
-  assert.strictEqual(seen.image, 1);
-  assert.strictEqual(lastImage.kind, "raw");
+  assert.strictEqual(seen.image, 2);
+  assert.strictEqual(lastImage.kind, "jpeg");
   assert.strictEqual(lastImage.channel, "cam0");
   assert.strictEqual(lastImage.channelAlias, "cam0");
   assert.strictEqual(seen.pose, 1);
@@ -222,10 +237,13 @@ async function main() {
   assert.strictEqual(lastPose.poseType, "body");
   assert.strictEqual(seen.imu, 1);
   assert.strictEqual(seen.vsta, 1);
+  assert.strictEqual(seen.pcld, 1);
+  assert.ok(Array.isArray(lastPointCloud.points));
+  assert.strictEqual(lastPointCloud.points.length, 1);
   assert.strictEqual(seen.lcon, 1);
   assert.strictEqual(seen.status, 1);
   assert.strictEqual(seen.reset, 1);
-  assert.ok(seen.any >= 8);
+  assert.ok(seen.any >= 10);
 
   const cmdRes = await client.startVio();
   assert.strictEqual(cmdRes.ok, true);
