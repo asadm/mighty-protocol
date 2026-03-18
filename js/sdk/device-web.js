@@ -1,29 +1,61 @@
 const { toU8, isAbortError } = require("./utils");
 
+const DEFAULT_BASE_URLS = [
+  "http://localhost:8080",
+  "http://localhost:8084",
+  "http://192.168.7.1:80",
+  "http://192.168.7.1:8080",
+];
+
 function getDefaultFetch() {
   if (typeof fetch === "function") return fetch.bind(globalThis);
   return null;
 }
 
 function normalizeBaseUrl(baseUrl) {
-  if (baseUrl && typeof baseUrl === "string") {
-    return baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
+  if (!baseUrl || typeof baseUrl !== "string") return "";
+  return baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
+}
+
+function appendUnique(out, value) {
+  const v = normalizeBaseUrl(value);
+  if (!v) return;
+  if (!/^https?:\/\//i.test(v)) return;
+  if (out.includes(v)) return;
+  out.push(v);
+}
+
+function resolveBaseUrls(baseUrl, baseUrls) {
+  const out = [];
+  if (Array.isArray(baseUrls) && baseUrls.length > 0) {
+    for (const v of baseUrls) appendUnique(out, v);
+  } else if (baseUrl && typeof baseUrl === "string") {
+    appendUnique(out, baseUrl);
   }
+
+  if (out.length > 0) return out;
+
   if (typeof window !== "undefined" && window.location && window.location.origin) {
-    return window.location.origin;
+    appendUnique(out, window.location.origin);
   }
-  throw new Error("MightyWebDevice requires baseUrl outside browsers");
+  for (const v of DEFAULT_BASE_URLS) appendUnique(out, v);
+  if (out.length === 0) {
+    throw new Error("MightyWebDevice requires at least one base URL");
+  }
+  return out;
 }
 
 class MightyWebDevice {
   constructor({
     baseUrl = "",
+    baseUrls = null,
     streamPath = "/stream",
     commandPath = "/command",
     fetchImpl = null,
     headers = null,
   } = {}) {
-    this.baseUrl = normalizeBaseUrl(baseUrl);
+    this.baseUrls = resolveBaseUrls(baseUrl, baseUrls);
+    this.baseUrl = this.baseUrls[0] || "";
     this.streamPath = streamPath || "/stream";
     this.commandPath = commandPath || "/command";
     this.fetchImpl = fetchImpl || getDefaultFetch();
@@ -31,17 +63,26 @@ class MightyWebDevice {
 
     this._connectPromise = null;
     this._abortController = null;
+    this._activeBaseUrl = this.baseUrl;
   }
 
   getInfo() {
-    return { transport: "http", source: this.baseUrl };
+    return { transport: "http", source: this._activeBaseUrl || this.baseUrl || "" };
   }
 
-  _url(path) {
-    if (!path) return this.baseUrl;
+  _url(baseUrl, path) {
+    const base = normalizeBaseUrl(baseUrl || this.baseUrl);
+    if (!path) return base;
     if (/^https?:\/\//i.test(path)) return path;
-    if (path.startsWith("/")) return `${this.baseUrl}${path}`;
-    return `${this.baseUrl}/${path}`;
+    if (path.startsWith("/")) return `${base}${path}`;
+    return `${base}/${path}`;
+  }
+
+  _orderedBases() {
+    const out = [];
+    if (this._activeBaseUrl) appendUnique(out, this._activeBaseUrl);
+    for (const b of this.baseUrls) appendUnique(out, b);
+    return out;
   }
 
   async connect(onBytes) {
@@ -67,44 +108,65 @@ class MightyWebDevice {
   }
 
   async _runStream(onBytes, signal) {
+    const bases = this._orderedBases();
     const headers = { Accept: "application/octet-stream", ...(this.headers || {}) };
-    const response = await this.fetchImpl(this._url(this.streamPath), {
-      method: "GET",
-      headers,
-      signal,
-    });
+    let lastErr = null;
 
-    if (!response || !response.ok) {
-      const status = response ? `${response.status}` : "no_response";
-      throw new Error(`stream request failed (${status})`);
-    }
-
-    const body = response.body;
-    if (!body) return;
-
-    if (typeof body.getReader === "function") {
-      const reader = body.getReader();
+    for (const base of bases) {
       try {
-        // Stream raw framed bytes into the protocol parser.
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (value && value.length) onBytes(toU8(value));
+        const response = await this.fetchImpl(this._url(base, this.streamPath), {
+          method: "GET",
+          headers,
+          signal,
+        });
+
+        if (!response || !response.ok) {
+          const status = response ? `${response.status}` : "no_response";
+          lastErr = new Error(`stream request failed (${status})`);
+          continue;
         }
-      } finally {
+
+        this._activeBaseUrl = base;
+        const body = response.body;
+        if (!body) return;
+
+        if (typeof body.getReader === "function") {
+          const reader = body.getReader();
+          try {
+            // Stream raw framed bytes into the protocol parser.
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              if (value && value.length) onBytes(toU8(value));
+            }
+          } finally {
+            try {
+              reader.releaseLock();
+            } catch (_) {
+              // ignore release errors
+            }
+          }
+          return;
+        }
+
+        // Fallback for environments without readable-stream reader support.
+        const arr = await response.arrayBuffer();
+        const u8 = new Uint8Array(arr);
+        if (u8.length) onBytes(u8);
+        return;
+      } catch (err) {
+        if (isAbortError(err)) throw err;
+        lastErr = err;
         try {
-          reader.releaseLock();
+          if (signal && signal.aborted) throw err;
         } catch (_) {
-          // ignore release errors
+          // no-op
         }
       }
-      return;
     }
 
-    // Fallback for environments without readable-stream reader support.
-    const arr = await response.arrayBuffer();
-    const u8 = new Uint8Array(arr);
-    if (u8.length) onBytes(u8);
+    if (lastErr) throw lastErr;
+    throw new Error("stream request failed (no host)");
   }
 
   async disconnect() {
@@ -127,26 +189,42 @@ class MightyWebDevice {
     if (!this.fetchImpl) {
       throw new Error("MightyWebDevice requires a fetch implementation");
     }
-    const response = await this.fetchImpl(this._url(this.commandPath), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/octet-stream",
-        Accept: "application/octet-stream",
-        ...(this.headers || {}),
-      },
-      body: toU8(cmdPayload),
-    });
 
-    if (!response || !response.ok) {
-      const status = response ? `${response.status}` : "no_response";
-      throw new Error(`command request failed (${status})`);
+    const bases = this._orderedBases();
+    let lastErr = null;
+    for (const base of bases) {
+      try {
+        const response = await this.fetchImpl(this._url(base, this.commandPath), {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/octet-stream",
+            Accept: "application/octet-stream",
+            ...(this.headers || {}),
+          },
+          body: toU8(cmdPayload),
+        });
+
+        if (!response || !response.ok) {
+          const status = response ? `${response.status}` : "no_response";
+          lastErr = new Error(`command request failed (${status})`);
+          continue;
+        }
+
+        this._activeBaseUrl = base;
+        const arr = await response.arrayBuffer();
+        return new Uint8Array(arr);
+      } catch (err) {
+        if (isAbortError(err)) throw err;
+        lastErr = err;
+      }
     }
 
-    const arr = await response.arrayBuffer();
-    return new Uint8Array(arr);
+    if (lastErr) throw lastErr;
+    throw new Error("command request failed (no host)");
   }
 }
 
 module.exports = {
   MightyWebDevice,
+  DEFAULT_BASE_URLS,
 };
