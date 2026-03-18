@@ -1,0 +1,39 @@
+---
+title: Python
+description: Connect, subscribe to pose/image, and start VIO from Python.
+---
+
+Install from GitHub:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -U pip
+pip install "git+https://github.com/asadm/mighty-protocol.git"
+```
+
+Minimal usage:
+
+```python
+import time
+from mighty_sdk import MightyWebDevice, MightyClient
+
+device = MightyWebDevice()
+client = MightyClient(device, auto_reconnect=True)
+
+client.on_pose(lambda p: print("pose", p["position"], p["confidence"]))
+client.on_image(lambda img: print("image", img["kind"], img["width"], img["height"]))
+client.on_error(lambda e: print("error:", e))
+
+client.connect()
+print(client.start_vio())
+
+try:
+    while True:
+        time.sleep(0.25)
+except KeyboardInterrupt:
+    client.disconnect()
+```
+
+Full Python app example:
+- [`examples/python/mightyapp.py`](https://github.com/asadm/mighty-protocol/blob/main/examples/python/mightyapp.py)

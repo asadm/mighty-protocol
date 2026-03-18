@@ -1,0 +1,32 @@
+---
+title: JavaScript
+description: Connect and stream pose/image in web or Node ESM.
+---
+
+Install from GitHub:
+
+```bash
+npm install https://github.com/asadm/mighty-protocol
+```
+
+Minimal usage:
+
+```js
+import { MightyWebDevice, MightyClient, decodeRawToRgb } from "mighty-protocol";
+
+const device = new MightyWebDevice();
+const client = new MightyClient(device, { autoReconnect: true, reconnectDelayMs: 500 });
+
+client.onPose((pose) => console.log("pose", pose.position, pose.confidence));
+client.onImage((img) => {
+  const decoded = decodeRawToRgb(img);
+  console.log("image", decoded?.width ?? img.width, decoded?.height ?? img.height);
+});
+client.onError((e) => console.error(e));
+
+await client.connect();
+await client.startVio();
+```
+
+Full web dashboard example:
+- [`examples/web/main.js`](https://github.com/asadm/mighty-protocol/blob/main/examples/web/main.js)
