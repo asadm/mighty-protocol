@@ -1,6 +1,6 @@
 const hasBuffer = typeof Buffer !== "undefined";
 
-function toU8(data = new Uint8Array()) {
+export function toU8(data = new Uint8Array()) {
   if (data instanceof Uint8Array) return data;
   if (hasBuffer && data instanceof Buffer) {
     return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
@@ -8,7 +8,7 @@ function toU8(data = new Uint8Array()) {
   return new Uint8Array(data);
 }
 
-function encodeText(text = "") {
+export function encodeText(text = "") {
   if (typeof TextEncoder !== "undefined") {
     return new TextEncoder().encode(text);
   }
@@ -18,7 +18,7 @@ function encodeText(text = "") {
   throw new Error("No UTF-8 encoder available");
 }
 
-function decodeText(bytes) {
+export function decodeText(bytes) {
   const u8 = toU8(bytes);
   if (typeof TextDecoder !== "undefined") {
     return new TextDecoder().decode(u8);
@@ -31,13 +31,13 @@ function decodeText(bytes) {
   return out;
 }
 
-function sleep(ms) {
+export function sleep(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, Math.max(0, Number(ms) || 0));
   });
 }
 
-function isAbortError(err) {
+export function isAbortError(err) {
   if (!err) return false;
   if (typeof err === "object" && err !== null) {
     const name = err.name || "";
@@ -49,11 +49,3 @@ function isAbortError(err) {
   }
   return false;
 }
-
-module.exports = {
-  toU8,
-  encodeText,
-  decodeText,
-  sleep,
-  isAbortError,
-};

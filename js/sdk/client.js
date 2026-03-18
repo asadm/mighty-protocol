@@ -1,5 +1,5 @@
-const protocol = require("../core/protocol");
-const { toU8, encodeText, decodeText, sleep, isAbortError } = require("./utils");
+import * as protocol from "../core/protocol.js";
+import { toU8, encodeText, decodeText, sleep, isAbortError } from "./utils.js";
 
 const DEFAULT_OPTS = {
   commandTimeoutMs: 2000,
@@ -39,7 +39,7 @@ function timeoutPromise(ms, message) {
   });
 }
 
-class MightyClient {
+export class MightyClient {
   constructor(device, opts = {}) {
     if (!device || typeof device.connect !== "function" || typeof device.disconnect !== "function") {
       throw new Error("MightyClient requires a device implementing connect/disconnect");
@@ -553,7 +553,3 @@ class MightyClient {
     }
   }
 }
-
-module.exports = {
-  MightyClient,
-};

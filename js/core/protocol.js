@@ -1039,10 +1039,45 @@ const api = {
   decodeConfigResponsePayload,
 };
 
-if (typeof module !== "undefined" && module.exports) {
-  module.exports = api;
-  module.exports.default = api;
-}
-if (typeof globalThis !== "undefined" && globalThis.window === globalThis) {
-  globalThis.MightyProtocol = api;
-}
+export {
+  TYPE,
+  RAW_FORMAT,
+  CONFIG_OP,
+  HEADER_MAGIC,
+  FOOTER_MAGIC,
+  makePacket,
+  parseFrames,
+  FrameDispatcher,
+  buildJpgPayload,
+  buildRawPayload,
+  buildStereoRawPayload,
+  buildPosePayload,
+  buildConstraintsPayload,
+  buildVizPayload,
+  buildImuPayload,
+  buildStatusPayload,
+  buildVioStatePayload,
+  buildFea3Payload,
+  buildPcldPayload,
+  buildCommandPayload,
+  buildCommandResponsePayload,
+  buildConfigRequestPayload,
+  buildConfigResponsePayload,
+  decodeJpgPayload,
+  decodeRawPayload,
+  decodeStereoRawPayload,
+  decodePosePayload,
+  decodeConstraintsPayload,
+  decodeVizPayload,
+  decodeImuPayload,
+  decodeStatusPayload,
+  decodeVioStatePayload,
+  decodeFea3Payload,
+  decodePcldPayload,
+  decodeCommandPayload,
+  decodeCommandResponsePayload,
+  decodeConfigRequestPayload,
+  decodeConfigResponsePayload,
+};
+
+export default api;

@@ -1,7 +1,2 @@
-const { MightyClient } = require("./client");
-const { MightyWebDevice } = require("./device-web");
-
-module.exports = {
-  MightyClient,
-  MightyWebDevice,
-};
+export { MightyClient } from "./client.js";
+export { MightyWebDevice, DEFAULT_BASE_URLS } from "./device-web.js";

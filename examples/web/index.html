@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Mighty SDK Web Example</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">MIGHTY SDK WEB DEMO</div>
+        <div class="topbar-actions">
+          <span id="connBadge" class="badge badge-off">DISCONNECTED</span>
+          <button id="connectBtn" class="btn" type="button">Connect</button>
+          <button id="vioBtn" class="btn" type="button">Start VIO</button>
+        </div>
+      </header>
+
+      <div class="layout">
+        <aside class="sidebar">
+          <section class="panel status-panel">
+            <h2>VIO Status</h2>
+            <div class="panel-body">
+              <div id="statusGrid" class="settings-grid status-grid">
+                <div class="status-cell">
+                  <div class="setting-label">Conn</div>
+                  <div class="setting-value mono" data-status-field="conn">disconnected</div>
+                </div>
+                <div class="status-cell">
+                  <div class="setting-label">VIO</div>
+                  <div class="setting-value mono" data-status-field="vio">STATE_NA</div>
+                </div>
+                <div class="status-cell">
+                  <div class="setting-label">Host</div>
+                  <div class="setting-value mono" data-status-field="host">Unknown</div>
+                </div>
+                <div class="status-cell">
+                  <div class="setting-label">FPS</div>
+                  <div class="setting-value mono" data-status-field="fps">NA</div>
+                </div>
+                <div class="status-cell">
+                  <div class="setting-label">Features</div>
+                  <div class="setting-value mono" data-status-field="features">NA</div>
+                </div>
+                <div class="status-cell">
+                  <div class="setting-label">Confidence</div>
+                  <div class="setting-value mono" data-status-field="pose_conf">NA</div>
+                </div>
+                <div class="status-cell status-cell-wide">
+                  <div class="setting-label">Source</div>
+                  <div class="setting-value mono" data-status-field="source">(none)</div>
+                </div>
+                <div class="status-cell status-cell-wide">
+                  <div class="setting-label">Status</div>
+                  <div class="setting-value mono" data-status-field="status">Waiting for data...</div>
+                </div>
+                <div class="status-cell status-cell-wide">
+                  <div class="setting-label">Image</div>
+                  <div class="setting-value mono" data-status-field="image">No frame</div>
+                </div>
+                <div class="status-cell status-cell-wide">
+                  <div class="setting-label">Pose</div>
+                  <div class="setting-value mono" data-status-field="pose">No pose</div>
+                </div>
+                <div class="status-cell status-cell-wide">
+                  <div class="setting-label">Error</div>
+                  <div class="setting-value mono" data-status-field="error">none</div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel camera-panel">
+            <h2>Camera</h2>
+            <div class="panel-body canvas-wrap">
+              <canvas id="cameraCanvas" width="640" height="400"></canvas>
+            </div>
+          </section>
+
+          <section class="panel imu-panel">
+            <h2>IMU</h2>
+            <div class="panel-body canvas-wrap">
+              <canvas id="imuCanvas" width="640" height="240"></canvas>
+            </div>
+          </section>
+        </aside>
+
+        <main class="plot-area">
+          <section class="panel panel-fill">
+            <h2>Pose 3D</h2>
+            <div id="pose3d" class="pose-host"></div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
