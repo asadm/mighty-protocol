@@ -1,4 +1,4 @@
-import { MightyClient, MightyWebDevice, RAW_FORMAT } from "mighty-protocol";
+import { MightyClient, MightyWebDevice } from "mighty-protocol";
 import {
   createDashboardUI,
   setConnectionBadge,
@@ -101,7 +101,7 @@ client.onImage(async (img) => {
     const raw = pickRenderableRaw(img);
     if (!raw) return;
 
-    if (drawRawFrame(ui.cameraCanvas, raw, RAW_FORMAT)) {
+    if (drawRawFrame(ui.cameraCanvas, raw)) {
       const ch = raw.channelAlias || raw.channel || "cam0";
       state.imageInfo = `raw ${raw.width}x${raw.height} ${ch} ${raw.timestampNs || 0}`;
     }
