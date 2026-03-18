@@ -15,6 +15,7 @@ const EVENT_KEYS = [
   "imu",
   "vio_state",
   "viz",
+  "point_cloud",
   "lcon",
   "status",
   "reset",
@@ -106,6 +107,7 @@ class MightyClient {
   onImu(cb) { return this._subscribe("imu", cb); }
   onVioState(cb) { return this._subscribe("vio_state", cb); }
   onViz(cb) { return this._subscribe("viz", cb); }
+  onPointCloud(cb) { return this._subscribe("point_cloud", cb); }
   onLcon(cb) { return this._subscribe("lcon", cb); }
   onConstraints(cb) { return this._subscribe("lcon", cb); }
   onStatus(cb) { return this._subscribe("status", cb); }
@@ -341,6 +343,22 @@ class MightyClient {
 
     try {
       switch (frame.type) {
+        case protocol.TYPE.JPG:
+        case protocol.TYPE.RJPG: {
+          if (!this._hasListeners("image") && !wantsAny) return;
+          const jpg = protocol.decodeJpgPayload(frame.payload, frame.type === protocol.TYPE.RJPG);
+          const mapped = {
+            kind: "jpeg",
+            isRef: frame.type === protocol.TYPE.RJPG,
+            timestampNs: jpg.timestampNs,
+            channel: frame.type === protocol.TYPE.RJPG ? "ref" : (jpg.channel || "cam0"),
+            channelAlias: this._mapChannelAlias(jpg.channel),
+            data: toU8(jpg.data),
+          };
+          this._emit("image", mapped);
+          if (wantsAny) this._emitAny({ type: "image", data: mapped });
+          return;
+        }
         case protocol.TYPE.RAW: {
           if (!this._hasListeners("image") && !wantsAny) return;
           const raw = protocol.decodeRawPayload(frame.payload);
@@ -444,12 +462,23 @@ class MightyClient {
           if (!this._hasListeners("viz") && !wantsAny) return;
           const v = protocol.decodeVizPayload(frame.payload);
           let mapped;
-          if (v.subtype === 0) mapped = { subtype: "features", features: v.features };
-          else if (v.subtype === 1) mapped = { subtype: "detections", detections: v.detections };
-          else if (v.subtype === 2) mapped = { subtype: "matches", matches: v.matches };
-          else mapped = { subtype: "unknown", rawSubtype: v.subtype, raw: toU8(frame.payload) };
+          if (v.subtype === 0) mapped = { subtype: "features", features: v.features, rawPayload: toU8(frame.payload) };
+          else if (v.subtype === 1) mapped = { subtype: "detections", detections: v.detections, rawPayload: toU8(frame.payload) };
+          else if (v.subtype === 2) mapped = { subtype: "matches", matches: v.matches, rawPayload: toU8(frame.payload) };
+          else mapped = { subtype: "unknown", rawSubtype: v.subtype, rawPayload: toU8(frame.payload) };
           this._emit("viz", mapped);
           if (wantsAny) this._emitAny({ type: "viz", data: mapped });
+          return;
+        }
+        case protocol.TYPE.PCLD: {
+          if (!this._hasListeners("point_cloud") && !wantsAny) return;
+          const p = protocol.decodePcldPayload(frame.payload);
+          const mapped = {
+            points: p.points || [],
+            pointSize: p.pointSize,
+          };
+          this._emit("point_cloud", mapped);
+          if (wantsAny) this._emitAny({ type: "point_cloud", data: mapped });
           return;
         }
         case protocol.TYPE.LCON: {
