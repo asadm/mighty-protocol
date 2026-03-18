@@ -281,11 +281,17 @@ def set_axis_limits_from_points(ax: Any, points: np.ndarray) -> float:
     return radius
 
 
-def launch_gui(state: DashboardState, imu_window_s: float = 10.0, fps: int = 20) -> None:
+def launch_gui(
+    state: DashboardState,
+    imu_window_s: float = 10.0,
+    fps: int = 20,
+    on_start_vio: Optional[Any] = None,
+) -> None:
     try:
         import matplotlib.pyplot as plt
         from matplotlib.animation import FuncAnimation
         from matplotlib import gridspec
+        from matplotlib.widgets import Button
     except Exception as exc:
         raise RuntimeError(
             "matplotlib is required for this example. Install with: pip install matplotlib"
@@ -320,6 +326,33 @@ def launch_gui(state: DashboardState, imu_window_s: float = 10.0, fps: int = 20)
         clip_on=False,
         transform=ax_status.transAxes,
     )
+
+    status_pos = ax_status.get_position()
+    btn_w = status_pos.width * 0.42
+    btn_h = min(0.04, status_pos.height * 0.28)
+    btn_x = status_pos.x1 - btn_w
+    btn_y = status_pos.y1 - btn_h
+    ax_start_vio_btn = fig.add_axes([btn_x, btn_y, btn_w, btn_h])
+    start_vio_btn = Button(ax_start_vio_btn, "Start VIO")
+
+    def _on_start_vio_clicked(_: Any) -> None:
+        if on_start_vio is None:
+            state.update_status("start_vio unavailable")
+            return
+
+        def _run() -> None:
+            try:
+                res = on_start_vio()
+                if isinstance(res, dict) and not res.get("ok", False):
+                    state.update_status(f"start_vio failed: {res.get('message', 'unknown')}")
+                    return
+                state.update_status("start_vio sent")
+            except Exception as exc:
+                state.update_status(f"start_vio error: {exc}")
+
+        threading.Thread(target=_run, name="StartVioButton", daemon=True).start()
+
+    start_vio_btn.on_clicked(_on_start_vio_clicked)
 
     ax_image.set_title("Camera")
     ax_image.set_xticks([])

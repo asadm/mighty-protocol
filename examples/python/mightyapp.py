@@ -118,21 +118,11 @@ def run_client_lifecycle(
 ) -> None:
     state.set_connection("connecting", device.get_info().get("source", ""))
     client.connect()
-    was_connected = False
 
     while not stop_event.is_set():
         connected = bool(client.is_connected())
         source = str(device.get_info().get("source", "") or "")
         state.set_connection("connected" if connected else "disconnected", source)
-
-        if connected and not was_connected:
-            try:
-                cmd = client.start_vio()
-                if not cmd.get("ok", False):
-                    state.update_status(f"start_vio failed: {cmd.get('message', 'unknown')}")
-            except Exception as exc:
-                state.update_status(f"start_vio error: {exc}")
-        was_connected = connected
         stop_event.wait(0.2)
 
 
@@ -177,8 +167,16 @@ def main() -> None:
     )
     worker.start()
 
+    def start_vio_from_ui() -> Dict[str, object]:
+        return client.start_vio()
+
     try:
-        launch_gui(state, imu_window_s=float(args.imu_window), fps=int(args.fps))
+        launch_gui(
+            state,
+            imu_window_s=float(args.imu_window),
+            fps=int(args.fps),
+            on_start_vio=start_vio_from_ui,
+        )
     finally:
         stop_event.set()
         try:

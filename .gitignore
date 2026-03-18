@@ -1,3 +1,5 @@
 tests/bin/cpp_sdk_test
 tests/bin/cpp_sdk_integration_test
 __pycache__
+examples/web/node_modules
+examples/web/dist

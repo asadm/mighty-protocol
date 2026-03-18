@@ -5,7 +5,7 @@ Shared protocol helpers for framing and payload encoding/decoding used by the we
 - C++ helpers:
   - Core wire protocol: `mighty-protocol/cpp/mighty_protocol.h` and `mighty-protocol/cpp/mighty_protocol_consumer.h`
   - High-level SDK: `mighty-protocol/cpp/mighty_sdk.h` (`sdk/mighty_client.h`, `sdk/mighty_web_device.h`)
-- JS helpers: `mighty-protocol/js/index.js` (Node export + `window.MightyProtocol` in browsers).
+- JS helpers (ESM): `mighty-protocol/js/index.js` (use `import ... from "mighty-protocol"`).
   - Core wire protocol: `mighty-protocol/js/core/protocol.js`
   - High-level SDK: `mighty-protocol/js/sdk/client.js`, `mighty-protocol/js/sdk/device-web.js`
 - Python helpers: `mighty-protocol/python/mighty_protocol.py`.
@@ -187,7 +187,7 @@ dd.feed(bytes, len);  // can be called repeatedly with stream chunks
   - metrics: `stats()`
 
 ```js
-import proto from './mighty-protocol/js';
+import proto from "mighty-protocol";
 
 const device = new proto.MightyWebDevice({ baseUrl: 'http://127.0.0.1:8084' });
 const client = new proto.MightyClient(device, { autoReconnect: true });
@@ -206,14 +206,14 @@ console.log('start_vio', res.ok, res.message);
 
 #### JS config-over-command example
 ```js
-const req = MightyProtocol.buildConfigRequestPayload({
+const req = proto.buildConfigRequestPayload({
   version: 1,
-  op: MightyProtocol.CONFIG_OP.GET,
+  op: proto.CONFIG_OP.GET,
   key: "calib",
   value: new Uint8Array(),
 });
 
-const cmd = MightyProtocol.buildCommandPayload({
+const cmd = proto.buildCommandPayload({
   reqId: 1,
   name: "config",
   data: req,
@@ -221,11 +221,11 @@ const cmd = MightyProtocol.buildCommandPayload({
 
 // send `cmd` to /command endpoint
 // decode CRES body with decodeCommandResponsePayload, then:
-// const cfg = MightyProtocol.decodeConfigResponsePayload(commandRes.data);
+// const cfg = proto.decodeConfigResponsePayload(commandRes.data);
 ```
 
 ```js
-import proto from './mighty-protocol/js/index.js'; // Node (or use global MightyProtocol in browser)
+import proto from "mighty-protocol";
 
 const jpgPayload = proto.buildJpgPayload({ timestampNs: 123n, channel: 'preview', data: jpegBuf });
 const packet = proto.makePacket(proto.TYPE.JPG, jpgPayload);

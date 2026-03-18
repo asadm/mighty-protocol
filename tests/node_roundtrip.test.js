@@ -1,9 +1,14 @@
-const net = require('net');
-const path = require('path');
-const assert = require('assert');
-const { spawn } = require('child_process');
+import net from "node:net";
+import path from "node:path";
+import assert from "node:assert";
+import crypto from "node:crypto";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
-const proto = require('../js');
+import proto from "../js/index.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const SAMPLE = {
   jpgTs: 111n,
@@ -352,7 +357,6 @@ async function main() {
 }
 
 async function runFuzzTests() {
-  const crypto = require('crypto');
 	  const fuzzTypes = [
 	    proto.TYPE.JPG,
 	    proto.TYPE.RJPG,
@@ -505,9 +509,7 @@ async function runFuzzTests() {
   console.log('Node fuzz/dispatcher decode test passed');
 }
 
-if (require.main === module) {
-  main().catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
-}
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

@@ -1,17 +1,21 @@
-const protocol = require("./core/protocol");
-const sdk = require("./sdk");
+import * as core from "./core/protocol.js";
+import { MightyClient, MightyWebDevice, DEFAULT_BASE_URLS } from "./sdk/index.js";
 
-const api = {
-  ...protocol,
-  ...sdk,
-  sdk,
-  core: protocol,
+const { default: _coreDefault, ...coreNamed } = core;
+
+const sdk = {
+  MightyClient,
+  MightyWebDevice,
+  DEFAULT_BASE_URLS,
 };
 
-if (typeof module !== "undefined" && module.exports) {
-  module.exports = api;
-  module.exports.default = api;
-}
-if (typeof globalThis !== "undefined" && globalThis.window === globalThis) {
-  globalThis.MightyProtocol = api;
-}
+const api = {
+  ...coreNamed,
+  ...sdk,
+  sdk,
+  core: coreNamed,
+};
+
+export * from "./core/protocol.js";
+export { MightyClient, MightyWebDevice, DEFAULT_BASE_URLS, sdk, coreNamed as core };
+export default api;

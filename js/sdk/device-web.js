@@ -1,6 +1,6 @@
-const { toU8, isAbortError } = require("./utils");
+import { toU8, isAbortError } from "./utils.js";
 
-const DEFAULT_BASE_URLS = [
+export const DEFAULT_BASE_URLS = [
   "http://localhost:8080",
   "http://localhost:8084",
   "http://192.168.7.1:80",
@@ -45,7 +45,7 @@ function resolveBaseUrls(baseUrl, baseUrls) {
   return out;
 }
 
-class MightyWebDevice {
+export class MightyWebDevice {
   constructor({
     baseUrl = "",
     baseUrls = null,
@@ -223,8 +223,3 @@ class MightyWebDevice {
     throw new Error("command request failed (no host)");
   }
 }
-
-module.exports = {
-  MightyWebDevice,
-  DEFAULT_BASE_URLS,
-};

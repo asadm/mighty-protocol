@@ -1,6 +1,5 @@
-const assert = require("assert");
-
-const proto = require("../js");
+import assert from "node:assert";
+import proto from "../js/index.js";
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -271,9 +270,7 @@ async function main() {
   console.log("Node SDK client test passed");
 }
 
-if (require.main === module) {
-  main().catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
-}
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

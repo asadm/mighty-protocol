@@ -1,0 +1,278 @@
+@import url("https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap");
+
+:root {
+  --ink: #111111;
+  --paper: #f4f4f0;
+  --paper-dark: #e8e8e6;
+  --c-cyan: #0099ff;
+  --c-magenta: #ff0055;
+  --c-yellow: #ffcc00;
+  --font-head: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --font-mono: "Space Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  background-image: linear-gradient(var(--paper-dark) 1px, transparent 1px),
+    linear-gradient(90deg, var(--paper-dark) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.app-shell {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 2px solid var(--ink);
+  background: var(--paper);
+  flex-shrink: 0;
+}
+
+.brand {
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 21px;
+  letter-spacing: 0.08em;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 126px;
+  height: 30px;
+  padding: 0 10px;
+  border: 2px solid var(--ink);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  font-family: var(--font-mono);
+}
+
+.badge-off {
+  background: #f8d7da;
+}
+
+.badge-on {
+  background: #d1fae5;
+}
+
+.btn {
+  height: 32px;
+  border: 2px solid var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: var(--c-cyan);
+  color: var(--ink);
+}
+
+.layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  overflow: hidden;
+}
+
+.sidebar {
+  flex: 0 0 34%;
+  min-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.plot-area {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  min-height: 0;
+}
+
+.panel {
+  border: 2px solid var(--ink);
+  background: #ffffffcc;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.status-panel {
+  flex: 1.2 1 0;
+}
+
+.camera-panel {
+  flex: 1.45 1 0;
+}
+
+.imu-panel {
+  flex: 1 1 0;
+}
+
+.panel-fill {
+  width: 100%;
+}
+
+.panel h2 {
+  margin: 0;
+  font-family: var(--font-head);
+  font-size: 18px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-bottom: 2px solid var(--ink);
+  padding-bottom: 6px;
+}
+
+.panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 10px;
+}
+
+.status-grid {
+  height: 100%;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.status-cell {
+  min-width: 0;
+}
+
+.status-cell-wide {
+  grid-column: 1 / -1;
+}
+
+.setting-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #555;
+  font-family: var(--font-mono);
+}
+
+.setting-value {
+  font-size: 13px;
+  font-family: var(--font-mono);
+  line-height: 1.25;
+  color: #111;
+}
+
+.mono {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.canvas-wrap {
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--ink);
+  background: #f8f8f4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+canvas {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  border: 0;
+  background: transparent;
+  image-rendering: pixelated;
+}
+
+#cameraCanvas {
+  aspect-ratio: 16 / 10;
+}
+
+#imuCanvas {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  aspect-ratio: auto;
+  display: block;
+}
+
+.pose-host {
+  width: 100%;
+  height: 100%;
+  min-height: 300px;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+}
+
+@media (max-width: 1000px) {
+  .layout {
+    flex-direction: column;
+    overflow: auto;
+  }
+
+  .sidebar {
+    flex: 0 0 auto;
+    min-width: 0;
+    overflow: visible;
+  }
+
+  .status-panel,
+  .camera-panel,
+  .imu-panel {
+    flex: 0 0 auto;
+    min-height: 180px;
+  }
+
+  .plot-area {
+    min-height: 52vh;
+  }
+}
