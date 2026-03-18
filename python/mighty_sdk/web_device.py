@@ -2,9 +2,38 @@ import socket
 import threading
 import urllib.error
 import urllib.request
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, List, Optional
 
 from .utils import to_bytes
+
+DEFAULT_BASE_URLS = [
+    "http://localhost:8080",
+    "http://localhost:8084",
+    "http://192.168.7.1:80",
+    "http://192.168.7.1:8080",
+]
+
+
+def _normalize_base_url(base_url: str) -> str:
+    if not isinstance(base_url, str):
+        return ""
+    value = base_url.strip()
+    if not value:
+        return ""
+    if value.endswith("/"):
+        value = value[:-1]
+    if not (value.startswith("http://") or value.startswith("https://")):
+        return ""
+    return value
+
+
+def _append_unique(out: List[str], value: str) -> None:
+    v = _normalize_base_url(value)
+    if not v:
+        return
+    if v in out:
+        return
+    out.append(v)
 
 
 class MightyWebDevice:
@@ -17,7 +46,8 @@ class MightyWebDevice:
 
     def __init__(
         self,
-        base_url: str,
+        base_url: Optional[str] = None,
+        base_urls: Optional[List[str]] = None,
         stream_path: str = "/stream",
         command_path: str = "/command",
         headers: Optional[Dict[str, str]] = None,
@@ -25,9 +55,21 @@ class MightyWebDevice:
         read_timeout_s: float = 1.0,
         read_chunk_size: int = 64 * 1024,
     ):
-        if not base_url:
-            raise ValueError("base_url is required")
-        self.base_url = base_url[:-1] if base_url.endswith("/") else base_url
+        resolved: List[str] = []
+        if isinstance(base_urls, list) and len(base_urls) > 0:
+            for b in base_urls:
+                _append_unique(resolved, b)
+        elif isinstance(base_url, str) and base_url.strip():
+            _append_unique(resolved, base_url)
+        else:
+            for b in DEFAULT_BASE_URLS:
+                _append_unique(resolved, b)
+
+        if not resolved:
+            raise ValueError("MightyWebDevice requires at least one valid base URL")
+
+        self.base_urls = list(resolved)
+        self.base_url = self.base_urls[0]
         self.stream_path = stream_path or "/stream"
         self.command_path = command_path or "/command"
         self.headers = dict(headers or {})
@@ -39,16 +81,25 @@ class MightyWebDevice:
         self._stop_event = threading.Event()
         self._connected = False
         self._active_stream = None
+        self._active_base_url = self.base_url
 
     def get_info(self) -> Dict[str, str]:
-        return {"transport": "http", "source": self.base_url}
+        return {"transport": "http", "source": self._active_base_url or self.base_url}
 
-    def _url(self, path: str) -> str:
+    def _url(self, base_url: str, path: str) -> str:
         if path.startswith("http://") or path.startswith("https://"):
             return path
+        base = _normalize_base_url(base_url) or self.base_url
         if path.startswith("/"):
-            return f"{self.base_url}{path}"
-        return f"{self.base_url}/{path}"
+            return f"{base}{path}"
+        return f"{base}/{path}"
+
+    def _ordered_base_urls(self) -> List[str]:
+        ordered: List[str] = []
+        _append_unique(ordered, self._active_base_url or "")
+        for b in self.base_urls:
+            _append_unique(ordered, b)
+        return ordered
 
     def connect(self, on_bytes: Callable[[bytes], None]) -> None:
         if not callable(on_bytes):
@@ -61,30 +112,44 @@ class MightyWebDevice:
             self._stop_event.clear()
 
         timeout = max(self.connect_timeout_s, self.read_timeout_s)
-        req = urllib.request.Request(
-            self._url(self.stream_path),
-            method="GET",
-            headers={"Accept": "application/octet-stream", **self.headers},
-        )
+        last_err: Optional[Exception] = None
 
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                with self._state_lock:
-                    self._active_stream = resp
-                while not self._stop_event.is_set():
-                    try:
-                        chunk = resp.read(self.read_chunk_size)
-                    except (socket.timeout, TimeoutError):
-                        if self._stop_event.is_set():
-                            break
-                        continue
+            for base in self._ordered_base_urls():
+                if self._stop_event.is_set():
+                    return
+                req = urllib.request.Request(
+                    self._url(base, self.stream_path),
+                    method="GET",
+                    headers={"Accept": "application/octet-stream", **self.headers},
+                )
 
-                    if not chunk:
-                        break
-                    on_bytes(to_bytes(chunk))
-        except Exception:
-            if not self._stop_event.is_set():
-                raise
+                try:
+                    with urllib.request.urlopen(req, timeout=timeout) as resp:
+                        with self._state_lock:
+                            self._active_stream = resp
+                            self._active_base_url = base
+                        while not self._stop_event.is_set():
+                            try:
+                                chunk = resp.read(self.read_chunk_size)
+                            except (socket.timeout, TimeoutError):
+                                if self._stop_event.is_set():
+                                    break
+                                continue
+
+                            if not chunk:
+                                break
+                            on_bytes(to_bytes(chunk))
+                        return
+                except Exception as exc:
+                    if self._stop_event.is_set():
+                        return
+                    last_err = exc
+                    continue
+
+            if last_err is not None:
+                raise RuntimeError(f"stream request failed on all hosts: {last_err}") from last_err
+            raise RuntimeError("stream request failed on all hosts")
         finally:
             with self._state_lock:
                 self._active_stream = None
@@ -103,19 +168,29 @@ class MightyWebDevice:
 
     def send_command_payload(self, cmd_payload: bytes) -> bytes:
         payload = to_bytes(cmd_payload)
-        req = urllib.request.Request(
-            self._url(self.command_path),
-            method="POST",
-            data=payload,
-            headers={
-                "Content-Type": "application/octet-stream",
-                "Accept": "application/octet-stream",
-                **self.headers,
-            },
-        )
         timeout = max(self.connect_timeout_s, self.read_timeout_s)
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                return to_bytes(resp.read())
-        except urllib.error.HTTPError as exc:
-            raise RuntimeError(f"command request failed ({exc.code})") from exc
+        last_err: Optional[Exception] = None
+        for base in self._ordered_base_urls():
+            req = urllib.request.Request(
+                self._url(base, self.command_path),
+                method="POST",
+                data=payload,
+                headers={
+                    "Content-Type": "application/octet-stream",
+                    "Accept": "application/octet-stream",
+                    **self.headers,
+                },
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    with self._state_lock:
+                        self._active_base_url = base
+                    return to_bytes(resp.read())
+            except urllib.error.HTTPError as exc:
+                last_err = RuntimeError(f"command request failed ({exc.code})")
+            except Exception as exc:
+                last_err = exc
+
+        if last_err is not None:
+            raise RuntimeError(f"command request failed on all hosts: {last_err}") from last_err
+        raise RuntimeError("command request failed on all hosts")

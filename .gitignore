@@ -1,3 +1,3 @@
-__pycache__
 tests/bin/cpp_sdk_test
 tests/bin/cpp_sdk_integration_test
+__pycache__
