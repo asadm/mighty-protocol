@@ -4,17 +4,9 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from io import BytesIO
 from typing import Any, Deque, Dict, Optional, Sequence, Tuple
 
 import numpy as np
-
-try:
-    from PIL import Image
-
-    PIL_AVAILABLE = True
-except Exception:
-    PIL_AVAILABLE = False
 
 import mighty_protocol as mp
 
@@ -99,16 +91,6 @@ def decode_raw_to_rgb(raw: Dict[str, Any]) -> Optional[np.ndarray]:
         return np.stack([y, y, y], axis=-1)
 
     return None
-
-
-def decode_jpeg_to_rgb(jpeg_bytes: bytes) -> Optional[np.ndarray]:
-    if not jpeg_bytes or not PIL_AVAILABLE:
-        return None
-    try:
-        img = Image.open(BytesIO(jpeg_bytes)).convert("RGB")
-        return np.asarray(img, dtype=np.uint8)
-    except Exception:
-        return None
 
 
 @dataclass

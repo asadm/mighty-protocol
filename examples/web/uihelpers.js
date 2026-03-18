@@ -114,27 +114,6 @@ export function drawRawFrame(canvas, frame) {
   return true;
 }
 
-export async function drawJpegFrame(canvas, jpegBytes) {
-  if (!(jpegBytes instanceof Uint8Array) || jpegBytes.length === 0) return false;
-  const blob = new Blob([jpegBytes], { type: "image/jpeg" });
-  const bitmap = await createImageBitmap(blob);
-
-  if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
-    canvas.width = bitmap.width;
-    canvas.height = bitmap.height;
-  }
-
-  const ctx = canvas.getContext("2d", { alpha: false });
-  if (!ctx) {
-    bitmap.close();
-    return false;
-  }
-
-  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  bitmap.close();
-  return true;
-}
-
 function drawImuChartRect(ctx, width, height, history, units, label, accessor) {
   const nowSec = performance.now() * 0.001;
   const tMax = history.length ? Math.max(history[history.length - 1].t, nowSec) : nowSec;

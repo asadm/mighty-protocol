@@ -24,11 +24,9 @@ if str(SDK_PY_DIR) not in sys.path:
     sys.path.insert(0, str(SDK_PY_DIR))
 
 from mighty_sdk import MightyClient, MightyWebDevice  # noqa: E402
-import mighty_protocol as mp  # noqa: E402
 
 from uihelpers import (  # noqa: E402
     DashboardState,
-    decode_jpeg_to_rgb,
     decode_raw_to_rgb,
     launch_gui,
 )
@@ -59,28 +57,6 @@ def wire_client_callbacks(client: MightyClient, state: DashboardState) -> None:
             ts = int(frame.get("timestamp_ns") or 0)
             state.update_image(rgb, channel, ts)
 
-    def on_any(evt: Dict[str, object]) -> None:
-        # Python SDK currently maps RAW/SRAW to image events.
-        # Handle JPG fallback via unknown event.
-        if evt.get("type") != "unknown":
-            return
-        raw_type = evt.get("raw_type")
-        payload = evt.get("payload", b"")
-        if raw_type not in ("JPG ", "RJPG"):
-            return
-        try:
-            decoded = mp.decode_jpg_payload(payload, raw_type == "RJPG")
-        except Exception:
-            return
-        rgb = decode_jpeg_to_rgb(decoded.get("data", b""))
-        if rgb is None:
-            return
-        channel = "ref" if raw_type == "RJPG" else str(decoded.get("channel") or "cam0")
-        if channel == "preview":
-            channel = "cam0"
-        ts = int(decoded.get("timestamp_ns") or 0)
-        state.update_image(rgb, channel, ts)
-
     def on_pose(p: Dict[str, object]) -> None:
         state.update_pose(p.get("position"), p.get("quat"))
 
@@ -101,7 +77,6 @@ def wire_client_callbacks(client: MightyClient, state: DashboardState) -> None:
         state.set_error(msg)
 
     client.on_image(on_image)
-    client.on_any(on_any)
     client.on_pose(on_pose)
     client.on_imu(on_imu)
     client.on_vio_state(on_vio_state)
@@ -128,11 +103,6 @@ def run_client_lifecycle(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Live Mighty VIO Python dashboard")
-    parser.add_argument(
-        "--hosts",
-        default="",
-        help="Comma-separated host base URLs. Empty means SDK defaults.",
-    )
     parser.add_argument("--reconnect-delay", type=float, default=1.0, help="Reconnect delay (seconds)")
     parser.add_argument("--imu-window", type=float, default=10.0, help="IMU plot history window (seconds)")
     parser.add_argument("--fps", type=int, default=20, help="GUI refresh FPS")
@@ -141,18 +111,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    hosts = [h.strip() for h in str(args.hosts).split(",") if h.strip()]
-    if hosts:
-        device = MightyWebDevice(
-            base_urls=hosts,
-            stream_path="/stream",
-            command_path="/command",
-            connect_timeout_s=2.0,
-            read_timeout_s=2.0,
-        )
-    else:
-        # Plain constructor: uses SDK default host fallback list.
-        device = MightyWebDevice()
+    # Plain constructor: uses SDK default host fallback list.
+    device = MightyWebDevice()
 
     state = DashboardState()
     client = MightyClient(device, auto_reconnect=True, reconnect_delay_s=float(args.reconnect_delay))
