@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mighty-protocol"
+version = "0.1.0"
+description = "SDK and protocol helpers for Mighty Camera"
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [
+  { name = "Mighty Camera" }
+]
+keywords = ["mighty-camera", "vio", "slam", "sdk", "protocol"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "License :: Other/Proprietary License",
+  "Operating System :: OS Independent"
+]
+
+[project.urls]
+Homepage = "https://github.com/asadm/mighty-protocol"
+Repository = "https://github.com/asadm/mighty-protocol"
+Issues = "https://github.com/asadm/mighty-protocol/issues"
+
+[tool.setuptools]
+package-dir = { "" = "python" }
+packages = ["mighty_sdk"]
+py-modules = ["mighty_protocol", "dispatcher", "decoded_dispatcher"]
+include-package-data = false

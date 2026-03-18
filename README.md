@@ -7,23 +7,34 @@ This repository provides:
 - A transport abstraction (`MightyWebDevice`) for HTTP streaming + command RPC.
 - Low-level protocol encode/decode helpers (see [PROTOCOL.md](./PROTOCOL.md)).
 
+## Install from GitHub
+
+### JavaScript / npm
+
+```bash
+npm install https://github.com/asadm/mighty-protocol
+```
+
+### Python / pip
+
+```bash
+pip install "git+https://github.com/asadm/mighty-protocol.git"
+```
+
 ## Quick Start
 
 ### 1) Python
 
 #### Setup
 
-From `mighty-protocol/`:
-
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -U pip
+pip install "git+https://github.com/asadm/mighty-protocol.git"
+
 # Optional for image preview examples:
 pip install numpy opencv-python
-
-# Use repo-local SDK modules
-export PYTHONPATH="$(pwd)/python:${PYTHONPATH}"
 ```
 
 #### Subscribe to pose and image
@@ -79,8 +90,6 @@ See full Python GUI example:
 ### 2) JavaScript (web / Node ESM)
 
 #### Install
-
-In your downstream web app:
 
 ```bash
 npm install https://github.com/asadm/mighty-protocol
