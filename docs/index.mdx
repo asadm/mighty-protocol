@@ -3,7 +3,30 @@ title: Introduction
 description: Mighty SDK docs for Python, JavaScript, and C++.
 ---
 
+<div style={{ padding: "10px 14px", border: "1px solid #f59e0b", background: "#fffbeb", borderRadius: "10px", marginBottom: "14px", fontWeight: 600 }}>
+  🚧 WIP: These docs are actively being worked on and may change frequently.
+</div>
+
 Mighty SDK provides high-level clients for interacting with Mighty Camera devices.
+
+## Connection Overview
+
+Mighty SDK uses a simple connection model: plug in over USB and talk to the camera like a normal network device.
+
+### Host Connection Model
+
+When you plug Mighty into a host over USB:
+
+1. Mighty enumerates as a **USB Ethernet (NCM)** device.
+2. The host creates a new network interface for that USB link.
+3. Mighty runs a **DHCP server** on that link and assigns your machine (host) an IP address.
+4. Mighty itself stays on fixed IP **`192.168.7.1`**.
+5. SDK traffic is carried over **HTTP** to the device on that USB network.
+
+### SDK Scope
+
+- Supported: **USB**
+- **UART / Serial** is not currently supported in SDK
 
 This docs section is organized as:
 
