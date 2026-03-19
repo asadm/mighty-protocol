@@ -1,281 +1,219 @@
-# Mighty Protocol
+# Mighty SDK
 
-Shared protocol helpers for framing and payload encoding/decoding used by the web UI and server.
+SDK and protocol helpers to interact with **Mighty Camera** devices ([mightycamera.com](https://mightycamera.com)).
 
-- C++ helpers:
-  - Core wire protocol: `mighty-protocol/cpp/mighty_protocol.h` and `mighty-protocol/cpp/mighty_protocol_consumer.h`
-  - High-level SDK: `mighty-protocol/cpp/mighty_sdk.h` (`sdk/mighty_client.h`, `sdk/mighty_web_device.h`)
-- JS helpers (ESM): `mighty-protocol/js/index.js` (use `import ... from "mighty-protocol"`).
-  - Core wire protocol: `mighty-protocol/js/core/protocol.js`
-  - High-level SDK: `mighty-protocol/js/sdk/client.js`, `mighty-protocol/js/sdk/device-web.js`
-- Python helpers: `mighty-protocol/python/mighty_protocol.py`.
-  - High-level SDK: `mighty-protocol/python/mighty_sdk/client.py`, `mighty-protocol/python/mighty_sdk/web_device.py`
-- Optional decoded dispatchers: C++ `DecodedDispatcher` and Python `decoded_dispatcher.py` (per-type callbacks with decoded payloads).
-- Tests: cross-language TCP roundtrip covering all packet types.
+This repository provides:
+- High-level SDK clients for **Python**, **JavaScript (ESM)**, and **C++**.
+- A transport abstraction (`MightyWebDevice`) for HTTP streaming + command RPC.
+- Low-level protocol encode/decode helpers (see [PROTOCOL.md](./PROTOCOL.md)).
 
-## Running tests
+## Quick Start
 
-From repo root:
+### 1) Python
+
+#### Setup
+
+From `mighty-protocol/`:
+
 ```bash
-mighty-protocol/tests/run_tests.sh
-```
-This builds and runs C++ roundtrip + C++ SDK tests, then Node roundtrip + Node SDK tests, then Python consumer + Python SDK tests.
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -U pip
+# Optional for image preview examples:
+pip install numpy opencv-python
 
-## Quickstart
-
-- C++ send: `auto payload = build_jpg_payload(ts,false,"preview",data,len); auto &pkt = make_packet(payload, TYPE_JPG); send(pkt.data(), pkt.size());`
-- C++ recv (decoded): `DecodedDispatcher dd; dd.on_jpg = [](auto ts, auto ch, auto &d, bool is_ref){...}; dd.feed(bytes,len);`
-- C++ high-level client:
-  - `auto device = std::make_shared<mighty_protocol::sdk::MightyWebDevice>(opts);`
-  - `mighty_protocol::sdk::MightyClient client(device);`
-  - `client.on_pose([](const auto& p) { /* ... */ });`
-  - `client.connect();`
-- JS recv (browser/Node): `const disp = new proto.FrameDispatcher(({type,payload}) => { ...switch on type... }); disp.feed(chunk);`
-- JS high-level client:
-  - `const dev = new proto.MightyWebDevice({ baseUrl: "http://127.0.0.1:8084" });`
-  - `const client = new proto.MightyClient(dev);`
-  - `client.onPose((p) => console.log(p.position));`
-  - `await client.connect();`
-- Python high-level client:
-  - `from mighty_sdk import MightyWebDevice, MightyClient`
-  - `dev = MightyWebDevice(base_url="http://127.0.0.1:8084")`
-  - `client = MightyClient(dev)`
-  - `client.on_pose(lambda p: print(p["position"]))`
-  - `client.connect()`
-- Python recv (decoded): `from decoded_dispatcher import DecodedDispatcher; dd=DecodedDispatcher(); dd.on_pose=lambda p,is_unopt:...; dd.feed(raw_bytes)`
-
-## API reference & examples
-
-## Config Requests (CFGQ/CFGR)
-
-`CFGQ` and `CFGR` carry typed config get/set payloads.
-
-- `CFGQ` (`ConfigRequest`) fields:
-  - `version` (u8)
-  - `op` (u8): `0=get`, `1=set`
-  - `key_len` (u8)
-  - `key` (bytes)
-  - `value_len` (u32)
-  - `value` (bytes)
-- `CFGR` (`ConfigResponse`) fields:
-  - `version` (u8)
-  - `op` (u8): mirrors request
-  - `success` (u8): `0/1`
-  - `has_value` (u8): `0/1` (useful for GET missing key)
-  - `key_len` (u8)
-  - `key` (bytes)
-  - `msg_len` (u16)
-  - `message` (bytes)
-  - `value_len` (u32)
-  - `value` (bytes)
-
-Notes:
-- In current app integration, config exchange is tunneled via `CMD`/`CRES` (`name="config"`) with `CFGQ`/`CFGR` payloads in `data`.
-- `DecodedDispatcher` supports direct `CFGQ`/`CFGR` frame handling as well.
-
-## Pose Conventions (POSE/UPOSE)
-
-`POSE` and `UPOSE` share the same payload layout and are used for different pose streams.
-
-- `poseType` identifies the semantic frame of the pose:
-  - `0` = body/IMU state (`W<-B`), intended as the primary robotics/drone state
-  - `1` = camera pose (`W<-C`), derived from body pose + extrinsics (mainly for visualization)
-  - other values are allowed (e.g. ground truth streams)
-- Quaternion convention: `q` is **source->world** (e.g. `q_WB` maps vectors from `B` into `W`).
-- The protocol is **append-only**: new optional fields are appended after `confidence` and are gated by `poseFlags` bits so older decoders can safely ignore them.
-
-### POSE `poseFlags` bit table
-
-- Bit 0: has quaternion `quat` (float64[4] = `qx,qy,qz,qw`)
-- Bit 1: keyframe marker (no extra bytes)
-- Bit 2: `linvel` present (float64[3]): **`v_WB`** linear velocity in world frame
-- Bit 3: `angvel` present (float64[3]): **`omega_B`** angular velocity in body frame
-- Bit 4: `linacc` present (float64[3]): **`spec_force_B`** specific force (accelerometer) in body frame, gravity not included
-- Bit 5: `angacc` present (float64[3]): **`alpha_B`** angular acceleration in body frame (typically finite-differenced; noisy)
-- Bit 6: `timestamp_ns` present (uint64): pose timestamp in nanoseconds (appended at the end)
-
-## VIO State (VSTA)
-
-`VSTA` is a low-rate structured telemetry packet intended to replace ad-hoc parsing of `STAT` strings.
-
-Payload (big-endian):
-
-Version 1:
-- `version` (u8) = 1
-- `state` (u8): producer-defined enum (recommended: 0=OFF, 1=INITIALIZING, 2=TRACKING, 3=DEGRADED, 4=LOST)
-- `flags` (u16): producer-defined bitfield (e.g. initialized/have_pose/have_kinematics)
-- `timestamp_ns` (u64): timestamp associated with the state sample (often the latest pose/image timestamp)
-- `fps_current` (f32)
-- `fps_average` (f32)
-- `pose_confidence01` (f32)
-- `tracking_rate` (f32)
-- `num_features` (u32)
-- `loop_closures` (u32)
-
-Version 2: appends
-- `build_version_len` (u8)
-- `build_version` (u8[build_version_len]) ASCII build/version string (e.g. `Mighty v.YYYYMMDD-<hash>`)
-
-Version 3: appends (after optional `build_version`)
-- `imu_hz_current` (f32)
-- `imu_hz_average_5s` (f32)
-
-### C++ (producer/consumer)
-- Produce
-  - `make_packet(payload, TYPE_*)` – wrap framing + CRC.
-  - Builders: `build_jpg_payload`, `build_raw_payload`, `build_stereo_raw_payload`, `build_pose_payload`, `build_constraints_payload`, `build_viz_payload`, `build_imu_payload`, `build_status_payload`, `build_fea3_payload`, `build_pcld_payload`, `build_command_payload`, `build_command_response_payload`, `build_config_request_payload`, `build_config_response_payload`.
-  - Type codes: `TYPE_JPG`, `TYPE_RJPG`, `TYPE_RAW`, `TYPE_SRAW`, `TYPE_POSE`, `TYPE_UPOSE`, `TYPE_LCON`, `TYPE_VIZ`, `TYPE_IMU`, `TYPE_STAT`, `TYPE_VSTA`, `TYPE_RSET`, `TYPE_FEA3`, `TYPE_PCLD`, `TYPE_CMD`, `TYPE_CRES`, `TYPE_CFGQ`, `TYPE_CFGR`.
-- Consume
-  - `parse_frame` (single-frame parser) or `FrameConsumer` (`feed`, `try_pop`, `drain`) or `FrameDispatcher` (`set_handler`, `feed`).
-  - `DecodedDispatcher` for per-type decoded callbacks (e.g., `on_jpg`, `on_raw`, `on_stereo_raw`, `on_pose`, `on_constraints`, `on_features`, `on_pointcloud`, `on_viz`, `on_imu`, `on_status`, `on_vio_state`, `on_reset`, `on_command`, `on_command_response`, `on_config_request`, `on_config_response`).
-  - Decoders: `decode_jpg_payload`, `decode_raw_payload`, `decode_stereo_raw_payload`, `decode_pose_payload`, `decode_constraints_payload`, `decode_viz_payload`, `decode_imu_payload`, `decode_status_payload`, `decode_vio_state_payload`, `decode_fea3_payload`, `decode_pcld_payload`, `decode_command_payload`, `decode_command_response_payload`, `decode_config_request_payload`, `decode_config_response_payload`.
-
-```cpp
-#include "mighty-protocol/cpp/mighty_protocol.h"
-#include "mighty-protocol/cpp/mighty_protocol_consumer.h"
-
-using namespace mighty_protocol;
-
-// Build a JPG packet
-auto payload = build_jpg_payload(/*timestamp_ns*/123, /*is_ref*/false, "preview",
-                                 jpeg_ptr, jpeg_len);
-auto &pkt = make_packet(payload, TYPE_JPG);
-// send pkt over any transport
-
-// Consume a stream of bytes
-FrameConsumer consumer;
-consumer.feed(bytes, len);
-auto frames = consumer.drain();
-for (auto &f : frames) {
-  if (std::string(f.type.data(), 4) == "POSE") {
-    uint32_t type, flags; double x, y, z; std::optional<std::array<double,4>> q;
-    decode_pose_payload(f.payload, type, flags, x, y, z, q);
-  }
-}
+# Use repo-local SDK modules
+export PYTHONPATH="$(pwd)/python:${PYTHONPATH}"
 ```
 
-#### C++ DecodedDispatcher (per-type callbacks)
-```cpp
-#include "mighty-protocol/cpp/mighty_protocol_consumer.h"
-using namespace mighty_protocol;
-
-DecodedDispatcher dd;
-dd.on_jpg = [](uint64_t ts, const std::string& ch, const std::vector<uint8_t>& data, bool is_ref){ /* use JPEG */ };
-dd.on_pose = [](const DecodedDispatcher::Pose& p, bool unopt){ /* p.x/y/z, p.quat */ };
-dd.on_constraints = [](const DecodedDispatcher::Constraints& c){ /* c.segments */ };
-dd.on_pointcloud = [](const DecodedDispatcher::PointCloud& pc){ /* pc.points, pc.point_size */ };
-// ... set other handlers as needed
-dd.feed(bytes, len);  // can be called repeatedly with stream chunks
-```
-
-### JavaScript / Node / browser
-- Produce
-  - `makePacket(type, payload)`
-  - Builders: `buildJpgPayload`, `buildRawPayload`, `buildStereoRawPayload`, `buildPosePayload`, `buildConstraintsPayload`, `buildVizPayload`, `buildImuPayload`, `buildStatusPayload`, `buildVioStatePayload`, `buildFea3Payload`, `buildPcldPayload`, `buildCommandPayload`, `buildCommandResponsePayload`, `buildConfigRequestPayload`, `buildConfigResponsePayload`
-  - Config op constants: `CONFIG_OP.GET`, `CONFIG_OP.SET`
-  - Types: `TYPE` map (`TYPE.JPG`, `TYPE.RJPG`, `TYPE.RAW`, `TYPE.SRAW`, `TYPE.POSE`, `TYPE.UPOSE`, `TYPE.LCON`, `TYPE.VIZ`, `TYPE.IMU`, `TYPE.STAT`, `TYPE.VSTA`, `TYPE.RSET`, `TYPE.FEA3`, `TYPE.PCLD`, `TYPE.CMD`, `TYPE.CRES`, `TYPE.CFGQ`, `TYPE.CFGR`)
-- Consume
-  - `parseFrames(buffer) -> {frames, rest}` or `new FrameDispatcher(onFrame).feed(bytes)` (browser-friendly version is in `main/web/mighty-protocol.js`)
-  - Decoders: `decodeJpgPayload`, `decodeRawPayload`, `decodeStereoRawPayload`, `decodePosePayload`, `decodeConstraintsPayload`, `decodeVizPayload`, `decodeImuPayload`, `decodeStatusPayload`, `decodeVioStatePayload`, `decodeFea3Payload`, `decodePcldPayload`, `decodeCommandPayload`, `decodeCommandResponsePayload`, `decodeConfigRequestPayload`, `decodeConfigResponsePayload`
-
-#### JS high-level SDK (HTTP v1)
-- `MightyWebDevice`:
-  - transport implementation for `GET /stream` + `POST /command`.
-- `MightyClient`:
-  - typed subscriptions: `onImage`, `onPose`, `onImu`, `onVioState`, `onViz`, `onLcon`, `onReset`, `onStatus`, `onAny`, `onError`
-  - control/config methods: `command`, `configGet`, `configSet`, `startVio`, `stopVio`
-  - metrics: `stats()`
-
-```js
-import proto from "mighty-protocol";
-
-const device = new proto.MightyWebDevice({ baseUrl: 'http://127.0.0.1:8084' });
-const client = new proto.MightyClient(device, { autoReconnect: true });
-
-client.onImage((img) => {
-  if (img.kind === 'raw') console.log('image', img.width, img.height, img.channel);
-});
-client.onPose((p) => console.log('pose', p.stream, p.position));
-client.onVioState((s) => console.log('state', s.state, s.poseConfidence));
-client.onError((e) => console.error(e.scope, e.code, e.message));
-
-await client.connect();
-const res = await client.startVio();
-console.log('start_vio', res.ok, res.message);
-```
-
-#### JS config-over-command example
-```js
-const req = proto.buildConfigRequestPayload({
-  version: 1,
-  op: proto.CONFIG_OP.GET,
-  key: "calib",
-  value: new Uint8Array(),
-});
-
-const cmd = proto.buildCommandPayload({
-  reqId: 1,
-  name: "config",
-  data: req,
-});
-
-// send `cmd` to /command endpoint
-// decode CRES body with decodeCommandResponsePayload, then:
-// const cfg = proto.decodeConfigResponsePayload(commandRes.data);
-```
-
-```js
-import proto from "mighty-protocol";
-
-const jpgPayload = proto.buildJpgPayload({ timestampNs: 123n, channel: 'preview', data: jpegBuf });
-const packet = proto.makePacket(proto.TYPE.JPG, jpgPayload);
-
-let buffer = Buffer.concat([packet, anotherPacket]);
-const { frames, rest } = proto.parseFrames(buffer);
-for (const f of frames) {
-  if (f.type === proto.TYPE.POSE) {
-    const pose = proto.decodePosePayload(f.payload);
-    console.log(pose.position);
-  }
-}
-
-// Dispatcher usage
-const disp = new proto.FrameDispatcher((frame) => {
-  if (frame.type === proto.TYPE.IMU) {
-    const samples = proto.decodeImuPayload(frame.payload);
-    console.log(samples.length);
-  }
-});
-disp.feed(chunkFromSocket);
-```
-
-### Python (consumer + packet builder)
-- Produce
-  - `make_packet(tcode: bytes, payload: bytes=b"")`
-  - Type dict: `TYPE["JPG"]`, `TYPE["RJPG"]`, `TYPE["RAW"]`, `TYPE["SRAW"]`, `TYPE["POSE"]`, `TYPE["UPOSE"]`, `TYPE["LCON"]`, `TYPE["VIZ"]`, `TYPE["IMU"]`, `TYPE["STAT"]`, `TYPE["RSET"]`, `TYPE["FEA3"]`, `TYPE["PCLD"]`
-- Consume
-  - `parse_frames(buf) -> (frames, rest)` or `FrameDispatcher(on_frame).feed(bytes)`
-  - `DecodedDispatcher` in `python/decoded_dispatcher.py` for per-type decoded callbacks (`on_jpg`, `on_pose`, etc.).
-  - Decoders: `decode_jpg_payload(payload, is_ref)`, `decode_raw_payload`, `decode_stereo_raw_payload`, `decode_pose_payload`, `decode_constraints_payload`, `decode_viz_payload`, `decode_imu_payload`, `decode_status_payload`, `decode_fea3_payload`, `decode_pcld_payload`
+#### Subscribe to pose and image
 
 ```python
-# PYTHONPATH needs to include mighty-protocol/python
-import mighty_protocol as mp
+import time
+from mighty_sdk import MightyWebDevice, MightyClient
 
-jpeg_bytes = b"\xff\xd8..."
-jpg_payload = (123).to_bytes(8, "big") + b"\x07preview" + jpeg_bytes
-packet = mp.make_packet(mp.TYPE["JPG"], jpg_payload)
+# Uses built-in host scan order:
+# http://localhost:8080, http://localhost:8084, http://192.168.7.1:80, http://192.168.7.1:8080
+device = MightyWebDevice()
+client = MightyClient(device, auto_reconnect=True)
 
-frames, rest = mp.parse_frames(packet)
-for f in frames:
-    if f["type"] == "POSE":
-        pose = mp.decode_pose_payload(f["payload"])
-        print(pose["position"])
 
-# Decoded dispatcher usage
-from decoded_dispatcher import DecodedDispatcher
-dd = DecodedDispatcher()
-dd.on_jpg = lambda ts,ch,data,is_ref: print("jpg", ts, ch, len(data))
-dd.on_pose = lambda pose,is_unopt: print("pose", pose["pose_type"], is_unopt)
-dd.feed(raw_stream_bytes)
+def on_pose(p):
+    x, y, z = p["position"]
+    print(f"pose xyz: {x:.3f}, {y:.3f}, {z:.3f}  conf={p['confidence']:.3f}")
+
+
+def on_image(img):
+    if img["kind"] == "raw":
+        print(
+            f"raw frame: {img['width']}x{img['height']} "
+            f"ch={img['channel']} fmt={img['format']} bytes={len(img['data'])}"
+        )
+
+        # Preview path (left unimplemented intentionally):
+        # - img["data"] is the raw byte plane
+        # - map by img["format"] and reshape using width/height
+        # - render using OpenCV / matplotlib / your GUI toolkit
+
+
+client.on_pose(on_pose)
+client.on_image(on_image)
+client.on_error(lambda e: print("error:", e))
+
+client.connect()
+
+# Optional: tell device to start VIO
+res = client.start_vio()
+print("start_vio:", res)
+
+try:
+    while True:
+        time.sleep(0.25)
+except KeyboardInterrupt:
+    client.disconnect()
 ```
+
+See full Python GUI example:
+- [`examples/python/mightyapp.py`](./examples/python/mightyapp.py)
+
+### 2) JavaScript (web / Node ESM)
+
+#### Install
+
+In your downstream web app:
+
+```bash
+npm install https://github.com/asadm/mighty-protocol
+```
+
+#### Subscribe to pose and image
+
+```js
+import { MightyWebDevice, MightyClient, decodeRawToRgb } from "mighty-protocol";
+
+const device = new MightyWebDevice();
+const client = new MightyClient(device, {
+  autoReconnect: true,
+  reconnectDelayMs: 500,
+});
+const canvas = document.querySelector("#cam");
+const ctx = canvas.getContext("2d");
+
+client.onPose((pose) => {
+  const [x, y, z] = pose.position;
+  console.log("pose xyz:", x.toFixed(3), y.toFixed(3), z.toFixed(3), "conf", pose.confidence);
+});
+
+client.onImage((img) => {
+  console.log("raw/gray8 frame", img.width, img.height, img.channel, img.data.length);
+  const decoded = decodeRawToRgb(img);
+  decoded && ctx.putImageData(new ImageData(decoded.rgba, decoded.width, decoded.height), 0, 0);
+});
+
+client.onError((e) => console.error("error", e.scope, e.code, e.message));
+
+await client.connect();
+await client.startVio();
+```
+
+See full web dashboard example:
+- [`examples/web/main.js`](./examples/web/main.js)
+
+### 3) C++
+
+C++ SDK is header-only; include `cpp/mighty_sdk.h` and `cpp/mighty_protocol.h`.
+
+```cpp
+#include <chrono>
+#include <iostream>
+#include <memory>
+#include <thread>
+
+#include "cpp/mighty_sdk.h"
+
+int main() {
+  using namespace mighty_protocol::sdk;
+
+  auto device = std::make_shared<MightyWebDevice>();  // uses default host scan list
+  MightyClient client(device);
+
+  auto pose_sub = client.on_pose([](const PoseFrame& p) {
+    std::cout << "pose xyz: "
+              << p.position[0] << ", "
+              << p.position[1] << ", "
+              << p.position[2]
+              << " conf=" << p.confidence << "\n";
+  });
+
+  auto img_sub = client.on_image([](const ImageFrame& f) {
+    if (f.kind == ImageFrame::Kind::kRaw) {
+      std::cout << "raw frame: "
+                << f.left.width << "x" << f.left.height
+                << " ch=" << f.left.channel
+                << " fmt=" << static_cast<int>(f.left.format)
+                << " bytes=" << f.left.data.size() << "\n";
+
+      // Preview path (left unimplemented intentionally):
+      // f.left.data contains raw bytes; convert by format and render in your app/UI.
+    }
+  });
+
+  client.on_error([](const MightyErrorEvent& e) {
+    std::cerr << "error " << e.scope << ":" << e.code << " " << e.message << "\n";
+  });
+
+  client.connect();
+  const auto start = client.start_vio();
+  std::cout << "start_vio ok=" << start.ok << " msg=" << start.message << "\n";
+
+  std::this_thread::sleep_for(std::chrono::seconds(30));
+  client.disconnect();
+  return 0;
+}
+```
+
+## Commands and Config
+
+All SDKs expose command/config helpers:
+- `start_vio`, `stop_vio`
+- generic `command(name, payload)`
+- `config_get` / `config_set` (or camelCase equivalents by language)
+
+Typical command flow:
+- SDK builds `CMD`
+- device responds with `CRES`
+- config uses `CFGQ/CFGR` payloads wrapped in command `name="config"`
+
+## Host Discovery Defaults
+
+`MightyWebDevice()` with no args tries hosts in this order:
+1. `http://localhost:8080`
+2. `http://localhost:8084`
+3. `http://192.168.7.1:80`
+4. `http://192.168.7.1:8080`
+
+You can override with `base_url` / `base_urls` (language-specific naming).
+
+## Examples
+
+- Python GUI example: [`examples/python/`](./examples/python/)
+- Web dashboard example: [`examples/web/`](./examples/web/)
+- Integration tests: [`tests/`](./tests/)
+
+## Protocol Specification
+
+Low-level packet framing and payload layouts are documented in:
+- [PROTOCOL.md](./PROTOCOL.md)
+
+## Running Tests
+
+From `mighty-protocol/`:
+
+```bash
+./tests/run_tests.sh
+```
+
+This runs:
+- C++ roundtrip and SDK tests
+- Node/JS roundtrip and SDK tests
+- Python protocol and SDK tests
