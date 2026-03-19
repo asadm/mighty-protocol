@@ -1,5 +1,7 @@
 tests/bin/cpp_sdk_test
 tests/bin/cpp_sdk_integration_test
 __pycache__
+*.egg-info
 examples/web/node_modules
 examples/web/dist
+build

@@ -1,9 +1,24 @@
 {
   "name": "mighty-protocol",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "type": "module",
-  "description": "Mighty protocol SDK",
+  "description": "SDK and protocol helpers for Mighty Camera (Python, JavaScript, C++)",
+  "main": "./js/index.js",
+  "homepage": "https://github.com/asadm/mighty-protocol",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/asadm/mighty-protocol.git"
+  },
+  "bugs": {
+    "url": "https://github.com/asadm/mighty-protocol/issues"
+  },
+  "keywords": [
+    "mighty-camera",
+    "vio",
+    "slam",
+    "sdk",
+    "protocol"
+  ],
   "exports": {
     ".": "./js/index.js",
     "./js": "./js/index.js",
@@ -13,6 +28,13 @@
     "js",
     "cpp",
     "python",
-    "README.md"
-  ]
+    "README.md",
+    "PROTOCOL.md",
+    "!python/**/__pycache__/**",
+    "!python/**/*.egg-info/**",
+    "!**/*.pyc"
+  ],
+  "engines": {
+    "node": ">=16"
+  }
 }
