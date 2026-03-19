@@ -26,12 +26,11 @@ Required:
 - `matplotlib`
 
 Optional:
-- `pillow` (for JPEG decoding fallback display)
 
 Install:
 
 ```bash
-pip install numpy matplotlib pillow
+pip install numpy matplotlib
 ```
 
 Using `venv` (recommended), from the root of repository:
@@ -40,7 +39,7 @@ Using `venv` (recommended), from the root of repository:
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
-pip install numpy matplotlib pillow
+pip install numpy matplotlib
 ```
 
 ## Run
@@ -50,8 +49,3 @@ source .venv/bin/activate
 cd examples/python
 python3 mightyapp.py
 ```
-
-
-## Notes
-
-- If `pillow` is not installed, RAW/SRAW display still works; JPEG fallback display is skipped.

@@ -180,12 +180,6 @@ async function main() {
     channel: "cam0",
     data: Buffer.from([0x01, 0x02]),
   })));
-  device.emitPacket(proto.makePacket(proto.TYPE.JPG, proto.buildJpgPayload({
-    timestampNs: 10n,
-    channel: "cam0",
-    data: Buffer.from([0xff, 0xd8, 0xff, 0xd9]),
-    isRef: false,
-  })));
 
   device.emitPacket(proto.makePacket(proto.TYPE.POSE, proto.buildPosePayload({
     poseType: 0,
@@ -227,8 +221,8 @@ async function main() {
 
   await sleep(20);
 
-  assert.strictEqual(seen.image, 2);
-  assert.strictEqual(lastImage.kind, "jpeg");
+  assert.strictEqual(seen.image, 1);
+  assert.strictEqual(lastImage.kind, "raw");
   assert.strictEqual(lastImage.channel, "cam0");
   assert.strictEqual(lastImage.channelAlias, "cam0");
   assert.strictEqual(seen.pose, 1);
@@ -242,7 +236,7 @@ async function main() {
   assert.strictEqual(seen.lcon, 1);
   assert.strictEqual(seen.status, 1);
   assert.strictEqual(seen.reset, 1);
-  assert.ok(seen.any >= 10);
+  assert.ok(seen.any >= 9);
 
   const cmdRes = await client.startVio();
   assert.strictEqual(cmdRes.ok, true);

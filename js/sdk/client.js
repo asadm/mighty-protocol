@@ -343,22 +343,6 @@ export class MightyClient {
 
     try {
       switch (frame.type) {
-        case protocol.TYPE.JPG:
-        case protocol.TYPE.RJPG: {
-          if (!this._hasListeners("image") && !wantsAny) return;
-          const jpg = protocol.decodeJpgPayload(frame.payload, frame.type === protocol.TYPE.RJPG);
-          const mapped = {
-            kind: "jpeg",
-            isRef: frame.type === protocol.TYPE.RJPG,
-            timestampNs: jpg.timestampNs,
-            channel: frame.type === protocol.TYPE.RJPG ? "ref" : (jpg.channel || "cam0"),
-            channelAlias: this._mapChannelAlias(jpg.channel),
-            data: toU8(jpg.data),
-          };
-          this._emit("image", mapped);
-          if (wantsAny) this._emitAny({ type: "image", data: mapped });
-          return;
-        }
         case protocol.TYPE.RAW: {
           if (!this._hasListeners("image") && !wantsAny) return;
           const raw = protocol.decodeRawPayload(frame.payload);

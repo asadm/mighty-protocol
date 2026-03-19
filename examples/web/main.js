@@ -6,7 +6,6 @@ import {
   updateStatusFields,
   pickRenderableRaw,
   drawRawFrame,
-  drawJpegFrame,
   createImuPlotter,
   createPosePlot,
 } from "./uihelpers.js";
@@ -89,15 +88,9 @@ function renderStatusPanel() {
   });
 }
 
-client.onImage(async (img) => {
+client.onImage((img) => {
   markDataActivity();
   try {
-    if (img.kind === "jpeg") {
-      await drawJpegFrame(ui.cameraCanvas, img.data);
-      state.imageInfo = `jpeg ${img.channel || "cam0"} ${img.timestampNs || 0}`;
-      return;
-    }
-
     const raw = pickRenderableRaw(img);
     if (!raw) return;
 

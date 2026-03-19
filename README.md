@@ -4,7 +4,7 @@ SDK and protocol helpers to interact with **Mighty Camera** devices ([mightycame
 
 This repository provides:
 - High-level SDK clients for **Python**, **JavaScript (ESM)**, and **C++**.
-- A transport abstraction (`MightyWebDevice`) for HTTP streaming + command RPC.
+- A unified client API for streaming data and device control.
 - Low-level protocol encode/decode helpers (see [PROTOCOL.md](./PROTOCOL.md)).
 
 ## Install from GitHub
@@ -42,9 +42,6 @@ pip install numpy opencv-python
 ```python
 import time
 from mighty_sdk import MightyWebDevice, MightyClient
-
-# Uses built-in host scan order:
-# http://localhost:8080, http://localhost:8084, http://192.168.7.1:80, http://192.168.7.1:8080
 device = MightyWebDevice()
 client = MightyClient(device, auto_reconnect=True)
 
@@ -130,7 +127,7 @@ See full web dashboard example:
 
 ### 3) C++
 
-C++ SDK is header-only; include `cpp/mighty_sdk.h` and `cpp/mighty_protocol.h`.
+C++ SDK usage starts from `cpp/mighty_sdk.h`.
 
 ```cpp
 #include <chrono>
@@ -143,7 +140,7 @@ C++ SDK is header-only; include `cpp/mighty_sdk.h` and `cpp/mighty_protocol.h`.
 int main() {
   using namespace mighty_protocol::sdk;
 
-  auto device = std::make_shared<MightyWebDevice>();  // uses default host scan list
+  auto device = std::make_shared<MightyWebDevice>();
   MightyClient client(device);
 
   auto pose_sub = client.on_pose([](const PoseFrame& p) {
@@ -181,28 +178,6 @@ int main() {
 }
 ```
 
-## Commands and Config
-
-All SDKs expose command/config helpers:
-- `start_vio`, `stop_vio`
-- generic `command(name, payload)`
-- `config_get` / `config_set` (or camelCase equivalents by language)
-
-Typical command flow:
-- SDK builds `CMD`
-- device responds with `CRES`
-- config uses `CFGQ/CFGR` payloads wrapped in command `name="config"`
-
-## Host Discovery Defaults
-
-`MightyWebDevice()` with no args tries hosts in this order:
-1. `http://localhost:8080`
-2. `http://localhost:8084`
-3. `http://192.168.7.1:80`
-4. `http://192.168.7.1:8080`
-
-You can override with `base_url` / `base_urls` (language-specific naming).
-
 ## Examples
 
 - Python GUI example: [`examples/python/`](./examples/python/)
@@ -213,6 +188,8 @@ You can override with `base_url` / `base_urls` (language-specific naming).
 
 Low-level packet framing and payload layouts are documented in:
 - [PROTOCOL.md](./PROTOCOL.md)
+
+For advanced transport/config behavior, refer to SDK source and examples.
 
 ## Running Tests
 

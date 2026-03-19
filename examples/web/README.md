@@ -24,5 +24,4 @@ Open the local URL printed by Vite (default `http://localhost:8090`).
 ## Notes
 
 - Uses SDK defaults via `new MightyWebDevice()`.
-- Vite proxy forwards `/stream` and `/command` to `http://localhost:8080`.
 - If your device host differs, update `vite.config.js` proxy target or pass explicit hosts in code.

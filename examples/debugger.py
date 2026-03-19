@@ -76,10 +76,6 @@ def decode_summary(frame, max_text_len: int, decode: bool) -> str:
     if not decode:
         return f"payload_len={len(payload)}"
     try:
-        if tcode in ("JPG ", "RJPG"):
-            info = mp.decode_jpg_payload(payload, tcode == "RJPG")
-            channel = info.get("channel") or ("ref" if tcode == "RJPG" else "preview")
-            return f"ts={info['timestamp_ns']} ch={channel} bytes={len(info['data'])}"
         if tcode == "SRAW":
             info = mp.decode_stereo_raw_payload(payload)
             left = info.get("left", {})
