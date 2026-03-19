@@ -1,0 +1,41 @@
+---
+title: C++
+description: Subscribe to pose/image and control VIO from C++.
+---
+
+Install from GitHub:
+
+```bash
+git clone https://github.com/asadm/mighty-protocol.git
+```
+
+C++ entry points:
+- `cpp/mighty_sdk.h`
+- `cpp/mighty_protocol.h`
+
+Minimal usage:
+
+```cpp
+#include <memory>
+#include "cpp/mighty_sdk.h"
+
+int main() {
+  using namespace mighty_protocol::sdk;
+
+  auto device = std::make_shared<MightyWebDevice>();
+  MightyClient client(device);
+
+  auto pose_sub = client.on_pose([](const PoseFrame& p) {
+    (void)p;
+  });
+
+  auto img_sub = client.on_image([](const ImageFrame& f) {
+    (void)f;
+  });
+
+  client.connect();
+  client.start_vio();
+  client.disconnect();
+  return 0;
+}
+```
