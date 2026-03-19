@@ -5,6 +5,10 @@ This example shows SDK usage in plain browser JS using npm modules:
 - `uihelpers.js`: UI rendering helpers
 - `style.css`: lightweight CMYK-inspired styling
 
+## Preview
+
+![Web SDK Dashboard Preview](./screen.png)
+
 Dependencies:
 - `mighty-protocol` from local path (`file:../..`)
 - `three` from npm
