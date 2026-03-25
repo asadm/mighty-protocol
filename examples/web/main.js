@@ -8,6 +8,7 @@ import {
   drawRawFrame,
   createImuPlotter,
   createPosePlot,
+  mapCanonicalPoseToViz,
 } from "./uihelpers.js";
 
 const VIO_STATE_LABELS = {
@@ -105,7 +106,8 @@ client.onImage((img) => {
 
 client.onPose((pose) => {
   markDataActivity();
-  posePlot.updatePose(pose.position, pose.quat || undefined, pose.confidence);
+  const mapped = mapCanonicalPoseToViz(pose.position, pose.quat || undefined);
+  posePlot.updatePose(mapped.position, mapped.quat || undefined, pose.confidence);
   if (Array.isArray(pose.position) && pose.position.length >= 3) {
     state.poseInfo = `${pose.position.map((v) => Number(v).toFixed(2)).join(", ")}`;
   }

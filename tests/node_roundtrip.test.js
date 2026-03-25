@@ -34,8 +34,30 @@ const SAMPLE = {
   srawRightHeight: 1,
   srawRightFormat: proto.RAW_FORMAT.GRAY8,
   srawRightData: Buffer.from([0x31, 0x32]),
-  pose: { poseType: 0, poseFlags: 0x3, position: [1.1, 2.2, 3.3], quat: [0.1, 0.2, 0.3, 0.9], confidence: 0.82, timestampNs: 777n },
-  upose: { poseType: 0, poseFlags: 0x1, position: [4.4, 5.5, 6.6], quat: [0.4, 0.5, 0.6, 0.7], confidence: 0.41, timestampNs: 778n },
+  pose: {
+    poseType: 0,
+    poseFlags: 0x3,
+    position: [1.1, 2.2, 3.3],
+    quat: [0.1, 0.2, 0.3, 0.9],
+    confidence: 0.82,
+    linvel: [4.0, 5.0, 6.0],
+    angvel: [0.4, 0.5, 0.6],
+    linacc: [7.0, 8.0, 9.0],
+    angacc: [0.7, 0.8, 0.9],
+    timestampNs: 777n
+  },
+  upose: {
+    poseType: 0,
+    poseFlags: 0x1,
+    position: [4.4, 5.5, 6.6],
+    quat: [0.4, 0.5, 0.6, 0.7],
+    confidence: 0.41,
+    linvel: [1.0, 1.1, 1.2],
+    angvel: [0.1, 0.2, 0.3],
+    linacc: [2.0, 2.1, 2.2],
+    angacc: [0.01, 0.02, 0.03],
+    timestampNs: 778n
+  },
   constraints: [
     { type: 0, start: [0.1, 0.2, 0.3], end: [0.4, 0.5, 0.6] },
     { type: 1, start: [1.0, 1.1, 1.2], end: [1.3, 1.4, 1.5] },
@@ -194,7 +216,17 @@ function verifyFrame(frame, index) {
 	      const res = proto.decodePosePayload(payload);
 	      assert.strictEqual(res.poseType, SAMPLE.pose.poseType);
 	      assert.strictEqual(res.poseFlags & 0x3, 0x3);
+	      assert.ok((res.poseFlags & (1 << 2)) !== 0);
+	      assert.ok((res.poseFlags & (1 << 3)) !== 0);
+	      assert.ok((res.poseFlags & (1 << 4)) !== 0);
+	      assert.ok((res.poseFlags & (1 << 5)) !== 0);
+	      assert.ok((res.poseFlags & (1 << 6)) !== 0);
 	      res.position.forEach((v, i) => assert(almost(v, SAMPLE.pose.position[i])));
+	      res.quat.forEach((v, i) => assert(almost(v, SAMPLE.pose.quat[i])));
+	      res.linvel.forEach((v, i) => assert(almost(v, SAMPLE.pose.linvel[i])));
+	      res.angvel.forEach((v, i) => assert(almost(v, SAMPLE.pose.angvel[i])));
+	      res.linacc.forEach((v, i) => assert(almost(v, SAMPLE.pose.linacc[i])));
+	      res.angacc.forEach((v, i) => assert(almost(v, SAMPLE.pose.angacc[i])));
 	      assert.strictEqual(res.timestampNs, SAMPLE.pose.timestampNs);
 	      assert(almost(res.confidence, SAMPLE.pose.confidence, 1e-3));
 	      break;
@@ -203,7 +235,17 @@ function verifyFrame(frame, index) {
 	      const res = proto.decodePosePayload(payload);
 	      assert.strictEqual(res.poseType, SAMPLE.upose.poseType);
 	      assert(res.poseFlags & 0x1);
+	      assert(res.poseFlags & (1 << 2));
+	      assert(res.poseFlags & (1 << 3));
+	      assert(res.poseFlags & (1 << 4));
+	      assert(res.poseFlags & (1 << 5));
+	      assert(res.poseFlags & (1 << 6));
 	      assert(almost(res.position[2], SAMPLE.upose.position[2]));
+	      res.quat.forEach((v, i) => assert(almost(v, SAMPLE.upose.quat[i])));
+	      res.linvel.forEach((v, i) => assert(almost(v, SAMPLE.upose.linvel[i])));
+	      res.angvel.forEach((v, i) => assert(almost(v, SAMPLE.upose.angvel[i])));
+	      res.linacc.forEach((v, i) => assert(almost(v, SAMPLE.upose.linacc[i])));
+	      res.angacc.forEach((v, i) => assert(almost(v, SAMPLE.upose.angacc[i])));
 	      assert.strictEqual(res.timestampNs, SAMPLE.upose.timestampNs);
 	      assert(almost(res.confidence, SAMPLE.upose.confidence, 1e-3));
 	      break;

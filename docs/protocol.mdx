@@ -31,8 +31,8 @@ Raw-frame CRC compatibility rule:
 - `RJPG`: reference JPEG image
 - `RAW `: mono raw image
 - `SRAW`: stereo raw image (left + right)
-- `POSE`: optimized pose
-- `UPOS`: unoptimized pose
+- `POSE`: canonical public body pose (`T_odom_body`)
+- `UPOS`: reserved/internal pose stream (not part of public launch API)
 - `LCON`: loop constraints / line segments
 - `VIZ `: visualization payload (subtyped)
 - `IMU `: IMU samples batch
@@ -82,9 +82,10 @@ Formats (SDK constant: `RAW_FORMAT`):
 - left raw image payload
 - right raw image payload
 
-### 3.2 Pose (`POSE` / `UPOS`)
+### 3.2 Pose (`POSE`; `UPOS` reserved/internal)
 
-Both share identical payload layout.
+`POSE` is the public launch stream.
+`UPOS` keeps the same binary layout but is reserved for internal/debug usage.
 
 Core fields:
 - `poseType` (u32)
@@ -93,21 +94,29 @@ Core fields:
 - `confidence` (f32)
 - optional fields gated by `poseFlags`
 
+Public launch frame contract (`POSE`):
+- `frame_id = "odom"` (ENU)
+- `child_frame_id = "base_link"` (FLU)
+- transform meaning: `T_odom_body`
+- equation: `p_odom = R_odom_body * p_body + t_odom_body`
+- `base_link` origin in v1 is the IMU origin
+
 `poseType` semantics:
-- `0`: body/IMU frame pose (`W<-B`)
-- `1`: camera frame pose (`W<-C`)
-- other values: reserved / custom streams
+- `0`: body pose (`T_odom_body`) for public `POSE`
+- `1`: camera pose (reserved/internal)
+- other values: reserved
 
 Quaternion convention:
-- quaternion is source-to-world (`q_WB` for body pose)
+- quaternion is source-to-parent (`q_odom_body` for public `POSE`)
+- component order is `xyzw`
 
 `poseFlags` bits:
 - bit 0: quaternion present (`quat`, f64 x4)
 - bit 1: keyframe marker
-- bit 2: linear velocity (`linvel`, f64 x3)
-- bit 3: angular velocity (`angvel`, f64 x3)
-- bit 4: linear acceleration (`linacc`, f64 x3)
-- bit 5: angular acceleration (`angacc`, f64 x3)
+- bit 2: linear velocity in body frame (`linvel`, f64 x3)
+- bit 3: angular velocity in body frame (`angvel`, f64 x3)
+- bit 4: linear acceleration in body frame (`linacc`, f64 x3)
+- bit 5: angular acceleration in body frame (`angacc`, f64 x3)
 - bit 6: `timestamp_ns` present (u64)
 
 Protocol evolution rule:

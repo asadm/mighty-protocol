@@ -32,8 +32,30 @@ SAMPLE = {
     "sraw_right_height": 1,
     "sraw_right_format": mp.RAW_FORMAT["GRAY8"],
     "sraw_right_data": b"\x31\x32",
-    "pose": {"pose_type": 0, "pose_flags": 0x3, "position": (1.1, 2.2, 3.3), "quat": (0.1, 0.2, 0.3, 0.9)},
-    "upose": {"pose_type": 0, "pose_flags": 0x1, "position": (4.4, 5.5, 6.6), "quat": (0.4, 0.5, 0.6, 0.7)},
+    "pose": {
+        "pose_type": 0,
+        "pose_flags": 0x3 | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6),
+        "position": (1.1, 2.2, 3.3),
+        "quat": (0.1, 0.2, 0.3, 0.9),
+        "confidence": 0.82,
+        "linvel": (4.0, 5.0, 6.0),
+        "angvel": (0.4, 0.5, 0.6),
+        "linacc": (7.0, 8.0, 9.0),
+        "angacc": (0.7, 0.8, 0.9),
+        "timestamp_ns": 777,
+    },
+    "upose": {
+        "pose_type": 0,
+        "pose_flags": 0x1 | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6),
+        "position": (4.4, 5.5, 6.6),
+        "quat": (0.4, 0.5, 0.6, 0.7),
+        "confidence": 0.41,
+        "linvel": (1.0, 1.1, 1.2),
+        "angvel": (0.1, 0.2, 0.3),
+        "linacc": (2.0, 2.1, 2.2),
+        "angacc": (0.01, 0.02, 0.03),
+        "timestamp_ns": 778,
+    },
     "constraints": [
         {"type": 0, "start": (0.1, 0.2, 0.3), "end": (0.4, 0.5, 0.6)},
         {"type": 1, "start": (1.0, 1.1, 1.2), "end": (1.3, 1.4, 1.5)},
@@ -155,6 +177,17 @@ def struct_pose(data):
     buf += struct.pack(">ddd", *data["position"])
     if pose_flags & 0x1:
         buf += struct.pack(">dddd", *data["quat"])
+    buf += struct.pack(">f", float(data.get("confidence", 1.0)))
+    if pose_flags & (1 << 2):
+        buf += struct.pack(">ddd", *data["linvel"])
+    if pose_flags & (1 << 3):
+        buf += struct.pack(">ddd", *data["angvel"])
+    if pose_flags & (1 << 4):
+        buf += struct.pack(">ddd", *data["linacc"])
+    if pose_flags & (1 << 5):
+        buf += struct.pack(">ddd", *data["angacc"])
+    if pose_flags & (1 << 6):
+        buf += struct.pack(">Q", int(data["timestamp_ns"]))
     return buf
 
 def struct_constraints():
@@ -251,10 +284,18 @@ def main():
     assert sraw["right"]["data"] == SAMPLE["sraw_right_data"]
     pose = mp.decode_pose_payload(frames[idx]["payload"]); idx += 1
     assert pose["pose_type"] == SAMPLE["pose"]["pose_type"]
-    assert almost(pose.get("confidence", 1.0), 1.0, 1e-6)
+    assert almost(pose.get("confidence", 1.0), SAMPLE["pose"]["confidence"], 1e-6)
+    assert pose["timestamp_ns"] == SAMPLE["pose"]["timestamp_ns"]
+    assert pose["linvel"] is not None
+    assert pose["angvel"] is not None
+    assert pose["linacc"] is not None
+    assert pose["angacc"] is not None
+    assert almost(pose["linvel"][2], SAMPLE["pose"]["linvel"][2], 1e-6)
+    assert almost(pose["angvel"][1], SAMPLE["pose"]["angvel"][1], 1e-6)
     upose = mp.decode_pose_payload(frames[idx]["payload"]); idx += 1
     assert almost(upose["position"][2], SAMPLE["upose"]["position"][2])
-    assert almost(upose.get("confidence", 1.0), 1.0, 1e-6)
+    assert almost(upose.get("confidence", 1.0), SAMPLE["upose"]["confidence"], 1e-6)
+    assert upose["timestamp_ns"] == SAMPLE["upose"]["timestamp_ns"]
     lcon = mp.decode_constraints_payload(frames[idx]["payload"]); idx += 1
     assert len(lcon) == len(SAMPLE["constraints"])
     viz0 = mp.decode_viz_payload(frames[idx]["payload"]); idx += 1

@@ -234,6 +234,69 @@ cv::Matx33d quat_xyzw_to_rot(const std::array<double, 4>& q) {
       xz - wy,         yz + wx,         1.0 - (xx + yy));
 }
 
+std::array<double, 4> rot_to_quat_xyzw(const cv::Matx33d& R) {
+  const double trace = R(0, 0) + R(1, 1) + R(2, 2);
+  double x = 0.0;
+  double y = 0.0;
+  double z = 0.0;
+  double w = 1.0;
+  if (trace > 0.0) {
+    const double s = std::sqrt(trace + 1.0) * 2.0;
+    w = 0.25 * s;
+    x = (R(2, 1) - R(1, 2)) / s;
+    y = (R(0, 2) - R(2, 0)) / s;
+    z = (R(1, 0) - R(0, 1)) / s;
+  } else if (R(0, 0) > R(1, 1) && R(0, 0) > R(2, 2)) {
+    const double s = std::sqrt(1.0 + R(0, 0) - R(1, 1) - R(2, 2)) * 2.0;
+    w = (R(2, 1) - R(1, 2)) / s;
+    x = 0.25 * s;
+    y = (R(0, 1) + R(1, 0)) / s;
+    z = (R(0, 2) + R(2, 0)) / s;
+  } else if (R(1, 1) > R(2, 2)) {
+    const double s = std::sqrt(1.0 + R(1, 1) - R(0, 0) - R(2, 2)) * 2.0;
+    w = (R(0, 2) - R(2, 0)) / s;
+    x = (R(0, 1) + R(1, 0)) / s;
+    y = 0.25 * s;
+    z = (R(1, 2) + R(2, 1)) / s;
+  } else {
+    const double s = std::sqrt(1.0 + R(2, 2) - R(0, 0) - R(1, 1)) * 2.0;
+    w = (R(1, 0) - R(0, 1)) / s;
+    x = (R(0, 2) + R(2, 0)) / s;
+    y = (R(1, 2) + R(2, 1)) / s;
+    z = 0.25 * s;
+  }
+  const double n = std::sqrt(x * x + y * y + z * z + w * w);
+  if (n > 1e-12) {
+    x /= n;
+    y /= n;
+    z /= n;
+    w /= n;
+  } else {
+    x = 0.0;
+    y = 0.0;
+    z = 0.0;
+    w = 1.0;
+  }
+  return {x, y, z, w};
+}
+
+const cv::Matx33d kRvizFromOdom(
+    0.0, -1.0, 0.0,
+    0.0, 0.0, 1.0,
+    -1.0, 0.0, 0.0);
+
+cv::Point3d map_pose_position_odom_to_viz(const std::array<double, 3>& p) {
+  const cv::Vec3d v(p[0], p[1], p[2]);
+  const cv::Vec3d out = kRvizFromOdom * v;
+  return cv::Point3d(out[0], out[1], out[2]);
+}
+
+std::array<double, 4> map_pose_quat_odom_to_viz(const std::array<double, 4>& q_xyzw) {
+  const cv::Matx33d r_odom_body = quat_xyzw_to_rot(q_xyzw);
+  const cv::Matx33d r_viz_body = kRvizFromOdom * r_odom_body;
+  return rot_to_quat_xyzw(r_viz_body);
+}
+
 void mark_data(DashboardState* state) {
   if (!state) return;
   state->saw_data = true;
@@ -693,17 +756,18 @@ int main() {
 
   client->on_pose([&state](const PoseFrame& evt) {
     std::lock_guard<std::mutex> lock(state.mu);
-    state.pose_latest = cv::Point3d(evt.position[0], evt.position[1], evt.position[2]);
+    const cv::Point3d p_viz = map_pose_position_odom_to_viz(evt.position);
+    state.pose_latest = p_viz;
     state.has_pose = true;
     if (evt.quat.has_value()) {
-      state.quat_latest = evt.quat.value();
+      state.quat_latest = map_pose_quat_odom_to_viz(evt.quat.value());
       state.has_quat = true;
     } else {
       state.has_quat = false;
     }
-    state.pose_path.emplace_back(static_cast<float>(evt.position[0]),
-                                 static_cast<float>(evt.position[1]),
-                                 static_cast<float>(evt.position[2]));
+    state.pose_path.emplace_back(static_cast<float>(p_viz.x),
+                                 static_cast<float>(p_viz.y),
+                                 static_cast<float>(p_viz.z));
     if (state.pose_path.size() > kMaxPosePoints) {
       const size_t drop = state.pose_path.size() - kMaxPosePoints;
       state.pose_path.erase(state.pose_path.begin(), state.pose_path.begin() + static_cast<long>(drop));
@@ -817,4 +881,3 @@ int main() {
   cv::destroyAllWindows();
   return 0;
 }
-

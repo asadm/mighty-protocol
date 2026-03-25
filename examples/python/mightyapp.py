@@ -10,6 +10,7 @@ Mighty SDK example app:
 from __future__ import annotations
 
 import argparse
+import math
 import threading
 import time
 from pathlib import Path
@@ -30,6 +31,47 @@ from uihelpers import (  # noqa: E402
     decode_raw_to_rgb,
     launch_gui,
 )
+
+R_VIZ_FROM_ODOM = (
+    (0.0, -1.0, 0.0),
+    (0.0, 0.0, 1.0),
+    (-1.0, 0.0, 0.0),
+)
+Q_VIZ_FROM_ODOM = (0.5, -0.5, 0.5, 0.5)  # xyzw from R_VIZ_FROM_ODOM
+
+
+def _map_position_odom_to_viz(position):
+    if position is None or len(position) < 3:
+        return position
+    x = float(position[0])
+    y = float(position[1])
+    z = float(position[2])
+    return (
+        R_VIZ_FROM_ODOM[0][0] * x + R_VIZ_FROM_ODOM[0][1] * y + R_VIZ_FROM_ODOM[0][2] * z,
+        R_VIZ_FROM_ODOM[1][0] * x + R_VIZ_FROM_ODOM[1][1] * y + R_VIZ_FROM_ODOM[1][2] * z,
+        R_VIZ_FROM_ODOM[2][0] * x + R_VIZ_FROM_ODOM[2][1] * y + R_VIZ_FROM_ODOM[2][2] * z,
+    )
+
+
+def _quat_multiply_xyzw(a, b):
+    ax, ay, az, aw = [float(v) for v in a]
+    bx, by, bz, bw = [float(v) for v in b]
+    return (
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+        aw * bw - ax * bx - ay * by - az * bz,
+    )
+
+
+def _map_quat_odom_to_viz(quat):
+    if quat is None or len(quat) != 4:
+        return quat
+    q = _quat_multiply_xyzw(Q_VIZ_FROM_ODOM, quat)
+    n = math.sqrt(sum(float(v) * float(v) for v in q))
+    if n <= 1e-12:
+        return (0.0, 0.0, 0.0, 1.0)
+    return tuple(float(v) / n for v in q)
 
 
 def wire_client_callbacks(client: MightyClient, state: DashboardState) -> None:
@@ -58,7 +100,9 @@ def wire_client_callbacks(client: MightyClient, state: DashboardState) -> None:
             state.update_image(rgb, channel, ts)
 
     def on_pose(p: Dict[str, object]) -> None:
-        state.update_pose(p.get("position"), p.get("quat"))
+        pos_viz = _map_position_odom_to_viz(p.get("position"))
+        quat_viz = _map_quat_odom_to_viz(p.get("quat"))
+        state.update_pose(pos_viz, quat_viz)
 
     def on_imu(imu: Dict[str, object]) -> None:
         state.update_imu(imu.get("samples", []))

@@ -1,5 +1,6 @@
 #include <cassert>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <iostream>
 #include <memory>
@@ -32,6 +33,10 @@ bool wait_until(const std::function<bool()>& pred, int timeout_ms = 3000) {
   return false;
 }
 
+bool approx(double a, double b, double eps = 1e-6) {
+  return std::abs(a - b) < eps;
+}
+
 }  // namespace
 
 int main() {
@@ -45,18 +50,23 @@ int main() {
                                        reinterpret_cast<const uint8_t*>("\x01\x02"),
                                        2);
 
+  const std::array<double, 4> pose_quat{{0.1, 0.2, 0.3, 0.9}};
+  const std::array<double, 3> pose_linvel{{4.0, 5.0, 6.0}};
+  const std::array<double, 3> pose_angvel{{0.4, 0.5, 0.6}};
+  const std::array<double, 3> pose_linacc{{7.0, 8.0, 9.0}};
+  const std::array<double, 3> pose_angacc{{0.7, 0.8, 0.9}};
   auto pose_payload = build_pose_payload(/*pose_type=*/0,
-                                         /*has_quat=*/false,
+                                         /*has_quat=*/true,
                                          /*is_keyframe=*/false,
                                          /*x=*/1.0,
                                          /*y=*/2.0,
                                          /*z=*/3.0,
-                                         /*quat_or_null=*/nullptr,
+                                         /*quat_or_null=*/pose_quat.data(),
                                          /*confidence=*/0.9f,
-                                         /*linvel=*/nullptr,
-                                         /*angvel=*/nullptr,
-                                         /*linacc=*/nullptr,
-                                         /*angacc=*/nullptr,
+                                         /*linvel=*/pose_linvel.data(),
+                                         /*angvel=*/pose_angvel.data(),
+                                         /*linacc=*/pose_linacc.data(),
+                                         /*angacc=*/pose_angacc.data(),
                                          /*timestamp_ns=*/std::optional<uint64_t>(11));
 
   std::vector<ImuSample> imu = {
@@ -247,9 +257,13 @@ int main() {
       std::atomic<int> error{0};
     };
     Seen seen;
+    std::optional<PoseFrame> last_pose;
 
     client.on_image([&](const ImageFrame&) { seen.image.fetch_add(1); });
-    client.on_pose([&](const PoseFrame&) { seen.pose.fetch_add(1); });
+    client.on_pose([&](const PoseFrame& p) {
+      seen.pose.fetch_add(1);
+      last_pose = p;
+    });
     client.on_imu([&](const ImuBatch&) { seen.imu.fetch_add(1); });
     client.on_vio_state([&](const VioStateFrame&) { seen.vsta.fetch_add(1); });
     client.on_status([&](const StatusEvent&) { seen.status.fetch_add(1); });
@@ -270,6 +284,21 @@ int main() {
     assert(seen.vsta.load() >= 1);
     assert(seen.status.load() >= 1);
     assert(seen.reset.load() >= 1);
+    assert(last_pose.has_value());
+    assert(last_pose->pose_type == "body");
+    assert(last_pose->raw_pose_type == 0);
+    assert((last_pose->pose_flags & 0x1u) != 0u);
+    assert((last_pose->pose_flags & (1u << 2)) != 0u);
+    assert((last_pose->pose_flags & (1u << 3)) != 0u);
+    assert((last_pose->pose_flags & (1u << 4)) != 0u);
+    assert((last_pose->pose_flags & (1u << 5)) != 0u);
+    assert((last_pose->pose_flags & (1u << 6)) != 0u);
+    assert(last_pose->quat.has_value());
+    assert(last_pose->linvel.has_value());
+    assert(last_pose->timestamp_ns.has_value());
+    assert(last_pose->timestamp_ns.value() == 11);
+    assert(approx(last_pose->quat.value()[3], 0.9));
+    assert(approx(last_pose->linvel.value()[2], 6.0));
 
     CommandResult cmd = client.start_vio();
     assert(cmd.ok);

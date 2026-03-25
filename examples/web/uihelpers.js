@@ -25,6 +25,21 @@ const FOLLOW_CAM_SMOOTH_RATE = 2.0;
 const FOLLOW_TARGET_SMOOTH_RATE = 2.5;
 const FOLLOW_HEADING_SMOOTH_RATE = 1.8;
 const AUTO_LOCK_TIMEOUT_MS = 3000;
+const R_VIZ_FROM_ODOM = new THREE.Matrix3().set(
+  0, -1, 0,
+  0, 0, 1,
+  -1, 0, 0
+);
+const Q_VIZ_FROM_ODOM = new THREE.Quaternion()
+  .setFromRotationMatrix(
+    new THREE.Matrix4().set(
+      0, -1, 0, 0,
+      0, 0, 1, 0,
+      -1, 0, 0, 0,
+      0, 0, 0, 1
+    )
+  )
+  .normalize();
 
 function clamp(v, lo, hi) {
   return Math.min(hi, Math.max(lo, v));
@@ -112,6 +127,29 @@ export function drawRawFrame(canvas, frame) {
   const imageData = new ImageData(decoded.rgba, decoded.width, decoded.height);
   ctx.putImageData(imageData, 0, 0);
   return true;
+}
+
+export function mapCanonicalPoseToViz(position, quat) {
+  if (!Array.isArray(position) || position.length < 3) {
+    return { position, quat };
+  }
+  const pViz = new THREE.Vector3(
+    Number(position[0]),
+    Number(position[1]),
+    Number(position[2])
+  ).applyMatrix3(R_VIZ_FROM_ODOM);
+  let qViz = quat;
+  if (Array.isArray(quat) && quat.length === 4) {
+    const q = new THREE.Quaternion(
+      Number(quat[0]),
+      Number(quat[1]),
+      Number(quat[2]),
+      Number(quat[3])
+    ).normalize();
+    qViz = Q_VIZ_FROM_ODOM.clone().multiply(q).normalize();
+    qViz = [qViz.x, qViz.y, qViz.z, qViz.w];
+  }
+  return { position: [pViz.x, pViz.y, pViz.z], quat: qViz };
 }
 
 function drawImuChartRect(ctx, width, height, history, units, label, accessor) {
@@ -318,14 +356,14 @@ function makeCameraFrustum(host, colorHex) {
   const depth = 0.125;
   const width = 0.06;
   const positions = [
-    0, 0, 0, -width, -width, -depth,
-    0, 0, 0, width, -width, -depth,
-    0, 0, 0, width, width, -depth,
-    0, 0, 0, -width, width, -depth,
-    -width, -width, -depth, width, -width, -depth,
-    width, -width, -depth, width, width, -depth,
-    width, width, -depth, -width, width, -depth,
-    -width, width, -depth, -width, -width, -depth,
+    0, 0, 0, depth, -width, -width,
+    0, 0, 0, depth, width, -width,
+    0, 0, 0, depth, width, width,
+    0, 0, 0, depth, -width, width,
+    depth, -width, -width, depth, width, -width,
+    depth, width, -width, depth, width, width,
+    depth, width, width, depth, -width, width,
+    depth, -width, width, depth, -width, -width,
   ];
 
   const geometry = new LineSegmentsGeometry();
@@ -383,7 +421,7 @@ export function createPosePlot(host) {
   const tmpDesiredCamPos = new THREE.Vector3();
   const followTarget = new THREE.Vector3();
   const followQuat = new THREE.Quaternion();
-  const followHeading = new THREE.Vector3(0, 0, -1);
+  const followHeading = new THREE.Vector3(1, 0, 0);
   let followZoomScale = 1.0;
   let hasFollowTarget = false;
   let hasFollowQuat = false;
@@ -540,7 +578,7 @@ export function createPosePlot(host) {
     }
 
     if (hasFollowQuat) {
-      tmpForward.set(0, 0, -1).applyQuaternion(followQuat);
+      tmpForward.set(1, 0, 0).applyQuaternion(followQuat);
       tmpForward.y = 0;
       if (tmpForward.lengthSq() > 1e-6) {
         tmpForward.normalize();
@@ -565,8 +603,8 @@ export function createPosePlot(host) {
         tmpRight.crossVectors(tmpForward, worldUp).normalize();
       } else {
         const followQuatResolved = hasFollowQuat ? followQuat : camRig.quaternion;
-        tmpForward.set(0, 0, -1).applyQuaternion(followQuatResolved).normalize();
-        tmpRight.set(1, 0, 0).applyQuaternion(followQuatResolved).normalize();
+        tmpForward.set(1, 0, 0).applyQuaternion(followQuatResolved).normalize();
+        tmpRight.set(0, -1, 0).applyQuaternion(followQuatResolved).normalize();
       }
 
       tmpDesiredCamPos
