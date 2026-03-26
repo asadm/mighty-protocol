@@ -1,4 +1,10 @@
 {
   "title": "Docs",
-  "pages": ["index", "quickstart", "examples", "protocol"]
+  "pages": [
+    "index",
+    "quickstart",
+    "pose",
+    "examples",
+    "protocol"
+  ]
 }
