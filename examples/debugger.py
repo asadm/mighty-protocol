@@ -85,8 +85,8 @@ def decode_summary(frame, max_text_len: int, decode: bool) -> str:
                     f"{left.get('width')}x{left.get('height')}/{right.get('width')}x{right.get('height')}")
         if tcode in ("POSE", "UPOS"):
             info = mp.decode_pose_payload(payload)
-            pos = info["position"]
-            has_quat = "yes" if info["quat"] else "no"
+            pos = info["position_m"]
+            has_quat = "yes" if info["orientation_xyzw"] else "no"
             return f"type={info['pose_type']} pos=({pos[0]:.3f},{pos[1]:.3f},{pos[2]:.3f}) quat={has_quat}"
         if tcode == "LCON":
             segs = mp.decode_constraints_payload(payload)

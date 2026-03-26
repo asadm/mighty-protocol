@@ -17,7 +17,7 @@ import { MightyWebDevice, MightyClient, decodeRawToRgb } from "mighty-protocol";
 const device = new MightyWebDevice();
 const client = new MightyClient(device, { autoReconnect: true, reconnectDelayMs: 500 });
 
-client.onPose((pose) => console.log("pose", pose.position, pose.confidence));
+client.onPose((pose) => console.log("pose", pose.positionM, pose.confidence));
 client.onImage((img) => {
   const decoded = decodeRawToRgb(img);
   console.log("image", decoded?.width ?? img.width, decoded?.height ?? img.height);

@@ -433,38 +433,38 @@ inline std::vector<uint8_t> build_pose_payload(uint32_t pose_type,
                                                double x,
                                                double y,
                                                double z,
-                                               const double* quat_or_null,
+                                               const double* orientation_xyzw_or_null,
                                                float confidence01 = 1.0f,
-                                               const double* linvel_or_null = nullptr,
-                                               const double* angvel_or_null = nullptr,
-                                               const double* linacc_or_null = nullptr,
-                                               const double* angacc_or_null = nullptr,
+                                               const double* linear_velocity_body_mps_or_null = nullptr,
+                                               const double* angular_velocity_body_rps_or_null = nullptr,
+                                               const double* linear_acceleration_body_mps2_or_null = nullptr,
+                                               const double* angular_acceleration_body_rps2_or_null = nullptr,
                                                std::optional<uint64_t> timestamp_ns = std::nullopt) {
   std::vector<uint8_t> payload;
   // NOTE: payload is intentionally append-only for backward compatibility.
   // New fields must be added at the end so older decoders can ignore them.
   const bool has_timestamp = timestamp_ns.has_value() && timestamp_ns.value() > 0;
   payload.reserve(4 + 4 + 8 * 3 + (has_quat ? 8 * 4 : 0) + 4 +
-                  (linvel_or_null ? 8 * 3 : 0) +
-                  (angvel_or_null ? 8 * 3 : 0) +
-                  (linacc_or_null ? 8 * 3 : 0) +
-                  (angacc_or_null ? 8 * 3 : 0) +
+                  (linear_velocity_body_mps_or_null ? 8 * 3 : 0) +
+                  (angular_velocity_body_rps_or_null ? 8 * 3 : 0) +
+                  (linear_acceleration_body_mps2_or_null ? 8 * 3 : 0) +
+                  (angular_acceleration_body_rps2_or_null ? 8 * 3 : 0) +
                   (has_timestamp ? 8 : 0));
 
   // Pose flags (uint32 big-endian)
   // Bit 0: has_quat
   // Bit 1: is_keyframe
-  // Bit 2: has_linvel (vx,vy,vz) float64[3]
-  // Bit 3: has_angvel (wx,wy,wz) float64[3]
-  // Bit 4: has_linacc (ax,ay,az) float64[3]
-  // Bit 5: has_angacc (alphax,alphay,alphaz) float64[3]
+  // Bit 2: has_linear_velocity_body_mps (vx,vy,vz) float64[3]
+  // Bit 3: has_angular_velocity_body_rps (wx,wy,wz) float64[3]
+  // Bit 4: has_linear_acceleration_body_mps2 (ax,ay,az) float64[3]
+  // Bit 5: has_angular_acceleration_body_rps2 (alphax,alphay,alphaz) float64[3]
   // Bit 6: has_timestamp (timestamp_ns) uint64 appended at the end
   uint32_t flags = has_quat ? 1u : 0u;
   if (is_keyframe) flags |= (1u << 1);
-  if (linvel_or_null) flags |= (1u << 2);
-  if (angvel_or_null) flags |= (1u << 3);
-  if (linacc_or_null) flags |= (1u << 4);
-  if (angacc_or_null) flags |= (1u << 5);
+  if (linear_velocity_body_mps_or_null) flags |= (1u << 2);
+  if (angular_velocity_body_rps_or_null) flags |= (1u << 3);
+  if (linear_acceleration_body_mps2_or_null) flags |= (1u << 4);
+  if (angular_acceleration_body_rps2_or_null) flags |= (1u << 5);
   if (has_timestamp) flags |= (1u << 6);
 
   payload.resize(0);
@@ -475,11 +475,11 @@ inline std::vector<uint8_t> build_pose_payload(uint32_t pose_type,
   write_f64_be(buf8, x); payload.insert(payload.end(), buf8, buf8 + 8);
   write_f64_be(buf8, y); payload.insert(payload.end(), buf8, buf8 + 8);
   write_f64_be(buf8, z); payload.insert(payload.end(), buf8, buf8 + 8);
-  if (has_quat && quat_or_null) {
-    write_f64_be(buf8, quat_or_null[0]); payload.insert(payload.end(), buf8, buf8 + 8);
-    write_f64_be(buf8, quat_or_null[1]); payload.insert(payload.end(), buf8, buf8 + 8);
-    write_f64_be(buf8, quat_or_null[2]); payload.insert(payload.end(), buf8, buf8 + 8);
-    write_f64_be(buf8, quat_or_null[3]); payload.insert(payload.end(), buf8, buf8 + 8);
+  if (has_quat && orientation_xyzw_or_null) {
+    write_f64_be(buf8, orientation_xyzw_or_null[0]); payload.insert(payload.end(), buf8, buf8 + 8);
+    write_f64_be(buf8, orientation_xyzw_or_null[1]); payload.insert(payload.end(), buf8, buf8 + 8);
+    write_f64_be(buf8, orientation_xyzw_or_null[2]); payload.insert(payload.end(), buf8, buf8 + 8);
+    write_f64_be(buf8, orientation_xyzw_or_null[3]); payload.insert(payload.end(), buf8, buf8 + 8);
   }
   // Confidence in [0,1]. (float32 big-endian)
   if (!std::isfinite(confidence01)) confidence01 = 0.0f;
@@ -492,10 +492,10 @@ inline std::vector<uint8_t> build_pose_payload(uint32_t pose_type,
     write_f64_be(buf8, v[1]); payload.insert(payload.end(), buf8, buf8 + 8);
     write_f64_be(buf8, v[2]); payload.insert(payload.end(), buf8, buf8 + 8);
   };
-  if (linvel_or_null) append_f64x3(linvel_or_null);
-  if (angvel_or_null) append_f64x3(angvel_or_null);
-  if (linacc_or_null) append_f64x3(linacc_or_null);
-  if (angacc_or_null) append_f64x3(angacc_or_null);
+  if (linear_velocity_body_mps_or_null) append_f64x3(linear_velocity_body_mps_or_null);
+  if (angular_velocity_body_rps_or_null) append_f64x3(angular_velocity_body_rps_or_null);
+  if (linear_acceleration_body_mps2_or_null) append_f64x3(linear_acceleration_body_mps2_or_null);
+  if (angular_acceleration_body_rps2_or_null) append_f64x3(angular_acceleration_body_rps2_or_null);
   if (has_timestamp) {
     write_u64_be(buf8, timestamp_ns.value());
     payload.insert(payload.end(), buf8, buf8 + 8);
@@ -901,12 +901,12 @@ inline bool decode_pose_payload(const std::vector<uint8_t>& payload,
                                 double& x,
                                 double& y,
                                 double& z,
-                                std::optional<std::array<double,4>>& quat,
+                                std::optional<std::array<double,4>>& orientation_xyzw,
                                 float* confidence01_or_null = nullptr,
-                                std::optional<std::array<double,3>>* linvel_or_null = nullptr,
-                                std::optional<std::array<double,3>>* angvel_or_null = nullptr,
-                                std::optional<std::array<double,3>>* linacc_or_null = nullptr,
-                                std::optional<std::array<double,3>>* angacc_or_null = nullptr,
+                                std::optional<std::array<double,3>>* linear_velocity_body_mps_or_null = nullptr,
+                                std::optional<std::array<double,3>>* angular_velocity_body_rps_or_null = nullptr,
+                                std::optional<std::array<double,3>>* linear_acceleration_body_mps2_or_null = nullptr,
+                                std::optional<std::array<double,3>>* angular_acceleration_body_rps2_or_null = nullptr,
                                 std::optional<uint64_t>* timestamp_ns_or_null = nullptr) {
   if (payload.size() < 4 + 4 + 8 * 3) return false;
   auto rd_u32 = [&](size_t idx) -> uint32_t {
@@ -945,9 +945,9 @@ inline bool decode_pose_payload(const std::vector<uint8_t>& payload,
     rd_f64(off, q[1]); off += 8;
     rd_f64(off, q[2]); off += 8;
     rd_f64(off, q[3]); off += 8;
-    quat = q;
+    orientation_xyzw = q;
   } else {
-    quat.reset();
+    orientation_xyzw.reset();
   }
   float conf = 1.0f;
   if (payload.size() >= off + 4) {
@@ -975,10 +975,10 @@ inline bool decode_pose_payload(const std::vector<uint8_t>& payload,
     off += 24;
   };
 
-  decode_vec3_if_present(/*flag_bit=*/2, linvel_or_null);
-  decode_vec3_if_present(/*flag_bit=*/3, angvel_or_null);
-  decode_vec3_if_present(/*flag_bit=*/4, linacc_or_null);
-  decode_vec3_if_present(/*flag_bit=*/5, angacc_or_null);
+  decode_vec3_if_present(/*flag_bit=*/2, linear_velocity_body_mps_or_null);
+  decode_vec3_if_present(/*flag_bit=*/3, angular_velocity_body_rps_or_null);
+  decode_vec3_if_present(/*flag_bit=*/4, linear_acceleration_body_mps2_or_null);
+  decode_vec3_if_present(/*flag_bit=*/5, angular_acceleration_body_rps2_or_null);
 
   if (timestamp_ns_or_null) {
     if ((pose_flags & (1u << 6)) == 0) {

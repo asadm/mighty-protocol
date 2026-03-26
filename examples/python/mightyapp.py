@@ -100,8 +100,8 @@ def wire_client_callbacks(client: MightyClient, state: DashboardState) -> None:
             state.update_image(rgb, channel, ts)
 
     def on_pose(p: Dict[str, object]) -> None:
-        pos_viz = _map_position_odom_to_viz(p.get("position"))
-        quat_viz = _map_quat_odom_to_viz(p.get("quat"))
+        pos_viz = _map_position_odom_to_viz(p.get("position_m"))
+        quat_viz = _map_quat_odom_to_viz(p.get("orientation_xyzw"))
         state.update_pose(pos_viz, quat_viz)
 
     def on_imu(imu: Dict[str, object]) -> None:

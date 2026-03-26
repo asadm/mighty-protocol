@@ -60,19 +60,21 @@ struct ImageFrame {
 };
 
 struct PoseFrame {
-  std::string stream;   // optimized | unoptimized
-  std::string raw_type; // POSE | UPOS
+  bool is_public = true;  // true for POSE, false for UPOS
+  std::string packet_type; // POSE | UPOS
   std::string pose_type; // body | camera | other
-  uint32_t raw_pose_type = 0;
+  uint32_t pose_type_raw = 0;
   uint32_t pose_flags = 0;
-  std::array<double, 3> position{0.0, 0.0, 0.0};
-  std::optional<std::array<double, 4>> quat;
+  std::string frame_id = "odom";
+  std::string child_frame_id = "base_link";
+  std::array<double, 3> position_m{0.0, 0.0, 0.0};
+  std::optional<std::array<double, 4>> orientation_xyzw;
   float confidence = 0.0f;
   bool is_keyframe = false;
-  std::optional<std::array<double, 3>> linvel;
-  std::optional<std::array<double, 3>> angvel;
-  std::optional<std::array<double, 3>> linacc;
-  std::optional<std::array<double, 3>> angacc;
+  std::optional<std::array<double, 3>> linear_velocity_body_mps;
+  std::optional<std::array<double, 3>> angular_velocity_body_rps;
+  std::optional<std::array<double, 3>> linear_acceleration_body_mps2;
+  std::optional<std::array<double, 3>> angular_acceleration_body_rps2;
   std::optional<uint64_t> timestamp_ns;
 };
 
@@ -578,24 +580,24 @@ class MightyClient {
         if (pose_handlers_.empty() && !wants_any) return;
         uint32_t pose_type = 0;
         PoseFrame evt;
-        evt.stream = (type == "POSE") ? "optimized" : "unoptimized";
-        evt.raw_type = type;
+        evt.is_public = (type == "POSE");
+        evt.packet_type = type;
         if (!decode_pose_payload(frame.payload,
                                  pose_type,
                                  evt.pose_flags,
-                                 evt.position[0],
-                                 evt.position[1],
-                                 evt.position[2],
-                                 evt.quat,
+                                 evt.position_m[0],
+                                 evt.position_m[1],
+                                 evt.position_m[2],
+                                 evt.orientation_xyzw,
                                  &evt.confidence,
-                                 &evt.linvel,
-                                 &evt.angvel,
-                                 &evt.linacc,
-                                 &evt.angacc,
+                                 &evt.linear_velocity_body_mps,
+                                 &evt.angular_velocity_body_rps,
+                                 &evt.linear_acceleration_body_mps2,
+                                 &evt.angular_acceleration_body_rps2,
                                  &evt.timestamp_ns)) {
           throw std::runtime_error("POSE decode failed");
         }
-        evt.raw_pose_type = pose_type;
+        evt.pose_type_raw = pose_type;
         evt.pose_type = map_pose_type(pose_type);
         evt.confidence = clamp01(evt.confidence);
         evt.is_keyframe = (evt.pose_flags & (1u << 1)) != 0;

@@ -382,19 +382,21 @@ class MightyClient:
                 p = mp.decode_pose_payload(payload)
                 pose_flags = int(p.get("pose_flags", 0))
                 mapped = {
-                    "stream": "optimized" if frame_type == "POSE" else "unoptimized",
-                    "raw_type": frame_type.strip(),
+                    "is_public": frame_type == "POSE",
+                    "packet_type": frame_type.strip(),
                     "pose_type": self._map_pose_type(int(p.get("pose_type", -1))),
-                    "raw_pose_type": int(p.get("pose_type", -1)),
+                    "pose_type_raw": int(p.get("pose_type", -1)),
                     "pose_flags": pose_flags,
-                    "position": p.get("position"),
-                    "quat": p.get("quat"),
+                    "frame_id": "odom",
+                    "child_frame_id": "base_link",
+                    "position_m": p.get("position_m"),
+                    "orientation_xyzw": p.get("orientation_xyzw"),
                     "confidence": clamp01(float(p.get("confidence", 1.0))),
                     "is_keyframe": (pose_flags & (1 << 1)) != 0,
-                    "linvel": p.get("linvel"),
-                    "angvel": p.get("angvel"),
-                    "linacc": p.get("linacc"),
-                    "angacc": p.get("angacc"),
+                    "linear_velocity_body_mps": p.get("linear_velocity_body_mps"),
+                    "angular_velocity_body_rps": p.get("angular_velocity_body_rps"),
+                    "linear_acceleration_body_mps2": p.get("linear_acceleration_body_mps2"),
+                    "angular_acceleration_body_rps2": p.get("angular_acceleration_body_rps2"),
                     "timestamp_ns": p.get("timestamp_ns"),
                 }
                 self._emit("pose", mapped)

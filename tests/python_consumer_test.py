@@ -35,25 +35,25 @@ SAMPLE = {
     "pose": {
         "pose_type": 0,
         "pose_flags": 0x3 | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6),
-        "position": (1.1, 2.2, 3.3),
-        "quat": (0.1, 0.2, 0.3, 0.9),
+        "position_m": (1.1, 2.2, 3.3),
+        "orientation_xyzw": (0.1, 0.2, 0.3, 0.9),
         "confidence": 0.82,
-        "linvel": (4.0, 5.0, 6.0),
-        "angvel": (0.4, 0.5, 0.6),
-        "linacc": (7.0, 8.0, 9.0),
-        "angacc": (0.7, 0.8, 0.9),
+        "linear_velocity_body_mps": (4.0, 5.0, 6.0),
+        "angular_velocity_body_rps": (0.4, 0.5, 0.6),
+        "linear_acceleration_body_mps2": (7.0, 8.0, 9.0),
+        "angular_acceleration_body_rps2": (0.7, 0.8, 0.9),
         "timestamp_ns": 777,
     },
     "upose": {
         "pose_type": 0,
         "pose_flags": 0x1 | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6),
-        "position": (4.4, 5.5, 6.6),
-        "quat": (0.4, 0.5, 0.6, 0.7),
+        "position_m": (4.4, 5.5, 6.6),
+        "orientation_xyzw": (0.4, 0.5, 0.6, 0.7),
         "confidence": 0.41,
-        "linvel": (1.0, 1.1, 1.2),
-        "angvel": (0.1, 0.2, 0.3),
-        "linacc": (2.0, 2.1, 2.2),
-        "angacc": (0.01, 0.02, 0.03),
+        "linear_velocity_body_mps": (1.0, 1.1, 1.2),
+        "angular_velocity_body_rps": (0.1, 0.2, 0.3),
+        "linear_acceleration_body_mps2": (2.0, 2.1, 2.2),
+        "angular_acceleration_body_rps2": (0.01, 0.02, 0.03),
         "timestamp_ns": 778,
     },
     "constraints": [
@@ -174,18 +174,18 @@ def struct_pose(data):
     import struct
     pose_flags = data["pose_flags"]
     buf = struct.pack(">II", data["pose_type"], pose_flags)
-    buf += struct.pack(">ddd", *data["position"])
+    buf += struct.pack(">ddd", *data["position_m"])
     if pose_flags & 0x1:
-        buf += struct.pack(">dddd", *data["quat"])
+        buf += struct.pack(">dddd", *data["orientation_xyzw"])
     buf += struct.pack(">f", float(data.get("confidence", 1.0)))
     if pose_flags & (1 << 2):
-        buf += struct.pack(">ddd", *data["linvel"])
+        buf += struct.pack(">ddd", *data["linear_velocity_body_mps"])
     if pose_flags & (1 << 3):
-        buf += struct.pack(">ddd", *data["angvel"])
+        buf += struct.pack(">ddd", *data["angular_velocity_body_rps"])
     if pose_flags & (1 << 4):
-        buf += struct.pack(">ddd", *data["linacc"])
+        buf += struct.pack(">ddd", *data["linear_acceleration_body_mps2"])
     if pose_flags & (1 << 5):
-        buf += struct.pack(">ddd", *data["angacc"])
+        buf += struct.pack(">ddd", *data["angular_acceleration_body_rps2"])
     if pose_flags & (1 << 6):
         buf += struct.pack(">Q", int(data["timestamp_ns"]))
     return buf
@@ -286,14 +286,14 @@ def main():
     assert pose["pose_type"] == SAMPLE["pose"]["pose_type"]
     assert almost(pose.get("confidence", 1.0), SAMPLE["pose"]["confidence"], 1e-6)
     assert pose["timestamp_ns"] == SAMPLE["pose"]["timestamp_ns"]
-    assert pose["linvel"] is not None
-    assert pose["angvel"] is not None
-    assert pose["linacc"] is not None
-    assert pose["angacc"] is not None
-    assert almost(pose["linvel"][2], SAMPLE["pose"]["linvel"][2], 1e-6)
-    assert almost(pose["angvel"][1], SAMPLE["pose"]["angvel"][1], 1e-6)
+    assert pose["linear_velocity_body_mps"] is not None
+    assert pose["angular_velocity_body_rps"] is not None
+    assert pose["linear_acceleration_body_mps2"] is not None
+    assert pose["angular_acceleration_body_rps2"] is not None
+    assert almost(pose["linear_velocity_body_mps"][2], SAMPLE["pose"]["linear_velocity_body_mps"][2], 1e-6)
+    assert almost(pose["angular_velocity_body_rps"][1], SAMPLE["pose"]["angular_velocity_body_rps"][1], 1e-6)
     upose = mp.decode_pose_payload(frames[idx]["payload"]); idx += 1
-    assert almost(upose["position"][2], SAMPLE["upose"]["position"][2])
+    assert almost(upose["position_m"][2], SAMPLE["upose"]["position_m"][2])
     assert almost(upose.get("confidence", 1.0), SAMPLE["upose"]["confidence"], 1e-6)
     assert upose["timestamp_ns"] == SAMPLE["upose"]["timestamp_ns"]
     lcon = mp.decode_constraints_payload(frames[idx]["payload"]); idx += 1
@@ -366,7 +366,12 @@ def main():
           payload = mp.build_stereo_raw_payload(1, 2, 2, 1, mp.RAW_FORMAT["GRAY8"], "cam0", secrets.token_bytes(2),
                                                 2, 1, mp.RAW_FORMAT["GRAY8"], "cam1", secrets.token_bytes(2))
         elif t in ("POSE", "UPOSE"):
-          payload = struct_pose({"pose_type": 0, "pose_flags": 0x3, "position": (0.1,0.2,0.3), "quat": (0.1,0.2,0.3,0.9)})
+          payload = struct_pose({
+              "pose_type": 0,
+              "pose_flags": 0x3,
+              "position_m": (0.1, 0.2, 0.3),
+              "orientation_xyzw": (0.1, 0.2, 0.3, 0.9),
+          })
         elif t == "LCON":
           payload = struct_constraints()
         elif t == "IMU":

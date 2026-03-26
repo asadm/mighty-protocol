@@ -179,13 +179,13 @@ async function main() {
   const poseSample = {
     poseType: 0,
     poseFlags: 0,
-    position: [1, 2, 3],
-    quat: [0.1, 0.2, 0.3, 0.9],
+    positionM: [1, 2, 3],
+    orientationXyzw: [0.1, 0.2, 0.3, 0.9],
     confidence: 0.5,
-    linvel: [4.0, 5.0, 6.0],
-    angvel: [0.4, 0.5, 0.6],
-    linacc: [7.0, 8.0, 9.0],
-    angacc: [0.7, 0.8, 0.9],
+    linearVelocityBodyMps: [4.0, 5.0, 6.0],
+    angularVelocityBodyRps: [0.4, 0.5, 0.6],
+    linearAccelerationBodyMps2: [7.0, 8.0, 9.0],
+    angularAccelerationBodyRps2: [0.7, 0.8, 0.9],
     timestampNs: 11n,
   };
 
@@ -237,9 +237,12 @@ async function main() {
   assert.strictEqual(lastImage.channel, "cam0");
   assert.strictEqual(lastImage.channelAlias, "cam0");
   assert.strictEqual(seen.pose, 1);
-  assert.strictEqual(lastPose.stream, "optimized");
+  assert.strictEqual(lastPose.isPublic, true);
+  assert.strictEqual(lastPose.packetType, "POSE");
   assert.strictEqual(lastPose.poseType, "body");
-  assert.strictEqual(lastPose.rawPoseType, 0);
+  assert.strictEqual(lastPose.poseTypeRaw, 0);
+  assert.strictEqual(lastPose.frameId, "odom");
+  assert.strictEqual(lastPose.childFrameId, "base_link");
   assert.ok((lastPose.poseFlags & 0x1) !== 0);
   assert.ok((lastPose.poseFlags & (1 << 2)) !== 0);
   assert.ok((lastPose.poseFlags & (1 << 3)) !== 0);
@@ -247,17 +250,18 @@ async function main() {
   assert.ok((lastPose.poseFlags & (1 << 5)) !== 0);
   assert.ok((lastPose.poseFlags & (1 << 6)) !== 0);
   assert.strictEqual(lastPose.timestampNs, 11n);
-  assert.ok(Array.isArray(lastPose.quat));
-  assert.ok(Array.isArray(lastPose.linvel));
-  assert.ok(Array.isArray(lastPose.angvel));
-  assert.ok(Array.isArray(lastPose.linacc));
-  assert.ok(Array.isArray(lastPose.angacc));
-  assert.ok(almost(lastPose.quat[0], poseSample.quat[0]));
-  assert.ok(almost(lastPose.quat[3], poseSample.quat[3]));
-  assert.ok(almost(lastPose.linvel[2], poseSample.linvel[2]));
-  assert.ok(almost(lastPose.angvel[1], poseSample.angvel[1]));
-  assert.ok(almost(lastPose.linacc[0], poseSample.linacc[0]));
-  assert.ok(almost(lastPose.angacc[2], poseSample.angacc[2]));
+  assert.ok(Array.isArray(lastPose.positionM));
+  assert.ok(Array.isArray(lastPose.orientationXyzw));
+  assert.ok(Array.isArray(lastPose.linearVelocityBodyMps));
+  assert.ok(Array.isArray(lastPose.angularVelocityBodyRps));
+  assert.ok(Array.isArray(lastPose.linearAccelerationBodyMps2));
+  assert.ok(Array.isArray(lastPose.angularAccelerationBodyRps2));
+  assert.ok(almost(lastPose.orientationXyzw[0], poseSample.orientationXyzw[0]));
+  assert.ok(almost(lastPose.orientationXyzw[3], poseSample.orientationXyzw[3]));
+  assert.ok(almost(lastPose.linearVelocityBodyMps[2], poseSample.linearVelocityBodyMps[2]));
+  assert.ok(almost(lastPose.angularVelocityBodyRps[1], poseSample.angularVelocityBodyRps[1]));
+  assert.ok(almost(lastPose.linearAccelerationBodyMps2[0], poseSample.linearAccelerationBodyMps2[0]));
+  assert.ok(almost(lastPose.angularAccelerationBodyRps2[2], poseSample.angularAccelerationBodyRps2[2]));
   assert.strictEqual(seen.imu, 1);
   assert.strictEqual(seen.vsta, 1);
   assert.strictEqual(seen.pcld, 1);
