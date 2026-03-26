@@ -21,7 +21,7 @@ from mighty_sdk import MightyWebDevice, MightyClient
 device = MightyWebDevice()
 client = MightyClient(device, auto_reconnect=True)
 
-client.on_pose(lambda p: print("pose", p["position"], p["confidence"]))
+client.on_pose(lambda p: print("pose", p["position_m"], p["confidence"]))
 client.on_image(lambda img: print("image", img["kind"], img["width"], img["height"]))
 client.on_error(lambda e: print("error:", e))
 

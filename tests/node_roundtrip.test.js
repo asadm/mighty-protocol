@@ -37,25 +37,25 @@ const SAMPLE = {
   pose: {
     poseType: 0,
     poseFlags: 0x3,
-    position: [1.1, 2.2, 3.3],
-    quat: [0.1, 0.2, 0.3, 0.9],
+    positionM: [1.1, 2.2, 3.3],
+    orientationXyzw: [0.1, 0.2, 0.3, 0.9],
     confidence: 0.82,
-    linvel: [4.0, 5.0, 6.0],
-    angvel: [0.4, 0.5, 0.6],
-    linacc: [7.0, 8.0, 9.0],
-    angacc: [0.7, 0.8, 0.9],
+    linearVelocityBodyMps: [4.0, 5.0, 6.0],
+    angularVelocityBodyRps: [0.4, 0.5, 0.6],
+    linearAccelerationBodyMps2: [7.0, 8.0, 9.0],
+    angularAccelerationBodyRps2: [0.7, 0.8, 0.9],
     timestampNs: 777n
   },
   upose: {
     poseType: 0,
     poseFlags: 0x1,
-    position: [4.4, 5.5, 6.6],
-    quat: [0.4, 0.5, 0.6, 0.7],
+    positionM: [4.4, 5.5, 6.6],
+    orientationXyzw: [0.4, 0.5, 0.6, 0.7],
     confidence: 0.41,
-    linvel: [1.0, 1.1, 1.2],
-    angvel: [0.1, 0.2, 0.3],
-    linacc: [2.0, 2.1, 2.2],
-    angacc: [0.01, 0.02, 0.03],
+    linearVelocityBodyMps: [1.0, 1.1, 1.2],
+    angularVelocityBodyRps: [0.1, 0.2, 0.3],
+    linearAccelerationBodyMps2: [2.0, 2.1, 2.2],
+    angularAccelerationBodyRps2: [0.01, 0.02, 0.03],
     timestampNs: 778n
   },
   constraints: [
@@ -221,12 +221,12 @@ function verifyFrame(frame, index) {
 	      assert.ok((res.poseFlags & (1 << 4)) !== 0);
 	      assert.ok((res.poseFlags & (1 << 5)) !== 0);
 	      assert.ok((res.poseFlags & (1 << 6)) !== 0);
-	      res.position.forEach((v, i) => assert(almost(v, SAMPLE.pose.position[i])));
-	      res.quat.forEach((v, i) => assert(almost(v, SAMPLE.pose.quat[i])));
-	      res.linvel.forEach((v, i) => assert(almost(v, SAMPLE.pose.linvel[i])));
-	      res.angvel.forEach((v, i) => assert(almost(v, SAMPLE.pose.angvel[i])));
-	      res.linacc.forEach((v, i) => assert(almost(v, SAMPLE.pose.linacc[i])));
-	      res.angacc.forEach((v, i) => assert(almost(v, SAMPLE.pose.angacc[i])));
+	      res.positionM.forEach((v, i) => assert(almost(v, SAMPLE.pose.positionM[i])));
+	      res.orientationXyzw.forEach((v, i) => assert(almost(v, SAMPLE.pose.orientationXyzw[i])));
+	      res.linearVelocityBodyMps.forEach((v, i) => assert(almost(v, SAMPLE.pose.linearVelocityBodyMps[i])));
+	      res.angularVelocityBodyRps.forEach((v, i) => assert(almost(v, SAMPLE.pose.angularVelocityBodyRps[i])));
+	      res.linearAccelerationBodyMps2.forEach((v, i) => assert(almost(v, SAMPLE.pose.linearAccelerationBodyMps2[i])));
+	      res.angularAccelerationBodyRps2.forEach((v, i) => assert(almost(v, SAMPLE.pose.angularAccelerationBodyRps2[i])));
 	      assert.strictEqual(res.timestampNs, SAMPLE.pose.timestampNs);
 	      assert(almost(res.confidence, SAMPLE.pose.confidence, 1e-3));
 	      break;
@@ -240,12 +240,12 @@ function verifyFrame(frame, index) {
 	      assert(res.poseFlags & (1 << 4));
 	      assert(res.poseFlags & (1 << 5));
 	      assert(res.poseFlags & (1 << 6));
-	      assert(almost(res.position[2], SAMPLE.upose.position[2]));
-	      res.quat.forEach((v, i) => assert(almost(v, SAMPLE.upose.quat[i])));
-	      res.linvel.forEach((v, i) => assert(almost(v, SAMPLE.upose.linvel[i])));
-	      res.angvel.forEach((v, i) => assert(almost(v, SAMPLE.upose.angvel[i])));
-	      res.linacc.forEach((v, i) => assert(almost(v, SAMPLE.upose.linacc[i])));
-	      res.angacc.forEach((v, i) => assert(almost(v, SAMPLE.upose.angacc[i])));
+	      assert(almost(res.positionM[2], SAMPLE.upose.positionM[2]));
+	      res.orientationXyzw.forEach((v, i) => assert(almost(v, SAMPLE.upose.orientationXyzw[i])));
+	      res.linearVelocityBodyMps.forEach((v, i) => assert(almost(v, SAMPLE.upose.linearVelocityBodyMps[i])));
+	      res.angularVelocityBodyRps.forEach((v, i) => assert(almost(v, SAMPLE.upose.angularVelocityBodyRps[i])));
+	      res.linearAccelerationBodyMps2.forEach((v, i) => assert(almost(v, SAMPLE.upose.linearAccelerationBodyMps2[i])));
+	      res.angularAccelerationBodyRps2.forEach((v, i) => assert(almost(v, SAMPLE.upose.angularAccelerationBodyRps2[i])));
 	      assert.strictEqual(res.timestampNs, SAMPLE.upose.timestampNs);
 	      assert(almost(res.confidence, SAMPLE.upose.confidence, 1e-3));
 	      break;
@@ -437,8 +437,8 @@ async function runFuzzTests() {
     return proto.buildPosePayload({
       poseType: Math.random() > 0.5 ? 0 : 1,
       poseFlags: 0x3,
-      position: [Math.random(), Math.random(), Math.random()],
-      quat: [0.1, 0.2, 0.3, 0.9],
+      positionM: [Math.random(), Math.random(), Math.random()],
+      orientationXyzw: [0.1, 0.2, 0.3, 0.9],
     });
   }
 

@@ -21,7 +21,7 @@ Each frame on the wire is:
 - CRC: CRC32 of payload bytes (zero when payload is empty)
 
 Raw-frame CRC compatibility rule:
-- For `RAW ` and `SRAW`, decoders may accept `crc32 == 0` as a skip-CRC fast path (for legacy/device compatibility).
+- For `RAW ` and `SRAW`, decoders may accept `crc32 == 0` as a skip-CRC fast path (for device interoperability).
 
 ## 2. Type Codes
 
@@ -32,7 +32,7 @@ Raw-frame CRC compatibility rule:
 - `RAW `: mono raw image
 - `SRAW`: stereo raw image (left + right)
 - `POSE`: canonical public body pose (`T_odom_body`)
-- `UPOS`: reserved/internal pose stream (not part of public launch API)
+- `UPOS`: reserved/internal pose stream (not part of public API)
 - `LCON`: loop constraints / line segments
 - `VIZ `: visualization payload (subtyped)
 - `IMU `: IMU samples batch
@@ -84,22 +84,22 @@ Formats (SDK constant: `RAW_FORMAT`):
 
 ### 3.2 Pose (`POSE`; `UPOS` reserved/internal)
 
-`POSE` is the public launch stream.
+`POSE` is the public pose stream.
 `UPOS` keeps the same binary layout but is reserved for internal/debug usage.
 
 Core fields:
 - `poseType` (u32)
 - `poseFlags` (u32)
-- `position` (f64 x3)
+- `positionM` (f64 x3)
 - `confidence` (f32)
 - optional fields gated by `poseFlags`
 
-Public launch frame contract (`POSE`):
+Public frame contract (`POSE`):
 - `frame_id = "odom"` (ENU)
 - `child_frame_id = "base_link"` (FLU)
 - transform meaning: `T_odom_body`
 - equation: `p_odom = R_odom_body * p_body + t_odom_body`
-- `base_link` origin in v1 is the IMU origin
+- `base_link` origin is the IMU origin
 
 `poseType` semantics:
 - `0`: body pose (`T_odom_body`) for public `POSE`
@@ -111,13 +111,21 @@ Quaternion convention:
 - component order is `xyzw`
 
 `poseFlags` bits:
-- bit 0: quaternion present (`quat`, f64 x4)
+- bit 0: quaternion present (`orientationXyzw`, f64 x4)
 - bit 1: keyframe marker
-- bit 2: linear velocity in body frame (`linvel`, f64 x3)
-- bit 3: angular velocity in body frame (`angvel`, f64 x3)
-- bit 4: linear acceleration in body frame (`linacc`, f64 x3)
-- bit 5: angular acceleration in body frame (`angacc`, f64 x3)
+- bit 2: linear velocity in body frame (`linearVelocityBodyMps`, f64 x3)
+- bit 3: angular velocity in body frame (`angularVelocityBodyRps`, f64 x3)
+- bit 4: linear acceleration in body frame (`linearAccelerationBodyMps2`, f64 x3)
+- bit 5: angular acceleration in body frame (`angularAccelerationBodyRps2`, f64 x3)
 - bit 6: `timestamp_ns` present (u64)
+
+POSE invariants:
+- `positionM`, `linearVelocityBodyMps`, `angularVelocityBodyRps`,
+  `linearAccelerationBodyMps2`, and `angularAccelerationBodyRps2` are finite when present.
+- quaternion is interpreted as `xyzw`; producers should send normalized quaternions.
+- decoders clamp `confidence` into `[0, 1]`.
+- `timestamp_ns` is an on-device monotonic timestamp when bit 6 is set.
+- public contract fixes `frame_id="odom"` and `child_frame_id="base_link"` even though frame strings are not encoded in the wire payload.
 
 Protocol evolution rule:
 - append-only; new optional fields must be gated via new flags.
@@ -240,12 +248,40 @@ Config-over-command convention used by SDK:
 - Use explicit versioning (e.g., `VSTA`) when adding structured fields.
 - Keep `CMD/CRES` request IDs unique per in-flight command to correlate responses.
 
+SDK pose callback fields:
+- JS SDK (`js/sdk/client.js`) pose callback object:
+  - `isPublic`, `packetType`, `poseType`, `poseTypeRaw`, `poseFlags`
+  - `frameId`, `childFrameId`
+  - `positionM`, `orientationXyzw`
+  - `linearVelocityBodyMps`, `angularVelocityBodyRps`
+  - `linearAccelerationBodyMps2`, `angularAccelerationBodyRps2`
+  - `timestampNs`, `confidence`, `isKeyframe`
+- Python SDK (`python/mighty_sdk/client.py`) pose callback object:
+  - `is_public`, `packet_type`, `pose_type`, `pose_type_raw`, `pose_flags`
+  - `frame_id`, `child_frame_id`
+  - `position_m`, `orientation_xyzw`
+  - `linear_velocity_body_mps`, `angular_velocity_body_rps`
+  - `linear_acceleration_body_mps2`, `angular_acceleration_body_rps2`
+  - `timestamp_ns`, `confidence`, `is_keyframe`
+- C++ SDK (`cpp/sdk/mighty_client.h`) `PoseFrame`:
+  - `is_public`, `packet_type`, `pose_type`, `pose_type_raw`, `pose_flags`
+  - `frame_id`, `child_frame_id`
+  - `position_m`, `orientation_xyzw`
+  - `linear_velocity_body_mps`, `angular_velocity_body_rps`
+  - `linear_acceleration_body_mps2`, `angular_acceleration_body_rps2`
+  - `timestamp_ns`, `confidence`, `is_keyframe`
+
 ## 6. Testing
 
 Cross-language protocol conformance lives in:
 - `tests/node_roundtrip.test.js`
 - `tests/cpp_roundtrip.cpp`
 - `tests/python_consumer_test.py`
+- `tests/node_pose_contract.test.js`
+- `tests/cpp_pose_contract_test.cpp`
+- `tests/python_pose_contract_test.py`
+- `tests/cross_client_pose_parity_test.py`
+- `tests/docs_conformance_test.py`
 
 Run all protocol + SDK tests from repo root:
 

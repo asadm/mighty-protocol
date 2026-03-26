@@ -756,11 +756,11 @@ int main() {
 
   client->on_pose([&state](const PoseFrame& evt) {
     std::lock_guard<std::mutex> lock(state.mu);
-    const cv::Point3d p_viz = map_pose_position_odom_to_viz(evt.position);
+    const cv::Point3d p_viz = map_pose_position_odom_to_viz(evt.position_m);
     state.pose_latest = p_viz;
     state.has_pose = true;
-    if (evt.quat.has_value()) {
-      state.quat_latest = map_pose_quat_odom_to_viz(evt.quat.value());
+    if (evt.orientation_xyzw.has_value()) {
+      state.quat_latest = map_pose_quat_odom_to_viz(evt.orientation_xyzw.value());
       state.has_quat = true;
     } else {
       state.has_quat = false;

@@ -393,19 +393,21 @@ export class MightyClient {
           if (!this._hasListeners("pose") && !wantsAny) return;
           const p = protocol.decodePosePayload(frame.payload);
           const mapped = {
-            stream: frame.type === protocol.TYPE.POSE ? "optimized" : "unoptimized",
-            rawType: frame.type === protocol.TYPE.POSE ? "POSE" : "UPOS",
+            isPublic: frame.type === protocol.TYPE.POSE,
+            packetType: frame.type === protocol.TYPE.POSE ? "POSE" : "UPOS",
             poseType: this._mapPoseType(p.poseType),
-            rawPoseType: p.poseType,
+            poseTypeRaw: p.poseType,
             poseFlags: p.poseFlags,
-            position: p.position,
-            quat: p.quat || undefined,
+            frameId: "odom",
+            childFrameId: "base_link",
+            positionM: p.positionM,
+            orientationXyzw: p.orientationXyzw || undefined,
             confidence: clamp01(p.confidence),
             isKeyframe: (p.poseFlags & (1 << 1)) !== 0,
-            linvel: p.linvel || undefined,
-            angvel: p.angvel || undefined,
-            linacc: p.linacc || undefined,
-            angacc: p.angacc || undefined,
+            linearVelocityBodyMps: p.linearVelocityBodyMps || undefined,
+            angularVelocityBodyRps: p.angularVelocityBodyRps || undefined,
+            linearAccelerationBodyMps2: p.linearAccelerationBodyMps2 || undefined,
+            angularAccelerationBodyRps2: p.angularAccelerationBodyRps2 || undefined,
             timestampNs: p.timestampNs === null ? undefined : p.timestampNs,
           };
           this._emit("pose", mapped);

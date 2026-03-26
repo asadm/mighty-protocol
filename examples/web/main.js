@@ -106,10 +106,10 @@ client.onImage((img) => {
 
 client.onPose((pose) => {
   markDataActivity();
-  const mapped = mapCanonicalPoseToViz(pose.position, pose.quat || undefined);
+  const mapped = mapCanonicalPoseToViz(pose.positionM, pose.orientationXyzw || undefined);
   posePlot.updatePose(mapped.position, mapped.quat || undefined, pose.confidence);
-  if (Array.isArray(pose.position) && pose.position.length >= 3) {
-    state.poseInfo = `${pose.position.map((v) => Number(v).toFixed(2)).join(", ")}`;
+  if (Array.isArray(pose.positionM) && pose.positionM.length >= 3) {
+    state.poseInfo = `${pose.positionM.map((v) => Number(v).toFixed(2)).join(", ")}`;
   }
   if (typeof pose.confidence === "number") {
     state.poseConfidence = pose.confidence.toFixed(3);

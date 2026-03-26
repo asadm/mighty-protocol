@@ -207,11 +207,11 @@ def decode_pose_payload(payload: bytes):
     pose_type, flags = struct.unpack(">II", payload[0:8])
     x, y, z = struct.unpack(">ddd", payload[8:32])
     off = 32
-    quat = None
+    orientation_xyzw = None
     if flags & 0x1:
         if len(payload) < off + 32:
             raise ValueError("payload too short for quaternion")
-        quat = struct.unpack(">dddd", payload[off:off+32])
+        orientation_xyzw = struct.unpack(">dddd", payload[off:off+32])
         off += 32
     confidence = 1.0
     if len(payload) >= off + 4:
@@ -231,10 +231,10 @@ def decode_pose_payload(payload: bytes):
         off += 24
         return v
 
-    linvel = read_vec3(2)
-    angvel = read_vec3(3)
-    linacc = read_vec3(4)
-    angacc = read_vec3(5)
+    linear_velocity_body_mps = read_vec3(2)
+    angular_velocity_body_rps = read_vec3(3)
+    linear_acceleration_body_mps2 = read_vec3(4)
+    angular_acceleration_body_rps2 = read_vec3(5)
     timestamp_ns = None
     if (flags & (1 << 6)) != 0:
         if len(payload) >= off + 8:
@@ -243,13 +243,13 @@ def decode_pose_payload(payload: bytes):
     return {
         "pose_type": pose_type,
         "pose_flags": flags,
-        "position": (x, y, z),
-        "quat": quat,
+        "position_m": (x, y, z),
+        "orientation_xyzw": orientation_xyzw,
         "confidence": confidence,
-        "linvel": linvel,
-        "angvel": angvel,
-        "linacc": linacc,
-        "angacc": angacc,
+        "linear_velocity_body_mps": linear_velocity_body_mps,
+        "angular_velocity_body_rps": angular_velocity_body_rps,
+        "linear_acceleration_body_mps2": linear_acceleration_body_mps2,
+        "angular_acceleration_body_rps2": angular_acceleration_body_rps2,
         "timestamp_ns": timestamp_ns,
     }
 

@@ -252,9 +252,12 @@ def main():
     assert last["image"]["kind"] == "raw"
     assert last["image"]["channel"] == "cam0"
     assert last["image"]["channel_alias"] == "cam0"
-    assert last["pose"]["stream"] == "optimized"
+    assert bool(last["pose"]["is_public"]) is True
+    assert last["pose"]["packet_type"] == "POSE"
     assert last["pose"]["pose_type"] == "body"
-    assert last["pose"]["raw_pose_type"] == 0
+    assert int(last["pose"]["pose_type_raw"]) == 0
+    assert last["pose"]["frame_id"] == "odom"
+    assert last["pose"]["child_frame_id"] == "base_link"
     assert last["pose"]["is_keyframe"] is False
     flags = int(last["pose"]["pose_flags"])
     assert (flags & 0x1) != 0
@@ -264,16 +267,16 @@ def main():
     assert (flags & (1 << 5)) != 0
     assert (flags & (1 << 6)) != 0
     assert last["pose"]["timestamp_ns"] == 11
-    assert last["pose"]["quat"] is not None
-    assert last["pose"]["linvel"] is not None
-    assert last["pose"]["angvel"] is not None
-    assert last["pose"]["linacc"] is not None
-    assert last["pose"]["angacc"] is not None
-    assert abs(float(last["pose"]["quat"][3]) - 0.9) < 1e-6
-    assert abs(float(last["pose"]["linvel"][2]) - 6.0) < 1e-6
-    assert abs(float(last["pose"]["angvel"][1]) - 0.5) < 1e-6
-    assert abs(float(last["pose"]["linacc"][0]) - 7.0) < 1e-6
-    assert abs(float(last["pose"]["angacc"][2]) - 0.9) < 1e-6
+    assert last["pose"]["orientation_xyzw"] is not None
+    assert last["pose"]["linear_velocity_body_mps"] is not None
+    assert last["pose"]["angular_velocity_body_rps"] is not None
+    assert last["pose"]["linear_acceleration_body_mps2"] is not None
+    assert last["pose"]["angular_acceleration_body_rps2"] is not None
+    assert abs(float(last["pose"]["orientation_xyzw"][3]) - 0.9) < 1e-6
+    assert abs(float(last["pose"]["linear_velocity_body_mps"][2]) - 6.0) < 1e-6
+    assert abs(float(last["pose"]["angular_velocity_body_rps"][1]) - 0.5) < 1e-6
+    assert abs(float(last["pose"]["linear_acceleration_body_mps2"][0]) - 7.0) < 1e-6
+    assert abs(float(last["pose"]["angular_acceleration_body_rps2"][2]) - 0.9) < 1e-6
 
     start_res = client.start_vio()
     assert start_res["ok"]

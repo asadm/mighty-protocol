@@ -277,8 +277,12 @@ def main():
         assert last_pose["value"] is not None
         p = last_pose["value"]
         flags = int(p.get("pose_flags", 0))
+        assert bool(p.get("is_public")) is True
+        assert p.get("packet_type") == "POSE"
         assert p.get("pose_type") == "body"
-        assert p.get("raw_pose_type") == 0
+        assert p.get("pose_type_raw") == 0
+        assert p.get("frame_id") == "odom"
+        assert p.get("child_frame_id") == "base_link"
         assert (flags & 0x1) != 0
         assert (flags & (1 << 2)) != 0
         assert (flags & (1 << 3)) != 0
@@ -286,8 +290,8 @@ def main():
         assert (flags & (1 << 5)) != 0
         assert (flags & (1 << 6)) != 0
         assert int(p.get("timestamp_ns") or 0) == 11
-        assert abs(float((p.get("quat") or [0, 0, 0, 0])[3]) - 0.9) < 1e-6
-        assert abs(float((p.get("linvel") or [0, 0, 0])[2]) - 6.0) < 1e-6
+        assert abs(float((p.get("orientation_xyzw") or [0, 0, 0, 0])[3]) - 0.9) < 1e-6
+        assert abs(float((p.get("linear_velocity_body_mps") or [0, 0, 0])[2]) - 6.0) < 1e-6
 
         cmd = client.start_vio()
         assert cmd["ok"]

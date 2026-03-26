@@ -89,12 +89,12 @@ class DecodedDispatcher {
     uint32_t pose_type;
     uint32_t pose_flags;
     double x, y, z;
-    std::optional<std::array<double,4>> quat;
+    std::optional<std::array<double,4>> orientation_xyzw;
     float confidence01 = 1.0f;
-    std::optional<std::array<double,3>> linvel;
-    std::optional<std::array<double,3>> angvel;
-    std::optional<std::array<double,3>> linacc;
-    std::optional<std::array<double,3>> angacc;
+    std::optional<std::array<double,3>> linear_velocity_body_mps;
+    std::optional<std::array<double,3>> angular_velocity_body_rps;
+    std::optional<std::array<double,3>> linear_acceleration_body_mps2;
+    std::optional<std::array<double,3>> angular_acceleration_body_rps2;
     std::optional<uint64_t> timestamp_ns;
   };
   struct RawFrame {
@@ -196,14 +196,18 @@ class DecodedDispatcher {
       if (!pose_handler_) return;
       uint32_t pt, pf; double x,y,z; std::optional<std::array<double,4>> q;
       float conf = 1.0f;
-      std::optional<std::array<double,3>> linvel;
-      std::optional<std::array<double,3>> angvel;
-      std::optional<std::array<double,3>> linacc;
-      std::optional<std::array<double,3>> angacc;
+      std::optional<std::array<double,3>> linear_velocity_body_mps;
+      std::optional<std::array<double,3>> angular_velocity_body_rps;
+      std::optional<std::array<double,3>> linear_acceleration_body_mps2;
+      std::optional<std::array<double,3>> angular_acceleration_body_rps2;
       std::optional<uint64_t> ts;
       if (decode_pose_payload(f.payload, pt, pf, x, y, z, q, &conf,
-                              &linvel, &angvel, &linacc, &angacc, &ts)) {
-        Pose p{pt, pf, x, y, z, q, conf, linvel, angvel, linacc, angacc, ts};
+                              &linear_velocity_body_mps, &angular_velocity_body_rps,
+                              &linear_acceleration_body_mps2, &angular_acceleration_body_rps2, &ts)) {
+        Pose p{
+            pt, pf, x, y, z, q, conf,
+            linear_velocity_body_mps, angular_velocity_body_rps,
+            linear_acceleration_body_mps2, angular_acceleration_body_rps2, ts};
         pose_handler_(p, type == "UPOS");
       }
     } else if (type == "LCON") {

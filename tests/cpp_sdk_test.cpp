@@ -294,9 +294,12 @@ int main() {
 
   assert(seen.pose.load() == 1);
   assert(last_pose.has_value());
-  assert(last_pose->stream == "optimized");
+  assert(last_pose->is_public);
+  assert(last_pose->packet_type == "POSE");
   assert(last_pose->pose_type == "body");
-  assert(last_pose->raw_pose_type == 0);
+  assert(last_pose->pose_type_raw == 0);
+  assert(last_pose->frame_id == "odom");
+  assert(last_pose->child_frame_id == "base_link");
   assert(last_pose->is_keyframe);
   assert((last_pose->pose_flags & 0x1u) != 0u);
   assert((last_pose->pose_flags & (1u << 2)) != 0u);
@@ -304,19 +307,19 @@ int main() {
   assert((last_pose->pose_flags & (1u << 4)) != 0u);
   assert((last_pose->pose_flags & (1u << 5)) != 0u);
   assert((last_pose->pose_flags & (1u << 6)) != 0u);
-  assert(last_pose->quat.has_value());
-  assert(last_pose->linvel.has_value());
-  assert(last_pose->angvel.has_value());
-  assert(last_pose->linacc.has_value());
-  assert(last_pose->angacc.has_value());
+  assert(last_pose->orientation_xyzw.has_value());
+  assert(last_pose->linear_velocity_body_mps.has_value());
+  assert(last_pose->angular_velocity_body_rps.has_value());
+  assert(last_pose->linear_acceleration_body_mps2.has_value());
+  assert(last_pose->angular_acceleration_body_rps2.has_value());
   assert(last_pose->timestamp_ns.has_value());
   assert(last_pose->timestamp_ns.value() == 11);
-  assert(approx(last_pose->quat.value()[0], pose_quat[0]));
-  assert(approx(last_pose->quat.value()[3], pose_quat[3]));
-  assert(approx(last_pose->linvel.value()[2], pose_linvel[2]));
-  assert(approx(last_pose->angvel.value()[1], pose_angvel[1]));
-  assert(approx(last_pose->linacc.value()[0], pose_linacc[0]));
-  assert(approx(last_pose->angacc.value()[2], pose_angacc[2]));
+  assert(approx(last_pose->orientation_xyzw.value()[0], pose_quat[0]));
+  assert(approx(last_pose->orientation_xyzw.value()[3], pose_quat[3]));
+  assert(approx(last_pose->linear_velocity_body_mps.value()[2], pose_linvel[2]));
+  assert(approx(last_pose->angular_velocity_body_rps.value()[1], pose_angvel[1]));
+  assert(approx(last_pose->linear_acceleration_body_mps2.value()[0], pose_linacc[0]));
+  assert(approx(last_pose->angular_acceleration_body_rps2.value()[2], pose_angacc[2]));
 
   assert(seen.imu.load() == 1);
   assert(seen.vsta.load() == 1);

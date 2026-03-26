@@ -311,20 +311,20 @@ function buildStereoRawPayload({ left = {}, right = {} } = {}) {
 		function buildPosePayload({
 		  poseType = 0,
 		  poseFlags = 0,
-		  position = [0, 0, 0],
-		  quat = null,
+		  positionM = [0, 0, 0],
+		  orientationXyzw = null,
 		  confidence = 1.0,
-		  linvel = null,
-		  angvel = null,
-		  linacc = null,
-		  angacc = null,
+		  linearVelocityBodyMps = null,
+		  angularVelocityBodyRps = null,
+		  linearAccelerationBodyMps2 = null,
+		  angularAccelerationBodyRps2 = null,
 		  timestampNs = null,
 		} = {}) {
-		  const hasQuat = Array.isArray(quat) && quat.length === 4;
-		  const hasLinVel = Array.isArray(linvel) && linvel.length === 3;
-		  const hasAngVel = Array.isArray(angvel) && angvel.length === 3;
-		  const hasLinAcc = Array.isArray(linacc) && linacc.length === 3;
-		  const hasAngAcc = Array.isArray(angacc) && angacc.length === 3;
+		  const hasQuat = Array.isArray(orientationXyzw) && orientationXyzw.length === 4;
+		  const hasLinVel = Array.isArray(linearVelocityBodyMps) && linearVelocityBodyMps.length === 3;
+		  const hasAngVel = Array.isArray(angularVelocityBodyRps) && angularVelocityBodyRps.length === 3;
+		  const hasLinAcc = Array.isArray(linearAccelerationBodyMps2) && linearAccelerationBodyMps2.length === 3;
+		  const hasAngAcc = Array.isArray(angularAccelerationBodyRps2) && angularAccelerationBodyRps2.length === 3;
 		  let tsVal = 0n;
 		  let hasTs = false;
 		  if (timestampNs !== null && timestampNs !== undefined) {
@@ -355,14 +355,14 @@ function buildStereoRawPayload({ left = {}, right = {} } = {}) {
 		  let off = 0;
 	  dv.setUint32(off, poseType >>> 0, false); off += 4;
 	  dv.setUint32(off, flags >>> 0, false); off += 4;
-	  dv.setFloat64(off, position[0], false); off += 8;
-	  dv.setFloat64(off, position[1], false); off += 8;
-	  dv.setFloat64(off, position[2], false); off += 8;
+	  dv.setFloat64(off, positionM[0], false); off += 8;
+	  dv.setFloat64(off, positionM[1], false); off += 8;
+	  dv.setFloat64(off, positionM[2], false); off += 8;
 	  if (hasQuat) {
-	    dv.setFloat64(off, quat[0], false); off += 8;
-	    dv.setFloat64(off, quat[1], false); off += 8;
-	    dv.setFloat64(off, quat[2], false); off += 8;
-	    dv.setFloat64(off, quat[3], false); off += 8;
+	    dv.setFloat64(off, orientationXyzw[0], false); off += 8;
+	    dv.setFloat64(off, orientationXyzw[1], false); off += 8;
+	    dv.setFloat64(off, orientationXyzw[2], false); off += 8;
+	    dv.setFloat64(off, orientationXyzw[3], false); off += 8;
 	  }
 	  let c = Number(confidence);
 	  if (!Number.isFinite(c)) c = 0.0;
@@ -376,10 +376,10 @@ function buildStereoRawPayload({ left = {}, right = {} } = {}) {
 	    dv.setFloat64(off, v[1], false); off += 8;
 	    dv.setFloat64(off, v[2], false); off += 8;
 	  };
-		  if (hasLinVel) writeVec3(linvel);
-		  if (hasAngVel) writeVec3(angvel);
-		  if (hasLinAcc) writeVec3(linacc);
-		  if (hasAngAcc) writeVec3(angacc);
+		  if (hasLinVel) writeVec3(linearVelocityBodyMps);
+		  if (hasAngVel) writeVec3(angularVelocityBodyRps);
+		  if (hasLinAcc) writeVec3(linearAccelerationBodyMps2);
+		  if (hasAngAcc) writeVec3(angularAccelerationBodyRps2);
 		  if (hasTs) {
 		    dv.setBigUint64(off, tsVal, false); off += 8;
 		  }
@@ -733,9 +733,9 @@ function decodeStereoRawPayload(payload) {
 	  const x = readF64BE(u8, off); off += 8;
 	  const y = readF64BE(u8, off); off += 8;
 	  const z = readF64BE(u8, off); off += 8;
-	  let quat = null;
+	  let orientationXyzw = null;
 	  if (poseFlags & 0x1) {
-	    quat = [
+	    orientationXyzw = [
 	      readF64BE(u8, off), readF64BE(u8, off + 8),
 	      readF64BE(u8, off + 16), readF64BE(u8, off + 24),
 	    ];
@@ -756,15 +756,26 @@ function decodeStereoRawPayload(payload) {
 	    off += 24;
 	    return v;
 	  };
-		  const linvel = (poseFlags & (1 << 2)) ? readVec3() : null;
-		  const angvel = (poseFlags & (1 << 3)) ? readVec3() : null;
-		  const linacc = (poseFlags & (1 << 4)) ? readVec3() : null;
-		  const angacc = (poseFlags & (1 << 5)) ? readVec3() : null;
+		  const linearVelocityBodyMps = (poseFlags & (1 << 2)) ? readVec3() : null;
+		  const angularVelocityBodyRps = (poseFlags & (1 << 3)) ? readVec3() : null;
+		  const linearAccelerationBodyMps2 = (poseFlags & (1 << 4)) ? readVec3() : null;
+		  const angularAccelerationBodyRps2 = (poseFlags & (1 << 5)) ? readVec3() : null;
 		  const timestampNs =
 		    (poseFlags & (1 << 6)) && u8.length >= off + 8 ? readBigU64BE(u8, off) : null;
 		  if (timestampNs !== null) off += 8;
 
-		  return { poseType, poseFlags, position: [x, y, z], quat, confidence, linvel, angvel, linacc, angacc, timestampNs };
+		  return {
+		    poseType,
+		    poseFlags,
+		    positionM: [x, y, z],
+		    orientationXyzw,
+		    confidence,
+		    linearVelocityBodyMps,
+		    angularVelocityBodyRps,
+		    linearAccelerationBodyMps2,
+		    angularAccelerationBodyRps2,
+		    timestampNs,
+		  };
 		}
 
 function decodeConstraintsPayload(payload) {
