@@ -1,5 +1,6 @@
 #include <cassert>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <cstdint>
 #include <iostream>
@@ -174,6 +175,10 @@ bool wait_until(const std::function<bool()>& pred, int timeout_ms = 2000) {
   return false;
 }
 
+bool approx(double a, double b, double eps = 1e-6) {
+  return std::abs(a - b) < eps;
+}
+
 }  // namespace
 
 int main() {
@@ -227,18 +232,23 @@ int main() {
                                        raw_data.size());
   device->emit_packet(make_packet(raw_payload, TYPE_RAW));
 
+  const std::array<double, 4> pose_quat{{0.1, 0.2, 0.3, 0.9}};
+  const std::array<double, 3> pose_linvel{{4.0, 5.0, 6.0}};
+  const std::array<double, 3> pose_angvel{{0.4, 0.5, 0.6}};
+  const std::array<double, 3> pose_linacc{{7.0, 8.0, 9.0}};
+  const std::array<double, 3> pose_angacc{{0.7, 0.8, 0.9}};
   auto pose_payload = build_pose_payload(/*pose_type=*/0,
-                                         /*has_quat=*/false,
-                                         /*is_keyframe=*/false,
+                                         /*has_quat=*/true,
+                                         /*is_keyframe=*/true,
                                          /*x=*/1.0,
                                          /*y=*/2.0,
                                          /*z=*/3.0,
-                                         /*quat_or_null=*/nullptr,
+                                         /*quat_or_null=*/pose_quat.data(),
                                          /*confidence=*/0.5f,
-                                         /*linvel=*/nullptr,
-                                         /*angvel=*/nullptr,
-                                         /*linacc=*/nullptr,
-                                         /*angacc=*/nullptr,
+                                         /*linvel=*/pose_linvel.data(),
+                                         /*angvel=*/pose_angvel.data(),
+                                         /*linacc=*/pose_linacc.data(),
+                                         /*angacc=*/pose_angacc.data(),
                                          /*timestamp_ns=*/std::optional<uint64_t>(11));
   device->emit_packet(make_packet(pose_payload, TYPE_POSE));
 
@@ -286,6 +296,27 @@ int main() {
   assert(last_pose.has_value());
   assert(last_pose->stream == "optimized");
   assert(last_pose->pose_type == "body");
+  assert(last_pose->raw_pose_type == 0);
+  assert(last_pose->is_keyframe);
+  assert((last_pose->pose_flags & 0x1u) != 0u);
+  assert((last_pose->pose_flags & (1u << 2)) != 0u);
+  assert((last_pose->pose_flags & (1u << 3)) != 0u);
+  assert((last_pose->pose_flags & (1u << 4)) != 0u);
+  assert((last_pose->pose_flags & (1u << 5)) != 0u);
+  assert((last_pose->pose_flags & (1u << 6)) != 0u);
+  assert(last_pose->quat.has_value());
+  assert(last_pose->linvel.has_value());
+  assert(last_pose->angvel.has_value());
+  assert(last_pose->linacc.has_value());
+  assert(last_pose->angacc.has_value());
+  assert(last_pose->timestamp_ns.has_value());
+  assert(last_pose->timestamp_ns.value() == 11);
+  assert(approx(last_pose->quat.value()[0], pose_quat[0]));
+  assert(approx(last_pose->quat.value()[3], pose_quat[3]));
+  assert(approx(last_pose->linvel.value()[2], pose_linvel[2]));
+  assert(approx(last_pose->angvel.value()[1], pose_angvel[1]));
+  assert(approx(last_pose->linacc.value()[0], pose_linacc[0]));
+  assert(approx(last_pose->angacc.value()[2], pose_angacc[2]));
 
   assert(seen.imu.load() == 1);
   assert(seen.vsta.load() == 1);

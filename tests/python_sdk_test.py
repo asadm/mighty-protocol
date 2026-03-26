@@ -11,14 +11,47 @@ import mighty_protocol as mp  # noqa: E402
 from mighty_sdk import MightyClient  # noqa: E402
 
 
-def build_pose_payload(pose_type=0, pose_flags=0, position=(0.0, 0.0, 0.0), quat=None, confidence=1.0, timestamp_ns=None):
-    buf = struct.pack(">II", int(pose_type), int(pose_flags))
+def build_pose_payload(
+    pose_type=0,
+    pose_flags=0,
+    position=(0.0, 0.0, 0.0),
+    quat=None,
+    confidence=1.0,
+    linvel=None,
+    angvel=None,
+    linacc=None,
+    angacc=None,
+    timestamp_ns=None,
+):
+    flags = int(pose_flags)
+    if quat is not None and len(quat) == 4:
+        flags |= 0x1
+    if linvel is not None and len(linvel) == 3:
+        flags |= (1 << 2)
+    if angvel is not None and len(angvel) == 3:
+        flags |= (1 << 3)
+    if linacc is not None and len(linacc) == 3:
+        flags |= (1 << 4)
+    if angacc is not None and len(angacc) == 3:
+        flags |= (1 << 5)
+    if timestamp_ns is not None:
+        flags |= (1 << 6)
+
+    buf = struct.pack(">II", int(pose_type), flags)
     buf += struct.pack(">ddd", float(position[0]), float(position[1]), float(position[2]))
-    if pose_flags & 0x1:
+    if flags & 0x1:
         q = quat if quat is not None else (0.0, 0.0, 0.0, 1.0)
         buf += struct.pack(">dddd", float(q[0]), float(q[1]), float(q[2]), float(q[3]))
     buf += struct.pack(">f", float(confidence))
-    if (pose_flags & (1 << 6)) and timestamp_ns is not None:
+    if flags & (1 << 2):
+        buf += struct.pack(">ddd", float(linvel[0]), float(linvel[1]), float(linvel[2]))
+    if flags & (1 << 3):
+        buf += struct.pack(">ddd", float(angvel[0]), float(angvel[1]), float(angvel[2]))
+    if flags & (1 << 4):
+        buf += struct.pack(">ddd", float(linacc[0]), float(linacc[1]), float(linacc[2]))
+    if flags & (1 << 5):
+        buf += struct.pack(">ddd", float(angacc[0]), float(angacc[1]), float(angacc[2]))
+    if (flags & (1 << 6)) and timestamp_ns is not None:
         buf += struct.pack(">Q", int(timestamp_ns))
     return buf
 
@@ -186,7 +219,15 @@ def main():
     )))
 
     device.emit_packet(mp.make_packet(mp.TYPE["POSE"], build_pose_payload(
-        pose_type=0, pose_flags=0, position=(1.0, 2.0, 3.0), confidence=0.5, timestamp_ns=11)))
+        pose_type=0,
+        position=(1.0, 2.0, 3.0),
+        quat=(0.1, 0.2, 0.3, 0.9),
+        confidence=0.5,
+        linvel=(4.0, 5.0, 6.0),
+        angvel=(0.4, 0.5, 0.6),
+        linacc=(7.0, 8.0, 9.0),
+        angacc=(0.7, 0.8, 0.9),
+        timestamp_ns=11)))
 
     device.emit_packet(mp.make_packet(mp.TYPE["IMU"], build_imu_payload([
         {"timestamp_ns": 12, "ax": 0.1, "ay": 0.2, "az": 0.3, "gx": 0.4, "gy": 0.5, "gz": 0.6}])))
@@ -213,6 +254,26 @@ def main():
     assert last["image"]["channel_alias"] == "cam0"
     assert last["pose"]["stream"] == "optimized"
     assert last["pose"]["pose_type"] == "body"
+    assert last["pose"]["raw_pose_type"] == 0
+    assert last["pose"]["is_keyframe"] is False
+    flags = int(last["pose"]["pose_flags"])
+    assert (flags & 0x1) != 0
+    assert (flags & (1 << 2)) != 0
+    assert (flags & (1 << 3)) != 0
+    assert (flags & (1 << 4)) != 0
+    assert (flags & (1 << 5)) != 0
+    assert (flags & (1 << 6)) != 0
+    assert last["pose"]["timestamp_ns"] == 11
+    assert last["pose"]["quat"] is not None
+    assert last["pose"]["linvel"] is not None
+    assert last["pose"]["angvel"] is not None
+    assert last["pose"]["linacc"] is not None
+    assert last["pose"]["angacc"] is not None
+    assert abs(float(last["pose"]["quat"][3]) - 0.9) < 1e-6
+    assert abs(float(last["pose"]["linvel"][2]) - 6.0) < 1e-6
+    assert abs(float(last["pose"]["angvel"][1]) - 0.5) < 1e-6
+    assert abs(float(last["pose"]["linacc"][0]) - 7.0) < 1e-6
+    assert abs(float(last["pose"]["angacc"][2]) - 0.9) < 1e-6
 
     start_res = client.start_vio()
     assert start_res["ok"]

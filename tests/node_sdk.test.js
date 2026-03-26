@@ -5,6 +5,10 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function almost(a, b, eps = 1e-6) {
+  return Math.abs(Number(a) - Number(b)) < eps;
+}
+
 class MockDevice {
   constructor() {
     this._onBytes = null;
@@ -172,6 +176,19 @@ async function main() {
   await client.connect();
   await sleep(5);
 
+  const poseSample = {
+    poseType: 0,
+    poseFlags: 0,
+    position: [1, 2, 3],
+    quat: [0.1, 0.2, 0.3, 0.9],
+    confidence: 0.5,
+    linvel: [4.0, 5.0, 6.0],
+    angvel: [0.4, 0.5, 0.6],
+    linacc: [7.0, 8.0, 9.0],
+    angacc: [0.7, 0.8, 0.9],
+    timestampNs: 11n,
+  };
+
   device.emitPacket(proto.makePacket(proto.TYPE.RAW, proto.buildRawPayload({
     timestampNs: 10n,
     width: 2,
@@ -181,13 +198,7 @@ async function main() {
     data: Buffer.from([0x01, 0x02]),
   })));
 
-  device.emitPacket(proto.makePacket(proto.TYPE.POSE, proto.buildPosePayload({
-    poseType: 0,
-    poseFlags: 0,
-    position: [1, 2, 3],
-    confidence: 0.5,
-    timestampNs: 11n,
-  })));
+  device.emitPacket(proto.makePacket(proto.TYPE.POSE, proto.buildPosePayload(poseSample)));
 
   device.emitPacket(proto.makePacket(proto.TYPE.IMU, proto.buildImuPayload([
     { timestampNs: 12n, ax: 0.1, ay: 0.2, az: 0.3, gx: 0.4, gy: 0.5, gz: 0.6 },
@@ -228,6 +239,25 @@ async function main() {
   assert.strictEqual(seen.pose, 1);
   assert.strictEqual(lastPose.stream, "optimized");
   assert.strictEqual(lastPose.poseType, "body");
+  assert.strictEqual(lastPose.rawPoseType, 0);
+  assert.ok((lastPose.poseFlags & 0x1) !== 0);
+  assert.ok((lastPose.poseFlags & (1 << 2)) !== 0);
+  assert.ok((lastPose.poseFlags & (1 << 3)) !== 0);
+  assert.ok((lastPose.poseFlags & (1 << 4)) !== 0);
+  assert.ok((lastPose.poseFlags & (1 << 5)) !== 0);
+  assert.ok((lastPose.poseFlags & (1 << 6)) !== 0);
+  assert.strictEqual(lastPose.timestampNs, 11n);
+  assert.ok(Array.isArray(lastPose.quat));
+  assert.ok(Array.isArray(lastPose.linvel));
+  assert.ok(Array.isArray(lastPose.angvel));
+  assert.ok(Array.isArray(lastPose.linacc));
+  assert.ok(Array.isArray(lastPose.angacc));
+  assert.ok(almost(lastPose.quat[0], poseSample.quat[0]));
+  assert.ok(almost(lastPose.quat[3], poseSample.quat[3]));
+  assert.ok(almost(lastPose.linvel[2], poseSample.linvel[2]));
+  assert.ok(almost(lastPose.angvel[1], poseSample.angvel[1]));
+  assert.ok(almost(lastPose.linacc[0], poseSample.linacc[0]));
+  assert.ok(almost(lastPose.angacc[2], poseSample.angacc[2]));
   assert.strictEqual(seen.imu, 1);
   assert.strictEqual(seen.vsta, 1);
   assert.strictEqual(seen.pcld, 1);

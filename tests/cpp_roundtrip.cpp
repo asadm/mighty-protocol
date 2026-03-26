@@ -57,12 +57,20 @@ struct SampleData {
   double pose_quat[4] = {0.1, 0.2, 0.3, 0.9};
   float pose_confidence01 = 0.82f;
   uint64_t pose_timestamp_ns = 777;
+  double pose_linvel[3] = {4.0, 5.0, 6.0};
+  double pose_angvel[3] = {0.4, 0.5, 0.6};
+  double pose_linacc[3] = {7.0, 8.0, 9.0};
+  double pose_angacc[3] = {0.7, 0.8, 0.9};
 
   uint32_t upose_type = 0;
   double upose_xyz[3] = {4.4, 5.5, 6.6};
   double upose_quat[4] = {0.4, 0.5, 0.6, 0.7};
   float upose_confidence01 = 0.41f;
   uint64_t upose_timestamp_ns = 778;
+  double upose_linvel[3] = {1.0, 1.1, 1.2};
+  double upose_angvel[3] = {0.1, 0.2, 0.3};
+  double upose_linacc[3] = {2.0, 2.1, 2.2};
+  double upose_angacc[3] = {0.01, 0.02, 0.03};
 
   std::vector<PoseConstraintSegment> constraints = {
     PoseConstraintSegment{{0.1f, 0.2f, 0.3f}, {0.4f, 0.5f, 0.6f}, 0},
@@ -191,25 +199,45 @@ bool verify_frame(const Frame& f, int index, const SampleData& s) {
   }
   if (type_str == "POSE") {
     uint32_t pt, pf; double x, y, z; std::optional<std::array<double,4>> q;
+    std::optional<std::array<double,3>> linvel;
+    std::optional<std::array<double,3>> angvel;
+    std::optional<std::array<double,3>> linacc;
+    std::optional<std::array<double,3>> angacc;
     float conf = 1.0f;
     std::optional<uint64_t> ts;
     if (!decode_pose_payload(f.payload, pt, pf, x, y, z, q, &conf,
-                             nullptr, nullptr, nullptr, nullptr, &ts)) return false;
+                             &linvel, &angvel, &linacc, &angacc, &ts)) return false;
     return pt == s.pose_type && (pf & 0x3) == 0x3 &&
+           (pf & (1u << 2)) && (pf & (1u << 3)) && (pf & (1u << 4)) &&
+           (pf & (1u << 5)) && (pf & (1u << 6)) &&
            approx(x, s.pose_xyz[0]) && approx(y, s.pose_xyz[1]) && approx(z, s.pose_xyz[2]) &&
            q.has_value() && approx((*q)[0], s.pose_quat[0]) && approx((*q)[3], s.pose_quat[3]) &&
+           linvel.has_value() && approx((*linvel)[2], s.pose_linvel[2]) &&
+           angvel.has_value() && approx((*angvel)[1], s.pose_angvel[1]) &&
+           linacc.has_value() && approx((*linacc)[0], s.pose_linacc[0]) &&
+           angacc.has_value() && approx((*angacc)[2], s.pose_angacc[2]) &&
            ts.has_value() && ts.value() == s.pose_timestamp_ns &&
            approx(conf, s.pose_confidence01, 1e-3);
   }
   if (type_str == "UPOS") {
     uint32_t pt, pf; double x, y, z; std::optional<std::array<double,4>> q;
+    std::optional<std::array<double,3>> linvel;
+    std::optional<std::array<double,3>> angvel;
+    std::optional<std::array<double,3>> linacc;
+    std::optional<std::array<double,3>> angacc;
     float conf = 1.0f;
     std::optional<uint64_t> ts;
     if (!decode_pose_payload(f.payload, pt, pf, x, y, z, q, &conf,
-                             nullptr, nullptr, nullptr, nullptr, &ts)) return false;
+                             &linvel, &angvel, &linacc, &angacc, &ts)) return false;
     return pt == s.upose_type && (pf & 0x1) == 0x1 &&
+           (pf & (1u << 2)) && (pf & (1u << 3)) && (pf & (1u << 4)) &&
+           (pf & (1u << 5)) && (pf & (1u << 6)) &&
            approx(x, s.upose_xyz[0]) && approx(z, s.upose_xyz[2]) &&
            q.has_value() && approx((*q)[1], s.upose_quat[1]) &&
+           linvel.has_value() && approx((*linvel)[1], s.upose_linvel[1]) &&
+           angvel.has_value() && approx((*angvel)[2], s.upose_angvel[2]) &&
+           linacc.has_value() && approx((*linacc)[0], s.upose_linacc[0]) &&
+           angacc.has_value() && approx((*angacc)[1], s.upose_angacc[1]) &&
            ts.has_value() && ts.value() == s.upose_timestamp_ns &&
            approx(conf, s.upose_confidence01, 1e-3);
   }
@@ -310,12 +338,12 @@ std::vector<std::vector<uint8_t>> build_sample_packets(const SampleData& s) {
   packets.push_back(make_packet(build_pose_payload(s.pose_type, true, true,
                                                    s.pose_xyz[0], s.pose_xyz[1], s.pose_xyz[2],
                                                    s.pose_quat, s.pose_confidence01,
-                                                   nullptr, nullptr, nullptr, nullptr,
+                                                   s.pose_linvel, s.pose_angvel, s.pose_linacc, s.pose_angacc,
                                                    s.pose_timestamp_ns), TYPE_POSE));
   packets.push_back(make_packet(build_pose_payload(s.upose_type, true, false,
                                                    s.upose_xyz[0], s.upose_xyz[1], s.upose_xyz[2],
                                                    s.upose_quat, s.upose_confidence01,
-                                                   nullptr, nullptr, nullptr, nullptr,
+                                                   s.upose_linvel, s.upose_angvel, s.upose_linacc, s.upose_angacc,
                                                    s.upose_timestamp_ns), TYPE_UPOSE));
   packets.push_back(make_packet(build_constraints_payload(s.constraints), TYPE_LCON));
   packets.push_back(make_packet(build_viz_payload(s.viz0), TYPE_VIZ));
