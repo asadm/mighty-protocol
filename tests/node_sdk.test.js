@@ -152,6 +152,7 @@ async function main() {
 
   let lastImage = null;
   let lastPose = null;
+  let lastVsta = null;
   let lastPointCloud = null;
 
   client.onImage((f) => {
@@ -163,7 +164,10 @@ async function main() {
     lastPose = p;
   });
   client.onImu(() => { seen.imu += 1; });
-  client.onVioState(() => { seen.vsta += 1; });
+  client.onVioState((v) => {
+    seen.vsta += 1;
+    lastVsta = v;
+  });
   client.onPointCloud((p) => {
     seen.pcld += 1;
     lastPointCloud = p;
@@ -205,7 +209,7 @@ async function main() {
   ])));
 
   device.emitPacket(proto.makePacket(proto.TYPE.VSTA, proto.buildVioStatePayload({
-    version: 3,
+    version: 4,
     state: 2,
     flags: 3,
     timestampNs: 13n,
@@ -218,6 +222,7 @@ async function main() {
     buildVersion: "test",
     imuHzCurrent: 200,
     imuHzAverage5s: 199,
+    initReasonCode: proto.VIO_INIT_REASON.NONE,
   })));
 
   device.emitPacket(proto.makePacket(proto.TYPE.LCON, proto.buildConstraintsPayload([
@@ -264,6 +269,7 @@ async function main() {
   assert.ok(almost(lastPose.angularAccelerationBodyRps2[2], poseSample.angularAccelerationBodyRps2[2]));
   assert.strictEqual(seen.imu, 1);
   assert.strictEqual(seen.vsta, 1);
+  assert.strictEqual(lastVsta.initReasonCode, proto.VIO_INIT_REASON.NONE);
   assert.strictEqual(seen.pcld, 1);
   assert.ok(Array.isArray(lastPointCloud.points));
   assert.strictEqual(lastPointCloud.points.length, 1);

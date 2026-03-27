@@ -68,7 +68,7 @@ def build_imu_payload(samples):
 
 def build_vsta_payload():
     return b"".join([
-        struct.pack(">B", 3),              # version
+        struct.pack(">B", 4),              # version
         struct.pack(">B", 2),              # state
         struct.pack(">H", 3),              # flags
         struct.pack(">Q", 13),             # timestamp_ns
@@ -81,6 +81,7 @@ def build_vsta_payload():
         bytes([4]) + b"test",              # build_version
         struct.pack(">f", 200.0),          # imu_hz_current
         struct.pack(">f", 199.0),          # imu_hz_average_5s
+        struct.pack(">B", mp.VIO_INIT_REASON["NONE"]),  # init_reason_code
     ])
 
 
@@ -194,12 +195,12 @@ def main():
         "error": 0,
     }
 
-    last = {"image": None, "pose": None}
+    last = {"image": None, "pose": None, "vsta": None}
 
     client.on_image(lambda v: (seen.__setitem__("image", seen["image"] + 1), last.__setitem__("image", v)))
     client.on_pose(lambda v: (seen.__setitem__("pose", seen["pose"] + 1), last.__setitem__("pose", v)))
     client.on_imu(lambda _: seen.__setitem__("imu", seen["imu"] + 1))
-    client.on_vio_state(lambda _: seen.__setitem__("vsta", seen["vsta"] + 1))
+    client.on_vio_state(lambda v: (seen.__setitem__("vsta", seen["vsta"] + 1), last.__setitem__("vsta", v)))
     client.on_lcon(lambda _: seen.__setitem__("lcon", seen["lcon"] + 1))
     client.on_status(lambda _: seen.__setitem__("status", seen["status"] + 1))
     client.on_reset(lambda _: seen.__setitem__("reset", seen["reset"] + 1))
@@ -246,6 +247,7 @@ def main():
     assert seen["pose"] == 1
     assert seen["imu"] == 1
     assert seen["vsta"] == 1
+    assert int(last["vsta"]["init_reason_code"]) == mp.VIO_INIT_REASON["NONE"]
     assert seen["lcon"] == 1
     assert seen["status"] == 1
     assert seen["reset"] == 1

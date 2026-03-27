@@ -96,6 +96,8 @@ struct VioStateFrame {
   std::string build_version;
   std::optional<float> imu_hz_current;
   std::optional<float> imu_hz_average_5s;
+  uint8_t init_reason_code = static_cast<uint8_t>(VioInitReasonCode::kNone);
+  VioInitReasonCode init_reason = VioInitReasonCode::kNone;
 };
 
 struct VizFrame {
@@ -639,6 +641,8 @@ class MightyClient {
           evt.imu_hz_current = raw.imu_hz_current;
           evt.imu_hz_average_5s = raw.imu_hz_average_5s;
         }
+        evt.init_reason_code = raw.init_reason_code;
+        evt.init_reason = static_cast<VioInitReasonCode>(raw.init_reason_code);
         emit(vio_state_handlers_, evt);
         if (wants_any) emit_any(AnyEvent{"vio_state", "", {}});
         return;

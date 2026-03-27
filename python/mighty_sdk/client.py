@@ -16,6 +16,9 @@ DEFAULT_OPTS = {
     "normalize_channel_aliases": True,
 }
 
+VIO_STATE = mp.VIO_STATE
+VIO_INIT_REASON = mp.VIO_INIT_REASON
+
 
 class MightyClient:
     def __init__(self, device: Any, **opts: Any):
@@ -432,6 +435,7 @@ class MightyClient:
                     "build_version": s.get("build_version") or "",
                     "imu_hz_current": s.get("imu_hz_current"),
                     "imu_hz_average_5s": s.get("imu_hz_average_5s"),
+                    "init_reason_code": s.get("init_reason_code", VIO_INIT_REASON["NONE"]),
                 }
                 self._emit("vio_state", mapped)
                 if wants_any:

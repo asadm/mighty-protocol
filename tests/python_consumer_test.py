@@ -80,7 +80,7 @@ SAMPLE = {
         "point_size": 1.5,
     },
     "vsta": {
-        "version": 3,
+        "version": 4,
         "state": 2,
         "flags": 0x1234,
         "timestamp_ns": 999,
@@ -93,6 +93,7 @@ SAMPLE = {
         "num_features": 321,
         "loop_closures": 7,
         "build_version": "Mighty v.20260208-deadbeef",
+        "init_reason_code": mp.VIO_INIT_REASON["NONE"],
     },
 }
 
@@ -140,6 +141,8 @@ def struct_vsta():
         base += struct.pack(">ff",
                             float(s.get("imu_hz_current", 0.0)),
                             float(s.get("imu_hz_average_5s", 0.0)))
+    if int(s["version"]) >= 4:
+        base += struct.pack(">B", int(s.get("init_reason_code", mp.VIO_INIT_REASON["NONE"])) & 0xff)
     return base
 
 def struct_jpg(is_ref):
@@ -319,6 +322,7 @@ def main():
     assert vsta["num_features"] == SAMPLE["vsta"]["num_features"]
     assert vsta["loop_closures"] == SAMPLE["vsta"]["loop_closures"]
     assert vsta.get("build_version", "") == SAMPLE["vsta"]["build_version"]
+    assert vsta["init_reason_code"] == SAMPLE["vsta"]["init_reason_code"]
     fea3 = mp.decode_fea3_payload(frames[idx]["payload"]); idx += 1
     assert fea3[1]["id"] == 2
     pcld = mp.decode_pcld_payload(frames[idx]["payload"]); idx += 1

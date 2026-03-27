@@ -162,8 +162,26 @@ Version 3 appends:
 - `imu_hz_current` (f32)
 - `imu_hz_average_5s` (f32)
 
+Version 4 appends:
+- `init_reason_code` (u8)
+
 Recommended state mapping:
 - `0=OFF, 1=INITIALIZING, 2=TRACKING, 3=DEGRADED, 4=LOST`
+
+Recommended init reason mapping:
+- `0=NONE`
+- `1=WAITING_FOR_FIRST_IMU`
+- `2=WAITING_FOR_INIT_FRAMES`
+- `3=WAITING_FOR_PARALLAX`
+- `4=WAITING_FOR_IMU_EXCITATION`
+- `5=STATIC_INSUFFICIENT_FEATURES`
+- `6=STATIC_SCENE_MOTION_TOO_HIGH`
+- `7=RELATIVE_POSE_UNAVAILABLE`
+- `8=GLOBAL_SFM_FAILED`
+- `9=PNP_INSUFFICIENT_POINTS`
+- `10=PNP_RANSAC_FAILED`
+- `11=VISUAL_IMU_ALIGNMENT_FAILED`
+- `12=UNKNOWN`
 
 ### 3.5 Status / Reset
 

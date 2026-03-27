@@ -82,7 +82,7 @@ const SAMPLE = {
     pointSize: 1.5,
   },
   vsta: {
-    version: 3,
+    version: 4,
     state: 2,
     flags: 0x1234,
     timestampNs: 999n,
@@ -95,6 +95,7 @@ const SAMPLE = {
     numFeatures: 321,
     loopClosures: 7,
     buildVersion: "Mighty v.20260208-deadbeef",
+    initReasonCode: proto.VIO_INIT_REASON.NONE,
   },
   cfgq: {
     version: 1,
@@ -287,6 +288,7 @@ function verifyFrame(frame, index) {
       assert.strictEqual(s.numFeatures, SAMPLE.vsta.numFeatures);
       assert.strictEqual(s.loopClosures, SAMPLE.vsta.loopClosures);
       assert.strictEqual(s.buildVersion, SAMPLE.vsta.buildVersion);
+      assert.strictEqual(s.initReasonCode, SAMPLE.vsta.initReasonCode);
       break;
     }
     case proto.TYPE.FEA3: {
@@ -460,7 +462,7 @@ async function runFuzzTests() {
 
 	  function randomVstaPayload() {
 	    return proto.buildVioStatePayload({
-	      version: 3,
+	      version: 4,
 	      state: 2,
 	      flags: 0,
 	      timestampNs: BigInt(Math.floor(Math.random() * 1e6)),
@@ -468,6 +470,7 @@ async function runFuzzTests() {
 	      fpsAverage: Math.random() * 60,
         imuHzCurrent: Math.random() * 200,
         imuHzAverage5s: Math.random() * 200,
+        initReasonCode: Math.floor(Math.random() * 13),
 	      poseConfidence: Math.random(),
 	      trackingRate: Math.random(),
 	      numFeatures: Math.floor(Math.random() * 1000),
