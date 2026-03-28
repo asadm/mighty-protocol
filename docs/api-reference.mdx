@@ -170,6 +170,7 @@ type VioStateEvent = {
   buildVersion?: string;
   imuHzCurrent?: number;
   imuHzAverage5s?: number;
+  initReasonCode: number;
 };
 ```
 
@@ -384,6 +385,7 @@ Subscriptions (each returns `Callable[[], None]` unsubscribe):
   "build_version": str,
   "imu_hz_current": float,
   "imu_hz_average_5s": float,
+  "init_reason_code": int,
 }
 ```
 
@@ -610,6 +612,8 @@ struct VioStateFrame {
   std::string build_version;
   std::optional<float> imu_hz_current;
   std::optional<float> imu_hz_average_5s;
+  uint8_t init_reason_code = 0;
+  VioInitReasonCode init_reason = VioInitReasonCode::kNone;
 };
 
 struct VizFrame {

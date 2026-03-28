@@ -74,7 +74,7 @@ int main() {
   };
 
   VioState vsta;
-  vsta.version = 3;
+  vsta.version = 4;
   vsta.state = 2;
   vsta.flags = 1;
   vsta.timestamp_ns = 123;
@@ -87,6 +87,7 @@ int main() {
   vsta.build_version = "test";
   vsta.imu_hz_current = 200.0f;
   vsta.imu_hz_average_5s = 199.0f;
+  vsta.init_reason_code = static_cast<uint8_t>(VioInitReasonCode::kNone);
 
   std::vector<std::vector<uint8_t>> packets;
   packets.push_back(make_packet(nullptr, 0, TYPE_RSET));
@@ -258,6 +259,7 @@ int main() {
     };
     Seen seen;
     std::optional<PoseFrame> last_pose;
+    std::optional<VioStateFrame> last_vsta;
 
     client.on_image([&](const ImageFrame&) { seen.image.fetch_add(1); });
     client.on_pose([&](const PoseFrame& p) {
@@ -265,7 +267,10 @@ int main() {
       last_pose = p;
     });
     client.on_imu([&](const ImuBatch&) { seen.imu.fetch_add(1); });
-    client.on_vio_state([&](const VioStateFrame&) { seen.vsta.fetch_add(1); });
+    client.on_vio_state([&](const VioStateFrame& v) {
+      seen.vsta.fetch_add(1);
+      last_vsta = v;
+    });
     client.on_status([&](const StatusEvent&) { seen.status.fetch_add(1); });
     client.on_reset([&](const ResetEvent&) { seen.reset.fetch_add(1); });
     client.on_any([&](const AnyEvent&) { seen.any.fetch_add(1); });
@@ -282,6 +287,8 @@ int main() {
     assert(seen.pose.load() >= 1);
     assert(seen.imu.load() >= 1);
     assert(seen.vsta.load() >= 1);
+    assert(last_vsta.has_value());
+    assert(last_vsta->init_reason_code == static_cast<uint8_t>(VioInitReasonCode::kNone));
     assert(seen.status.load() >= 1);
     assert(seen.reset.load() >= 1);
     assert(last_pose.has_value());

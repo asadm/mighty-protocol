@@ -69,7 +69,7 @@ def build_imu_payload(samples):
 
 def build_vsta_payload():
     return b"".join([
-        struct.pack(">B", 3),
+        struct.pack(">B", 4),
         struct.pack(">B", 2),
         struct.pack(">H", 1),
         struct.pack(">Q", 123),
@@ -82,6 +82,7 @@ def build_vsta_payload():
         bytes([4]) + b"test",
         struct.pack(">f", 200.0),
         struct.pack(">f", 199.0),
+        struct.pack(">B", mp.VIO_INIT_REASON["NONE"]),
     ])
 
 

@@ -1,6 +1,9 @@
 import * as protocol from "../core/protocol.js";
 import { toU8, encodeText, decodeText, sleep, isAbortError } from "./utils.js";
 
+export const VIO_STATE = protocol.VIO_STATE;
+export const VIO_INIT_REASON = protocol.VIO_INIT_REASON;
+
 const DEFAULT_OPTS = {
   commandTimeoutMs: 2000,
   autoReconnect: true,
@@ -439,6 +442,7 @@ export class MightyClient {
             buildVersion: s.buildVersion || undefined,
             imuHzCurrent: s.version >= 3 ? s.imuHzCurrent : undefined,
             imuHzAverage5s: s.version >= 3 ? s.imuHzAverage5s : undefined,
+            initReasonCode: s.version >= 4 ? s.initReasonCode : protocol.VIO_INIT_REASON.NONE,
           };
           this._emit("vio_state", mapped);
           if (wantsAny) this._emitAny({ type: "vio_state", data: mapped });

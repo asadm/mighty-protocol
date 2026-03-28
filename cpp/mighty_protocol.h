@@ -257,6 +257,30 @@ enum class ConfigOp : uint8_t {
   kSet = 1,
 };
 
+enum class VioStateCode : uint8_t {
+  kOff = 0,
+  kInitializing = 1,
+  kTracking = 2,
+  kDegraded = 3,
+  kLost = 4,
+};
+
+enum class VioInitReasonCode : uint8_t {
+  kNone = 0,
+  kWaitingForFirstImu = 1,
+  kWaitingForInitFrames = 2,
+  kWaitingForParallax = 3,
+  kWaitingForImuExcitation = 4,
+  kStaticInsufficientFeatures = 5,
+  kStaticSceneMotionTooHigh = 6,
+  kRelativePoseUnavailable = 7,
+  kGlobalSfmFailed = 8,
+  kPnpInsufficientPoints = 9,
+  kPnpRansacFailed = 10,
+  kVisualImuAlignmentFailed = 11,
+  kUnknown = 12,
+};
+
 struct ConfigRequest {
   uint8_t version = 1;
   uint8_t op = static_cast<uint8_t>(ConfigOp::kGet);
@@ -294,6 +318,9 @@ struct VioState {
   // Version 3+ appends (after optional build_version):
   //   f32 imu_hz_current
   //   f32 imu_hz_average_5s
+  //
+  // Version 4+ appends:
+  //   u8  init_reason_code
   uint8_t version = 1;
   uint8_t state = 0;
   uint16_t flags = 0;
@@ -307,6 +334,7 @@ struct VioState {
   std::string build_version;
   float imu_hz_current = 0.0f;
   float imu_hz_average_5s = 0.0f;
+  uint8_t init_reason_code = static_cast<uint8_t>(VioInitReasonCode::kNone);
 };
 
 // --------------------------------------------------------------------------
@@ -599,11 +627,13 @@ inline std::vector<uint8_t> build_status_payload(const std::string& text) {
 inline std::vector<uint8_t> build_vio_state_payload(const VioState& s) {
   const bool include_build = (s.version >= 2);
   const bool include_imu_hz = (s.version >= 3);
+  const bool include_init_reason = (s.version >= 4);
   const uint8_t build_len = static_cast<uint8_t>(std::min<size_t>(255, s.build_version.size()));
   std::vector<uint8_t> payload;
   payload.resize(1 + 1 + 2 + 8 + 4 + 4 + 4 + 4 + 4 + 4 +
                  (include_build ? (1 + build_len) : 0) +
-                 (include_imu_hz ? (4 + 4) : 0));
+                 (include_imu_hz ? (4 + 4) : 0) +
+                 (include_init_reason ? 1 : 0));
   size_t off = 0;
   payload[off++] = s.version;
   payload[off++] = s.state;
@@ -626,6 +656,9 @@ inline std::vector<uint8_t> build_vio_state_payload(const VioState& s) {
   if (include_imu_hz) {
     write_f32_be(payload.data() + off, s.imu_hz_current); off += 4;
     write_f32_be(payload.data() + off, s.imu_hz_average_5s); off += 4;
+  }
+  if (include_init_reason) {
+    payload[off++] = s.init_reason_code;
   }
   return payload;
 }
@@ -1138,6 +1171,7 @@ inline bool decode_vio_state_payload(const std::vector<uint8_t>& payload, VioSta
   out.build_version.clear();
   out.imu_hz_current = 0.0f;
   out.imu_hz_average_5s = 0.0f;
+  out.init_reason_code = static_cast<uint8_t>(VioInitReasonCode::kNone);
   if (out.version >= 2) {
     if (off < payload.size()) {
       const uint8_t ll = payload[off++];
@@ -1152,6 +1186,9 @@ inline bool decode_vio_state_payload(const std::vector<uint8_t>& payload, VioSta
   if (out.version >= 3 && payload.size() >= off + 8) {
     rd_f32(out.imu_hz_current);
     rd_f32(out.imu_hz_average_5s);
+  }
+  if (out.version >= 4 && payload.size() > off) {
+    out.init_reason_code = payload[off++];
   }
   return true;
 }

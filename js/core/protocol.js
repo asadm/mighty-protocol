@@ -42,6 +42,30 @@ const CONFIG_OP = {
   SET: 1,
 };
 
+const VIO_STATE = {
+  OFF: 0,
+  INITIALIZING: 1,
+  TRACKING: 2,
+  DEGRADED: 3,
+  LOST: 4,
+};
+
+const VIO_INIT_REASON = {
+  NONE: 0,
+  WAITING_FOR_FIRST_IMU: 1,
+  WAITING_FOR_INIT_FRAMES: 2,
+  WAITING_FOR_PARALLAX: 3,
+  WAITING_FOR_IMU_EXCITATION: 4,
+  STATIC_INSUFFICIENT_FEATURES: 5,
+  STATIC_SCENE_MOTION_TOO_HIGH: 6,
+  RELATIVE_POSE_UNAVAILABLE: 7,
+  GLOBAL_SFM_FAILED: 8,
+  PNP_INSUFFICIENT_POINTS: 9,
+  PNP_RANSAC_FAILED: 10,
+  VISUAL_IMU_ALIGNMENT_FAILED: 11,
+  UNKNOWN: 12,
+};
+
 const HEADER_BYTES = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
 const FOOTER_BYTES = new Uint8Array([0xfe, 0xed, 0xfa, 0xce]);
 const MAX_PAYLOAD_BYTES = 16 * 1024 * 1024;
@@ -497,6 +521,7 @@ function buildVioStatePayload({
   loopClosures = 0,
   imuHzCurrent = undefined,
   imuHzAverage5s = undefined,
+  initReasonCode = undefined,
   buildVersion = "",
 } = {}) {
   const enc = textEncoder || new TextEncoder();
@@ -504,12 +529,15 @@ function buildVioStatePayload({
   const buildLen = Math.min(255, buildBytes.length);
   const hasImuHzCurrent = typeof imuHzCurrent === "number" && Number.isFinite(imuHzCurrent);
   const hasImuHzAverage = typeof imuHzAverage5s === "number" && Number.isFinite(imuHzAverage5s);
+  const hasInitReasonCode = typeof initReasonCode === "number" && Number.isFinite(initReasonCode);
   let ver = version & 0xff;
   if (buildLen > 0 && ver < 2) ver = 2;
   if ((hasImuHzCurrent || hasImuHzAverage) && ver < 3) ver = 3;
+  if (hasInitReasonCode && ver < 4) ver = 4;
   const buf = new Uint8Array((1 + 1 + 2 + 8 + 4 + 4 + 4 + 4 + 4 + 4) +
     (ver >= 2 ? (1 + buildLen) : 0) +
-    (ver >= 3 ? (4 + 4) : 0));
+    (ver >= 3 ? (4 + 4) : 0) +
+    (ver >= 4 ? 1 : 0));
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   let off = 0;
   dv.setUint8(off, ver); off += 1;
@@ -532,6 +560,9 @@ function buildVioStatePayload({
   if (ver >= 3) {
     dv.setFloat32(off, hasImuHzCurrent ? Number(imuHzCurrent) : 0.0, false); off += 4;
     dv.setFloat32(off, hasImuHzAverage ? Number(imuHzAverage5s) : 0.0, false); off += 4;
+  }
+  if (ver >= 4) {
+    dv.setUint8(off, hasInitReasonCode ? (Number(initReasonCode) & 0xff) : 0); off += 1;
   }
   return fromU8(buf);
 }
@@ -890,6 +921,10 @@ function decodeVioStatePayload(payload) {
     imuHzCurrent = dv.getFloat32(off, false); off += 4;
     imuHzAverage5s = dv.getFloat32(off, false); off += 4;
   }
+  let initReasonCode = 0;
+  if (version >= 4 && off < u8.length) {
+    initReasonCode = dv.getUint8(off); off += 1;
+  }
   return {
     version,
     state,
@@ -904,6 +939,7 @@ function decodeVioStatePayload(payload) {
     buildVersion,
     imuHzCurrent,
     imuHzAverage5s,
+    initReasonCode,
   };
 }
 
@@ -1013,6 +1049,8 @@ const api = {
   TYPE,
   RAW_FORMAT,
   CONFIG_OP,
+  VIO_STATE,
+  VIO_INIT_REASON,
   HEADER_MAGIC,
   FOOTER_MAGIC,
   makePacket,
@@ -1054,6 +1092,8 @@ export {
   TYPE,
   RAW_FORMAT,
   CONFIG_OP,
+  VIO_STATE,
+  VIO_INIT_REASON,
   HEADER_MAGIC,
   FOOTER_MAGIC,
   makePacket,

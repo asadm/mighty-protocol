@@ -122,7 +122,7 @@ struct SampleData {
   ConfigResponse cfgr{};
 
   SampleData() {
-    vsta.version = 3;
+    vsta.version = 4;
     vsta.state = 2;
     vsta.flags = 0x1234;
     vsta.timestamp_ns = 999;
@@ -135,6 +135,7 @@ struct SampleData {
     vsta.num_features = 321;
     vsta.loop_closures = 7;
     vsta.build_version = "Mighty v.20260208-deadbeef";
+    vsta.init_reason_code = static_cast<uint8_t>(VioInitReasonCode::kNone);
 
     cfgq.version = 1;
     cfgq.op = static_cast<uint8_t>(ConfigOp::kSet);
@@ -279,7 +280,8 @@ bool verify_frame(const Frame& f, int index, const SampleData& s) {
            approx(out.tracking_rate, s.vsta.tracking_rate, 1e-3) &&
            out.num_features == s.vsta.num_features &&
            out.loop_closures == s.vsta.loop_closures &&
-           out.build_version == s.vsta.build_version;
+           out.build_version == s.vsta.build_version &&
+           out.init_reason_code == s.vsta.init_reason_code;
   }
   if (type_str == "FEA3") {
     std::vector<Feature3D> out;

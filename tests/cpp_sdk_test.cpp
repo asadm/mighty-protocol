@@ -203,6 +203,7 @@ int main() {
   Seen seen;
   std::optional<ImageFrame> last_image;
   std::optional<PoseFrame> last_pose;
+  std::optional<VioStateFrame> last_vsta;
 
   client.on_image([&](const ImageFrame& f) {
     seen.image.fetch_add(1);
@@ -213,7 +214,10 @@ int main() {
     last_pose = p;
   });
   client.on_imu([&](const ImuBatch&) { seen.imu.fetch_add(1); });
-  client.on_vio_state([&](const VioStateFrame&) { seen.vsta.fetch_add(1); });
+  client.on_vio_state([&](const VioStateFrame& v) {
+    seen.vsta.fetch_add(1);
+    last_vsta = v;
+  });
   client.on_lcon([&](const LconFrame&) { seen.lcon.fetch_add(1); });
   client.on_status([&](const StatusEvent&) { seen.status.fetch_add(1); });
   client.on_reset([&](const ResetEvent&) { seen.reset.fetch_add(1); });
@@ -258,7 +262,7 @@ int main() {
   device->emit_packet(make_packet(build_imu_payload(imu), TYPE_IMU));
 
   VioState vsta;
-  vsta.version = 3;
+  vsta.version = 4;
   vsta.state = 2;
   vsta.flags = 3;
   vsta.timestamp_ns = 13;
@@ -271,6 +275,7 @@ int main() {
   vsta.build_version = "test";
   vsta.imu_hz_current = 200.0f;
   vsta.imu_hz_average_5s = 199.0f;
+  vsta.init_reason_code = static_cast<uint8_t>(VioInitReasonCode::kNone);
   device->emit_packet(make_packet(build_vio_state_payload(vsta), TYPE_VSTA));
 
   PoseConstraintSegment seg;
@@ -323,6 +328,9 @@ int main() {
 
   assert(seen.imu.load() == 1);
   assert(seen.vsta.load() == 1);
+  assert(last_vsta.has_value());
+  assert(last_vsta->init_reason_code == static_cast<uint8_t>(VioInitReasonCode::kNone));
+  assert(last_vsta->init_reason == VioInitReasonCode::kNone);
   assert(seen.lcon.load() == 1);
   assert(seen.status.load() == 1);
   assert(seen.reset.load() == 1);

@@ -31,6 +31,30 @@ CONFIG_OP = {
     "SET": 1,
 }
 
+VIO_STATE = {
+    "OFF": 0,
+    "INITIALIZING": 1,
+    "TRACKING": 2,
+    "DEGRADED": 3,
+    "LOST": 4,
+}
+
+VIO_INIT_REASON = {
+    "NONE": 0,
+    "WAITING_FOR_FIRST_IMU": 1,
+    "WAITING_FOR_INIT_FRAMES": 2,
+    "WAITING_FOR_PARALLAX": 3,
+    "WAITING_FOR_IMU_EXCITATION": 4,
+    "STATIC_INSUFFICIENT_FEATURES": 5,
+    "STATIC_SCENE_MOTION_TOO_HIGH": 6,
+    "RELATIVE_POSE_UNAVAILABLE": 7,
+    "GLOBAL_SFM_FAILED": 8,
+    "PNP_INSUFFICIENT_POINTS": 9,
+    "PNP_RANSAC_FAILED": 10,
+    "VISUAL_IMU_ALIGNMENT_FAILED": 11,
+    "UNKNOWN": 12,
+}
+
 RAW_FORMAT = {
     "UNKNOWN": 0,
     "GRAY8": 1,
@@ -332,6 +356,7 @@ def decode_vio_state_payload(payload: bytes):
     build_version = ""
     imu_hz_current = 0.0
     imu_hz_average_5s = 0.0
+    init_reason_code = VIO_INIT_REASON["NONE"]
     if version >= 2 and off < len(payload):
         ll = payload[off]; off += 1
         if ll > 0:
@@ -342,6 +367,8 @@ def decode_vio_state_payload(payload: bytes):
     if version >= 3 and off + 8 <= len(payload):
         imu_hz_current = struct.unpack(">f", payload[off:off+4])[0]; off += 4
         imu_hz_average_5s = struct.unpack(">f", payload[off:off+4])[0]; off += 4
+    if version >= 4 and off < len(payload):
+        init_reason_code = int(payload[off]); off += 1
     return {
         "version": version,
         "state": state,
@@ -356,6 +383,7 @@ def decode_vio_state_payload(payload: bytes):
         "build_version": build_version,
         "imu_hz_current": imu_hz_current,
         "imu_hz_average_5s": imu_hz_average_5s,
+        "init_reason_code": init_reason_code,
     }
 
 def decode_fea3_payload(payload: bytes):
