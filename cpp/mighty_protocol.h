@@ -279,6 +279,9 @@ enum class VioInitReasonCode : uint8_t {
   kPnpRansacFailed = 10,
   kVisualImuAlignmentFailed = 11,
   kUnknown = 12,
+  kWaitingForFirstImuNoSamples = 13,
+  kWaitingForFirstImuNotYetAligned = 14,
+  kWaitingForFirstImuTimeOffsetInvalid = 15,
 };
 
 struct ConfigRequest {
