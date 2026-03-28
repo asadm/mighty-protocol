@@ -470,7 +470,7 @@ async function runFuzzTests() {
 	      fpsAverage: Math.random() * 60,
         imuHzCurrent: Math.random() * 200,
         imuHzAverage5s: Math.random() * 200,
-        initReasonCode: Math.floor(Math.random() * 13),
+        initReasonCode: Math.floor(Math.random() * 16),
 	      poseConfidence: Math.random(),
 	      trackingRate: Math.random(),
 	      numFeatures: Math.floor(Math.random() * 1000),
