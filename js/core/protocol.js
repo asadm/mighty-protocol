@@ -525,6 +525,8 @@ function buildVioStatePayload({
   imuHzCurrent = undefined,
   imuHzAverage5s = undefined,
   initReasonCode = undefined,
+  staticInitReasonCode = undefined,
+  dynamicInitReasonCode = undefined,
   buildVersion = "",
 } = {}) {
   const enc = textEncoder || new TextEncoder();
@@ -533,14 +535,20 @@ function buildVioStatePayload({
   const hasImuHzCurrent = typeof imuHzCurrent === "number" && Number.isFinite(imuHzCurrent);
   const hasImuHzAverage = typeof imuHzAverage5s === "number" && Number.isFinite(imuHzAverage5s);
   const hasInitReasonCode = typeof initReasonCode === "number" && Number.isFinite(initReasonCode);
+  const hasStaticInitReasonCode =
+    typeof staticInitReasonCode === "number" && Number.isFinite(staticInitReasonCode);
+  const hasDynamicInitReasonCode =
+    typeof dynamicInitReasonCode === "number" && Number.isFinite(dynamicInitReasonCode);
   let ver = version & 0xff;
   if (buildLen > 0 && ver < 2) ver = 2;
   if ((hasImuHzCurrent || hasImuHzAverage) && ver < 3) ver = 3;
   if (hasInitReasonCode && ver < 4) ver = 4;
+  if ((hasStaticInitReasonCode || hasDynamicInitReasonCode) && ver < 5) ver = 5;
   const buf = new Uint8Array((1 + 1 + 2 + 8 + 4 + 4 + 4 + 4 + 4 + 4) +
     (ver >= 2 ? (1 + buildLen) : 0) +
     (ver >= 3 ? (4 + 4) : 0) +
-    (ver >= 4 ? 1 : 0));
+    (ver >= 4 ? 1 : 0) +
+    (ver >= 5 ? 2 : 0));
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   let off = 0;
   dv.setUint8(off, ver); off += 1;
@@ -566,6 +574,10 @@ function buildVioStatePayload({
   }
   if (ver >= 4) {
     dv.setUint8(off, hasInitReasonCode ? (Number(initReasonCode) & 0xff) : 0); off += 1;
+  }
+  if (ver >= 5) {
+    dv.setUint8(off, hasStaticInitReasonCode ? (Number(staticInitReasonCode) & 0xff) : 0); off += 1;
+    dv.setUint8(off, hasDynamicInitReasonCode ? (Number(dynamicInitReasonCode) & 0xff) : 0); off += 1;
   }
   return fromU8(buf);
 }
@@ -928,6 +940,12 @@ function decodeVioStatePayload(payload) {
   if (version >= 4 && off < u8.length) {
     initReasonCode = dv.getUint8(off); off += 1;
   }
+  let staticInitReasonCode = 0;
+  let dynamicInitReasonCode = 0;
+  if (version >= 5 && off + 2 <= u8.length) {
+    staticInitReasonCode = dv.getUint8(off); off += 1;
+    dynamicInitReasonCode = dv.getUint8(off); off += 1;
+  }
   return {
     version,
     state,
@@ -943,6 +961,8 @@ function decodeVioStatePayload(payload) {
     imuHzCurrent,
     imuHzAverage5s,
     initReasonCode,
+    staticInitReasonCode,
+    dynamicInitReasonCode,
   };
 }
 
