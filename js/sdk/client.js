@@ -8,6 +8,7 @@ const DEFAULT_OPTS = {
   commandTimeoutMs: 2000,
   autoReconnect: true,
   reconnectDelayMs: 300,
+  streamStallTimeoutMs: 3000,
   emitStatAsStatus: true,
   normalizeChannelAliases: true,
 };
@@ -57,6 +58,9 @@ export class MightyClient {
     this._running = false;
     this._streamActive = false;
     this._loopTask = null;
+    this._streamStallTimer = null;
+    this._streamLastActivityMs = 0;
+    this._transportAbortReason = null;
 
     this._reqId = 1;
     this._stats = {
@@ -76,6 +80,8 @@ export class MightyClient {
 
   async disconnect() {
     this._running = false;
+    this._clearStreamStallWatchdog();
+    this._transportAbortReason = null;
     try {
       await this.device.disconnect();
     } catch (err) {
@@ -313,6 +319,36 @@ export class MightyClient {
     return out;
   }
 
+  _clearStreamStallWatchdog() {
+    if (!this._streamStallTimer) return;
+    clearTimeout(this._streamStallTimer);
+    this._streamStallTimer = null;
+  }
+
+  _armStreamStallWatchdog() {
+    this._clearStreamStallWatchdog();
+    const timeoutMs = Number(this.opts.streamStallTimeoutMs) || 0;
+    if (timeoutMs <= 0 || !this._running || !this._streamActive) return;
+    this._streamStallTimer = setTimeout(() => {
+      this._streamStallTimer = null;
+      if (!this._running || !this._streamActive) return;
+      const idleMs = Math.max(0, Date.now() - this._streamLastActivityMs);
+      this._transportAbortReason = {
+        scope: "transport",
+        code: "stream_closed",
+        message: `stream stalled (${idleMs}ms idle)`,
+      };
+      Promise.resolve(this.device.disconnect()).catch(() => {
+        // The transport loop will surface the disconnect outcome.
+      });
+    }, timeoutMs);
+  }
+
+  _markStreamActivity() {
+    this._streamLastActivityMs = Date.now();
+    this._armStreamStallWatchdog();
+  }
+
   _hasListeners(key) {
     const set = this._listeners[key];
     return !!set && set.size > 0;
@@ -321,6 +357,7 @@ export class MightyClient {
   _handleBytes(chunk) {
     const u8 = toU8(chunk);
     this._stats.rxBytes += u8.length;
+    this._markStreamActivity();
     this._dispatcher.feed(u8);
   }
 
@@ -516,25 +553,43 @@ export class MightyClient {
   async _runTransportLoop() {
     while (this._running) {
       this._streamActive = true;
+      this._transportAbortReason = null;
+      this._markStreamActivity();
       try {
         await this.device.connect((chunk) => this._handleBytes(chunk));
+        this._clearStreamStallWatchdog();
         this._streamActive = false;
 
         if (!this._running) break;
+        if (this._transportAbortReason) {
+          this._emitError(this._transportAbortReason);
+          this._transportAbortReason = null;
+          if (!this.opts.autoReconnect) break;
+          this._stats.reconnects += 1;
+          await sleep(this.opts.reconnectDelayMs);
+          continue;
+        }
         this._emitError({
           scope: "transport",
           code: "stream_closed",
           message: "stream closed",
         });
       } catch (err) {
+        this._clearStreamStallWatchdog();
         this._streamActive = false;
-        if (!this._running && isAbortError(err)) break;
-        this._emitError({
-          scope: "transport",
-          code: "stream_error",
-          message: err && err.message ? err.message : "stream error",
-          cause: err,
-        });
+        if (this._transportAbortReason) {
+          this._emitError(this._transportAbortReason);
+          this._transportAbortReason = null;
+        } else if (!this._running && isAbortError(err)) {
+          break;
+        } else {
+          this._emitError({
+            scope: "transport",
+            code: "stream_error",
+            message: err && err.message ? err.message : "stream error",
+            cause: err,
+          });
+        }
       }
 
       if (!this._running || !this.opts.autoReconnect) break;
