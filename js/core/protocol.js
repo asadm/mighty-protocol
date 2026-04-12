@@ -527,6 +527,9 @@ function buildVioStatePayload({
   initReasonCode = undefined,
   staticInitReasonCode = undefined,
   dynamicInitReasonCode = undefined,
+  memoryTotalBytes = undefined,
+  memoryUsedBytes = undefined,
+  memoryFreeBytes = undefined,
   buildVersion = "",
 } = {}) {
   const enc = textEncoder || new TextEncoder();
@@ -539,16 +542,29 @@ function buildVioStatePayload({
     typeof staticInitReasonCode === "number" && Number.isFinite(staticInitReasonCode);
   const hasDynamicInitReasonCode =
     typeof dynamicInitReasonCode === "number" && Number.isFinite(dynamicInitReasonCode);
+  const hasMemoryTotalBytes =
+    (typeof memoryTotalBytes === "bigint" && memoryTotalBytes >= 0n) ||
+    (typeof memoryTotalBytes === "number" && Number.isFinite(memoryTotalBytes) && memoryTotalBytes >= 0);
+  const hasMemoryUsedBytes =
+    (typeof memoryUsedBytes === "bigint" && memoryUsedBytes >= 0n) ||
+    (typeof memoryUsedBytes === "number" && Number.isFinite(memoryUsedBytes) && memoryUsedBytes >= 0);
+  const hasMemoryFreeBytes =
+    (typeof memoryFreeBytes === "bigint" && memoryFreeBytes >= 0n) ||
+    (typeof memoryFreeBytes === "number" && Number.isFinite(memoryFreeBytes) && memoryFreeBytes >= 0);
+  const toBigUint64 = (value) =>
+    typeof value === "bigint" ? value : BigInt(Math.floor(Number(value) || 0));
   let ver = version & 0xff;
   if (buildLen > 0 && ver < 2) ver = 2;
   if ((hasImuHzCurrent || hasImuHzAverage) && ver < 3) ver = 3;
   if (hasInitReasonCode && ver < 4) ver = 4;
   if ((hasStaticInitReasonCode || hasDynamicInitReasonCode) && ver < 5) ver = 5;
+  if ((hasMemoryTotalBytes || hasMemoryUsedBytes || hasMemoryFreeBytes) && ver < 6) ver = 6;
   const buf = new Uint8Array((1 + 1 + 2 + 8 + 4 + 4 + 4 + 4 + 4 + 4) +
     (ver >= 2 ? (1 + buildLen) : 0) +
     (ver >= 3 ? (4 + 4) : 0) +
     (ver >= 4 ? 1 : 0) +
-    (ver >= 5 ? 2 : 0));
+    (ver >= 5 ? 2 : 0) +
+    (ver >= 6 ? (8 + 8 + 8) : 0));
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   let off = 0;
   dv.setUint8(off, ver); off += 1;
@@ -578,6 +594,11 @@ function buildVioStatePayload({
   if (ver >= 5) {
     dv.setUint8(off, hasStaticInitReasonCode ? (Number(staticInitReasonCode) & 0xff) : 0); off += 1;
     dv.setUint8(off, hasDynamicInitReasonCode ? (Number(dynamicInitReasonCode) & 0xff) : 0); off += 1;
+  }
+  if (ver >= 6) {
+    dv.setBigUint64(off, hasMemoryTotalBytes ? toBigUint64(memoryTotalBytes) : 0n, false); off += 8;
+    dv.setBigUint64(off, hasMemoryUsedBytes ? toBigUint64(memoryUsedBytes) : 0n, false); off += 8;
+    dv.setBigUint64(off, hasMemoryFreeBytes ? toBigUint64(memoryFreeBytes) : 0n, false); off += 8;
   }
   return fromU8(buf);
 }
@@ -946,6 +967,14 @@ function decodeVioStatePayload(payload) {
     staticInitReasonCode = dv.getUint8(off); off += 1;
     dynamicInitReasonCode = dv.getUint8(off); off += 1;
   }
+  let memoryTotalBytes = 0n;
+  let memoryUsedBytes = 0n;
+  let memoryFreeBytes = 0n;
+  if (version >= 6 && off + 24 <= u8.length) {
+    memoryTotalBytes = dv.getBigUint64(off, false); off += 8;
+    memoryUsedBytes = dv.getBigUint64(off, false); off += 8;
+    memoryFreeBytes = dv.getBigUint64(off, false); off += 8;
+  }
   return {
     version,
     state,
@@ -963,6 +992,9 @@ function decodeVioStatePayload(payload) {
     initReasonCode,
     staticInitReasonCode,
     dynamicInitReasonCode,
+    memoryTotalBytes,
+    memoryUsedBytes,
+    memoryFreeBytes,
   };
 }
 

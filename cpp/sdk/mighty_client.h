@@ -99,6 +99,9 @@ struct VioStateFrame {
   uint8_t init_reason_code = static_cast<uint8_t>(VioInitReasonCode::kNone);
   uint8_t static_init_reason_code = static_cast<uint8_t>(VioInitReasonCode::kNone);
   uint8_t dynamic_init_reason_code = static_cast<uint8_t>(VioInitReasonCode::kNone);
+  std::optional<uint64_t> memory_total_bytes;
+  std::optional<uint64_t> memory_used_bytes;
+  std::optional<uint64_t> memory_free_bytes;
   VioInitReasonCode init_reason = VioInitReasonCode::kNone;
 };
 
@@ -646,6 +649,11 @@ class MightyClient {
         evt.init_reason_code = raw.init_reason_code;
         evt.static_init_reason_code = raw.static_init_reason_code;
         evt.dynamic_init_reason_code = raw.dynamic_init_reason_code;
+        if (raw.version >= 6) {
+          evt.memory_total_bytes = raw.memory_total_bytes;
+          evt.memory_used_bytes = raw.memory_used_bytes;
+          evt.memory_free_bytes = raw.memory_free_bytes;
+        }
         evt.init_reason = static_cast<VioInitReasonCode>(raw.init_reason_code);
         emit(vio_state_handlers_, evt);
         if (wants_any) emit_any(AnyEvent{"vio_state", "", {}});

@@ -360,6 +360,11 @@ def decode_vio_state_payload(payload: bytes):
     imu_hz_current = 0.0
     imu_hz_average_5s = 0.0
     init_reason_code = VIO_INIT_REASON["NONE"]
+    static_init_reason_code = VIO_INIT_REASON["NONE"]
+    dynamic_init_reason_code = VIO_INIT_REASON["NONE"]
+    memory_total_bytes = 0
+    memory_used_bytes = 0
+    memory_free_bytes = 0
     if version >= 2 and off < len(payload):
         ll = payload[off]; off += 1
         if ll > 0:
@@ -372,6 +377,13 @@ def decode_vio_state_payload(payload: bytes):
         imu_hz_average_5s = struct.unpack(">f", payload[off:off+4])[0]; off += 4
     if version >= 4 and off < len(payload):
         init_reason_code = int(payload[off]); off += 1
+    if version >= 5 and off + 2 <= len(payload):
+        static_init_reason_code = int(payload[off]); off += 1
+        dynamic_init_reason_code = int(payload[off]); off += 1
+    if version >= 6 and off + 24 <= len(payload):
+        memory_total_bytes = struct.unpack(">Q", payload[off:off+8])[0]; off += 8
+        memory_used_bytes = struct.unpack(">Q", payload[off:off+8])[0]; off += 8
+        memory_free_bytes = struct.unpack(">Q", payload[off:off+8])[0]; off += 8
     return {
         "version": version,
         "state": state,
@@ -387,6 +399,11 @@ def decode_vio_state_payload(payload: bytes):
         "imu_hz_current": imu_hz_current,
         "imu_hz_average_5s": imu_hz_average_5s,
         "init_reason_code": init_reason_code,
+        "static_init_reason_code": static_init_reason_code,
+        "dynamic_init_reason_code": dynamic_init_reason_code,
+        "memory_total_bytes": memory_total_bytes,
+        "memory_used_bytes": memory_used_bytes,
+        "memory_free_bytes": memory_free_bytes,
     }
 
 def decode_fea3_payload(payload: bytes):

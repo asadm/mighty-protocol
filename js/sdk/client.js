@@ -465,22 +465,25 @@ export class MightyClient {
         case protocol.TYPE.VSTA: {
           if (!this._hasListeners("vio_state") && !wantsAny) return;
           const s = protocol.decodeVioStatePayload(frame.payload);
-          const mapped = {
-            version: s.version,
-            state: s.state,
-            flags: s.flags,
-            timestampNs: s.timestampNs,
+        const mapped = {
+          version: s.version,
+          state: s.state,
+          flags: s.flags,
+          timestampNs: s.timestampNs,
             fpsCurrent: s.fpsCurrent,
             fpsAverage: s.fpsAverage,
             poseConfidence: s.poseConfidence,
             trackingRate: s.trackingRate,
             numFeatures: s.numFeatures,
             loopClosures: s.loopClosures,
-            buildVersion: s.buildVersion || undefined,
-            imuHzCurrent: s.version >= 3 ? s.imuHzCurrent : undefined,
-            imuHzAverage5s: s.version >= 3 ? s.imuHzAverage5s : undefined,
-            initReasonCode: s.version >= 4 ? s.initReasonCode : protocol.VIO_INIT_REASON.NONE,
-          };
+          buildVersion: s.buildVersion || undefined,
+          imuHzCurrent: s.version >= 3 ? s.imuHzCurrent : undefined,
+          imuHzAverage5s: s.version >= 3 ? s.imuHzAverage5s : undefined,
+          initReasonCode: s.version >= 4 ? s.initReasonCode : protocol.VIO_INIT_REASON.NONE,
+          memoryTotalBytes: s.version >= 6 ? s.memoryTotalBytes : undefined,
+          memoryUsedBytes: s.version >= 6 ? s.memoryUsedBytes : undefined,
+          memoryFreeBytes: s.version >= 6 ? s.memoryFreeBytes : undefined,
+        };
           this._emit("vio_state", mapped);
           if (wantsAny) this._emitAny({ type: "vio_state", data: mapped });
           return;
