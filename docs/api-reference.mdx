@@ -386,6 +386,11 @@ Subscriptions (each returns `Callable[[], None]` unsubscribe):
   "imu_hz_current": float,
   "imu_hz_average_5s": float,
   "init_reason_code": int,
+  "static_init_reason_code": int,
+  "dynamic_init_reason_code": int,
+  "memory_total_bytes": int,
+  "memory_used_bytes": int,
+  "memory_free_bytes": int,
 }
 ```
 
@@ -631,6 +636,11 @@ struct VioStateFrame {
   std::optional<float> imu_hz_current;
   std::optional<float> imu_hz_average_5s;
   uint8_t init_reason_code = 0;
+  uint8_t static_init_reason_code = 0;
+  uint8_t dynamic_init_reason_code = 0;
+  std::optional<uint64_t> memory_total_bytes;
+  std::optional<uint64_t> memory_used_bytes;
+  std::optional<uint64_t> memory_free_bytes;
   VioInitReasonCode init_reason = VioInitReasonCode::kNone;
 };
 

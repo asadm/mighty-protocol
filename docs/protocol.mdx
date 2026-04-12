@@ -165,6 +165,15 @@ Version 3 appends:
 Version 4 appends:
 - `init_reason_code` (u8)
 
+Version 5 appends:
+- `static_init_reason_code` (u8)
+- `dynamic_init_reason_code` (u8)
+
+Version 6 appends:
+- `memory_total_bytes` (u64)
+- `memory_used_bytes` (u64)
+- `memory_free_bytes` (u64)
+
 Recommended state mapping:
 - `0=OFF, 1=INITIALIZING, 2=TRACKING, 3=DEGRADED, 4=LOST`
 

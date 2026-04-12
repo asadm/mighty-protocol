@@ -436,6 +436,11 @@ class MightyClient:
                     "imu_hz_current": s.get("imu_hz_current"),
                     "imu_hz_average_5s": s.get("imu_hz_average_5s"),
                     "init_reason_code": s.get("init_reason_code", VIO_INIT_REASON["NONE"]),
+                    "static_init_reason_code": s.get("static_init_reason_code", VIO_INIT_REASON["NONE"]),
+                    "dynamic_init_reason_code": s.get("dynamic_init_reason_code", VIO_INIT_REASON["NONE"]),
+                    "memory_total_bytes": s.get("memory_total_bytes"),
+                    "memory_used_bytes": s.get("memory_used_bytes"),
+                    "memory_free_bytes": s.get("memory_free_bytes"),
                 }
                 self._emit("vio_state", mapped)
                 if wants_any:

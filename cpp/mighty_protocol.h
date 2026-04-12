@@ -328,6 +328,11 @@ struct VioState {
   // Version 5+ appends:
   //   u8  static_init_reason_code
   //   u8  dynamic_init_reason_code
+  //
+  // Version 6+ appends:
+  //   u64 memory_total_bytes
+  //   u64 memory_used_bytes
+  //   u64 memory_free_bytes
   uint8_t version = 1;
   uint8_t state = 0;
   uint16_t flags = 0;
@@ -344,6 +349,9 @@ struct VioState {
   uint8_t init_reason_code = static_cast<uint8_t>(VioInitReasonCode::kNone);
   uint8_t static_init_reason_code = static_cast<uint8_t>(VioInitReasonCode::kNone);
   uint8_t dynamic_init_reason_code = static_cast<uint8_t>(VioInitReasonCode::kNone);
+  uint64_t memory_total_bytes = 0;
+  uint64_t memory_used_bytes = 0;
+  uint64_t memory_free_bytes = 0;
 };
 
 // --------------------------------------------------------------------------
@@ -638,13 +646,15 @@ inline std::vector<uint8_t> build_vio_state_payload(const VioState& s) {
   const bool include_imu_hz = (s.version >= 3);
   const bool include_init_reason = (s.version >= 4);
   const bool include_split_init_reasons = (s.version >= 5);
+  const bool include_memory = (s.version >= 6);
   const uint8_t build_len = static_cast<uint8_t>(std::min<size_t>(255, s.build_version.size()));
   std::vector<uint8_t> payload;
   payload.resize(1 + 1 + 2 + 8 + 4 + 4 + 4 + 4 + 4 + 4 +
                  (include_build ? (1 + build_len) : 0) +
                  (include_imu_hz ? (4 + 4) : 0) +
                  (include_init_reason ? 1 : 0) +
-                 (include_split_init_reasons ? 2 : 0));
+                 (include_split_init_reasons ? 2 : 0) +
+                 (include_memory ? (8 + 8 + 8) : 0));
   size_t off = 0;
   payload[off++] = s.version;
   payload[off++] = s.state;
@@ -674,6 +684,11 @@ inline std::vector<uint8_t> build_vio_state_payload(const VioState& s) {
   if (include_split_init_reasons) {
     payload[off++] = s.static_init_reason_code;
     payload[off++] = s.dynamic_init_reason_code;
+  }
+  if (include_memory) {
+    write_u64_be(payload.data() + off, s.memory_total_bytes); off += 8;
+    write_u64_be(payload.data() + off, s.memory_used_bytes); off += 8;
+    write_u64_be(payload.data() + off, s.memory_free_bytes); off += 8;
   }
   return payload;
 }
@@ -1189,6 +1204,9 @@ inline bool decode_vio_state_payload(const std::vector<uint8_t>& payload, VioSta
   out.init_reason_code = static_cast<uint8_t>(VioInitReasonCode::kNone);
   out.static_init_reason_code = static_cast<uint8_t>(VioInitReasonCode::kNone);
   out.dynamic_init_reason_code = static_cast<uint8_t>(VioInitReasonCode::kNone);
+  out.memory_total_bytes = 0;
+  out.memory_used_bytes = 0;
+  out.memory_free_bytes = 0;
   if (out.version >= 2) {
     if (off < payload.size()) {
       const uint8_t ll = payload[off++];
@@ -1210,6 +1228,17 @@ inline bool decode_vio_state_payload(const std::vector<uint8_t>& payload, VioSta
   if (out.version >= 5 && payload.size() >= off + 2) {
     out.static_init_reason_code = payload[off++];
     out.dynamic_init_reason_code = payload[off++];
+  }
+  if (out.version >= 6 && payload.size() >= off + 24) {
+    out.memory_total_bytes = 0;
+    out.memory_used_bytes = 0;
+    out.memory_free_bytes = 0;
+    for (int i = 0; i < 8; ++i) out.memory_total_bytes = (out.memory_total_bytes << 8) | payload[off + i];
+    off += 8;
+    for (int i = 0; i < 8; ++i) out.memory_used_bytes = (out.memory_used_bytes << 8) | payload[off + i];
+    off += 8;
+    for (int i = 0; i < 8; ++i) out.memory_free_bytes = (out.memory_free_bytes << 8) | payload[off + i];
+    off += 8;
   }
   return true;
 }
