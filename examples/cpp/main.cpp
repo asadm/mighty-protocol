@@ -128,6 +128,7 @@ std::string to_vio_label(int code) {
     case 2: return "TRACKING";
     case 3: return "DEGRADED";
     case 4: return "LOST";
+    case 5: return "LOW_LIGHT";
     default: break;
   }
   if (code < 0) return "STATE_NA";
@@ -805,6 +806,12 @@ int main() {
     std::lock_guard<std::mutex> lock(state.mu);
     state.vio_state_code = static_cast<int>(evt.state);
     state.vio_state_text = to_vio_label(static_cast<int>(evt.state));
+    if (evt.light_level01.has_value() && std::isfinite(*evt.light_level01)) {
+      const float required = evt.light_required01.value_or(0.0f);
+      std::ostringstream light_ss;
+      light_ss << std::fixed << std::setprecision(4) << *evt.light_level01 << "/" << required;
+      state.vio_state_text += " darkness " + light_ss.str();
+    }
     state.fps_current = evt.fps_current;
     state.num_features = static_cast<int>(evt.num_features);
     state.pose_confidence = evt.pose_confidence;

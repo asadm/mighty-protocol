@@ -263,6 +263,7 @@ enum class VioStateCode : uint8_t {
   kTracking = 2,
   kDegraded = 3,
   kLost = 4,
+  kLowLight = 5,
 };
 
 enum class VioInitReasonCode : uint8_t {
@@ -333,6 +334,10 @@ struct VioState {
   //   u64 memory_total_bytes
   //   u64 memory_used_bytes
   //   u64 memory_free_bytes
+  //
+  // Version 7+ appends:
+  //   f32 light_level01     (producer-defined raw image-quality actual value)
+  //   f32 light_required01  (producer-defined raw requirement/limit value)
   uint8_t version = 1;
   uint8_t state = 0;
   uint16_t flags = 0;
@@ -352,6 +357,8 @@ struct VioState {
   uint64_t memory_total_bytes = 0;
   uint64_t memory_used_bytes = 0;
   uint64_t memory_free_bytes = 0;
+  float light_level01 = 1.0f;
+  float light_required01 = 1.0f;
 };
 
 // --------------------------------------------------------------------------
@@ -647,6 +654,7 @@ inline std::vector<uint8_t> build_vio_state_payload(const VioState& s) {
   const bool include_init_reason = (s.version >= 4);
   const bool include_split_init_reasons = (s.version >= 5);
   const bool include_memory = (s.version >= 6);
+  const bool include_light = (s.version >= 7);
   const uint8_t build_len = static_cast<uint8_t>(std::min<size_t>(255, s.build_version.size()));
   std::vector<uint8_t> payload;
   payload.resize(1 + 1 + 2 + 8 + 4 + 4 + 4 + 4 + 4 + 4 +
@@ -654,7 +662,8 @@ inline std::vector<uint8_t> build_vio_state_payload(const VioState& s) {
                  (include_imu_hz ? (4 + 4) : 0) +
                  (include_init_reason ? 1 : 0) +
                  (include_split_init_reasons ? 2 : 0) +
-                 (include_memory ? (8 + 8 + 8) : 0));
+                 (include_memory ? (8 + 8 + 8) : 0) +
+                 (include_light ? (4 + 4) : 0));
   size_t off = 0;
   payload[off++] = s.version;
   payload[off++] = s.state;
@@ -689,6 +698,10 @@ inline std::vector<uint8_t> build_vio_state_payload(const VioState& s) {
     write_u64_be(payload.data() + off, s.memory_total_bytes); off += 8;
     write_u64_be(payload.data() + off, s.memory_used_bytes); off += 8;
     write_u64_be(payload.data() + off, s.memory_free_bytes); off += 8;
+  }
+  if (include_light) {
+    write_f32_be(payload.data() + off, s.light_level01); off += 4;
+    write_f32_be(payload.data() + off, s.light_required01); off += 4;
   }
   return payload;
 }
@@ -1207,6 +1220,8 @@ inline bool decode_vio_state_payload(const std::vector<uint8_t>& payload, VioSta
   out.memory_total_bytes = 0;
   out.memory_used_bytes = 0;
   out.memory_free_bytes = 0;
+  out.light_level01 = 1.0f;
+  out.light_required01 = 1.0f;
   if (out.version >= 2) {
     if (off < payload.size()) {
       const uint8_t ll = payload[off++];
@@ -1239,6 +1254,10 @@ inline bool decode_vio_state_payload(const std::vector<uint8_t>& payload, VioSta
     off += 8;
     for (int i = 0; i < 8; ++i) out.memory_free_bytes = (out.memory_free_bytes << 8) | payload[off + i];
     off += 8;
+  }
+  if (out.version >= 7 && payload.size() >= off + 8) {
+    rd_f32(out.light_level01);
+    rd_f32(out.light_required01);
   }
   return true;
 }

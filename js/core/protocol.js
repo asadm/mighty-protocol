@@ -48,6 +48,7 @@ const VIO_STATE = {
   TRACKING: 2,
   DEGRADED: 3,
   LOST: 4,
+  LOW_LIGHT: 5,
 };
 
 const VIO_INIT_REASON = {
@@ -530,6 +531,8 @@ function buildVioStatePayload({
   memoryTotalBytes = undefined,
   memoryUsedBytes = undefined,
   memoryFreeBytes = undefined,
+  lightLevel01 = undefined,
+  lightRequired01 = undefined,
   buildVersion = "",
 } = {}) {
   const enc = textEncoder || new TextEncoder();
@@ -551,6 +554,8 @@ function buildVioStatePayload({
   const hasMemoryFreeBytes =
     (typeof memoryFreeBytes === "bigint" && memoryFreeBytes >= 0n) ||
     (typeof memoryFreeBytes === "number" && Number.isFinite(memoryFreeBytes) && memoryFreeBytes >= 0);
+  const hasLightLevel = typeof lightLevel01 === "number" && Number.isFinite(lightLevel01);
+  const hasLightRequired = typeof lightRequired01 === "number" && Number.isFinite(lightRequired01);
   const toBigUint64 = (value) =>
     typeof value === "bigint" ? value : BigInt(Math.floor(Number(value) || 0));
   let ver = version & 0xff;
@@ -559,12 +564,14 @@ function buildVioStatePayload({
   if (hasInitReasonCode && ver < 4) ver = 4;
   if ((hasStaticInitReasonCode || hasDynamicInitReasonCode) && ver < 5) ver = 5;
   if ((hasMemoryTotalBytes || hasMemoryUsedBytes || hasMemoryFreeBytes) && ver < 6) ver = 6;
+  if ((hasLightLevel || hasLightRequired) && ver < 7) ver = 7;
   const buf = new Uint8Array((1 + 1 + 2 + 8 + 4 + 4 + 4 + 4 + 4 + 4) +
     (ver >= 2 ? (1 + buildLen) : 0) +
     (ver >= 3 ? (4 + 4) : 0) +
     (ver >= 4 ? 1 : 0) +
     (ver >= 5 ? 2 : 0) +
-    (ver >= 6 ? (8 + 8 + 8) : 0));
+    (ver >= 6 ? (8 + 8 + 8) : 0) +
+    (ver >= 7 ? (4 + 4) : 0));
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   let off = 0;
   dv.setUint8(off, ver); off += 1;
@@ -599,6 +606,10 @@ function buildVioStatePayload({
     dv.setBigUint64(off, hasMemoryTotalBytes ? toBigUint64(memoryTotalBytes) : 0n, false); off += 8;
     dv.setBigUint64(off, hasMemoryUsedBytes ? toBigUint64(memoryUsedBytes) : 0n, false); off += 8;
     dv.setBigUint64(off, hasMemoryFreeBytes ? toBigUint64(memoryFreeBytes) : 0n, false); off += 8;
+  }
+  if (ver >= 7) {
+    dv.setFloat32(off, hasLightLevel ? Number(lightLevel01) : 1.0, false); off += 4;
+    dv.setFloat32(off, hasLightRequired ? Number(lightRequired01) : 1.0, false); off += 4;
   }
   return fromU8(buf);
 }
@@ -975,6 +986,12 @@ function decodeVioStatePayload(payload) {
     memoryUsedBytes = dv.getBigUint64(off, false); off += 8;
     memoryFreeBytes = dv.getBigUint64(off, false); off += 8;
   }
+  let lightLevel01 = 1.0;
+  let lightRequired01 = 1.0;
+  if (version >= 7 && off + 8 <= u8.length) {
+    lightLevel01 = dv.getFloat32(off, false); off += 4;
+    lightRequired01 = dv.getFloat32(off, false); off += 4;
+  }
   return {
     version,
     state,
@@ -995,6 +1012,8 @@ function decodeVioStatePayload(payload) {
     memoryTotalBytes,
     memoryUsedBytes,
     memoryFreeBytes,
+    lightLevel01,
+    lightRequired01,
   };
 }
 

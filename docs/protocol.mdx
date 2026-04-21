@@ -174,8 +174,12 @@ Version 6 appends:
 - `memory_used_bytes` (u64)
 - `memory_free_bytes` (u64)
 
+Version 7 appends:
+- `light_level01` (f32): producer-defined raw image-quality actual value; Mighty VIO on Rockchip currently sends an AE-derived darkness/exposure-stress proxy, or `NaN` when unavailable
+- `light_required01` (f32): producer-defined raw requirement/limit value; Mighty VIO on Rockchip currently sends the darkness-proxy limit, or `NaN` when unavailable
+
 Recommended state mapping:
-- `0=OFF, 1=INITIALIZING, 2=TRACKING, 3=DEGRADED, 4=LOST`
+- `0=OFF, 1=INITIALIZING, 2=TRACKING, 3=DEGRADED, 4=LOST, 5=LOW_LIGHT`
 
 Recommended init reason mapping:
 - `0=NONE`
