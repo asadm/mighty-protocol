@@ -441,6 +441,8 @@ class MightyClient:
                     "memory_total_bytes": s.get("memory_total_bytes"),
                     "memory_used_bytes": s.get("memory_used_bytes"),
                     "memory_free_bytes": s.get("memory_free_bytes"),
+                    "light_level01": s.get("light_level01"),
+                    "light_required01": s.get("light_required01"),
                 }
                 self._emit("vio_state", mapped)
                 if wants_any:

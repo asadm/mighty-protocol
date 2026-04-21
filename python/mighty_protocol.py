@@ -37,6 +37,7 @@ VIO_STATE = {
     "TRACKING": 2,
     "DEGRADED": 3,
     "LOST": 4,
+    "LOW_LIGHT": 5,
 }
 
 VIO_INIT_REASON = {
@@ -365,6 +366,8 @@ def decode_vio_state_payload(payload: bytes):
     memory_total_bytes = 0
     memory_used_bytes = 0
     memory_free_bytes = 0
+    light_level01 = 1.0
+    light_required01 = 1.0
     if version >= 2 and off < len(payload):
         ll = payload[off]; off += 1
         if ll > 0:
@@ -384,6 +387,9 @@ def decode_vio_state_payload(payload: bytes):
         memory_total_bytes = struct.unpack(">Q", payload[off:off+8])[0]; off += 8
         memory_used_bytes = struct.unpack(">Q", payload[off:off+8])[0]; off += 8
         memory_free_bytes = struct.unpack(">Q", payload[off:off+8])[0]; off += 8
+    if version >= 7 and off + 8 <= len(payload):
+        light_level01 = struct.unpack(">f", payload[off:off+4])[0]; off += 4
+        light_required01 = struct.unpack(">f", payload[off:off+4])[0]; off += 4
     return {
         "version": version,
         "state": state,
@@ -404,6 +410,8 @@ def decode_vio_state_payload(payload: bytes):
         "memory_total_bytes": memory_total_bytes,
         "memory_used_bytes": memory_used_bytes,
         "memory_free_bytes": memory_free_bytes,
+        "light_level01": light_level01,
+        "light_required01": light_required01,
     }
 
 def decode_fea3_payload(payload: bytes):

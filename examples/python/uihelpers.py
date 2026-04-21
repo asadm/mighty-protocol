@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+import math
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Deque, Dict, Optional, Sequence, Tuple
@@ -16,6 +17,7 @@ STATE_LABELS = {
     2: "TRACKING",
     3: "DEGRADED",
     4: "LOST",
+    5: "LOW_LIGHT",
 }
 
 
@@ -188,6 +190,11 @@ class DashboardState:
         with self.lock:
             self.vio_state_code = code_int
             self.vio_state_text = STATE_LABELS.get(code_int, f"STATE_{code_int}")
+            light_level = s.get("light_level01")
+            if isinstance(light_level, (int, float)) and math.isfinite(float(light_level)):
+                light_required = s.get("light_required01")
+                required = float(light_required) if isinstance(light_required, (int, float)) and math.isfinite(float(light_required)) else 0.0
+                self.vio_state_text = f"{self.vio_state_text} darkness {float(light_level):.4f}/{required:.4f}"
             if s.get("build_version"):
                 self.host_version = str(s.get("build_version"))
             fps_cur = s.get("fps_current")

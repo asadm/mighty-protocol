@@ -483,6 +483,8 @@ export class MightyClient {
           memoryTotalBytes: s.version >= 6 ? s.memoryTotalBytes : undefined,
           memoryUsedBytes: s.version >= 6 ? s.memoryUsedBytes : undefined,
           memoryFreeBytes: s.version >= 6 ? s.memoryFreeBytes : undefined,
+          lightLevel01: s.version >= 7 ? s.lightLevel01 : undefined,
+          lightRequired01: s.version >= 7 ? s.lightRequired01 : undefined,
         };
           this._emit("vio_state", mapped);
           if (wantsAny) this._emitAny({ type: "vio_state", data: mapped });

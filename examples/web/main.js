@@ -17,6 +17,7 @@ const VIO_STATE_LABELS = {
   2: "TRACKING",
   3: "DEGRADED",
   4: "LOST",
+  5: "LOW_LIGHT",
 };
 
 function formatVioState(code) {
@@ -124,7 +125,10 @@ client.onImu((imu) => {
 client.onVioState((vs) => {
   markDataActivity();
   state.vioStateCode = typeof vs.state === "number" ? vs.state : null;
-  state.latestVio = formatVioState(vs.state);
+  const lightSuffix = Number.isFinite(vs.lightLevel01)
+    ? ` darkness ${Number(vs.lightLevel01).toFixed(4)}/${Number(vs.lightRequired01 ?? 0).toFixed(4)}`
+    : "";
+  state.latestVio = `${formatVioState(vs.state)}${lightSuffix}`;
   if (typeof vs.fpsCurrent === "number") state.fps = vs.fpsCurrent.toFixed(1);
   if (typeof vs.numFeatures === "number") state.features = `${vs.numFeatures}`;
   if (typeof vs.poseConfidence === "number") state.poseConfidence = vs.poseConfidence.toFixed(3);

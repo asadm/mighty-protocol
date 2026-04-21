@@ -3,6 +3,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -102,6 +103,8 @@ struct VioStateFrame {
   std::optional<uint64_t> memory_total_bytes;
   std::optional<uint64_t> memory_used_bytes;
   std::optional<uint64_t> memory_free_bytes;
+  std::optional<float> light_level01;
+  std::optional<float> light_required01;
   VioInitReasonCode init_reason = VioInitReasonCode::kNone;
 };
 
@@ -653,6 +656,14 @@ class MightyClient {
           evt.memory_total_bytes = raw.memory_total_bytes;
           evt.memory_used_bytes = raw.memory_used_bytes;
           evt.memory_free_bytes = raw.memory_free_bytes;
+        }
+        if (raw.version >= 7) {
+          if (std::isfinite(raw.light_level01)) {
+            evt.light_level01 = raw.light_level01;
+          }
+          if (std::isfinite(raw.light_required01)) {
+            evt.light_required01 = raw.light_required01;
+          }
         }
         evt.init_reason = static_cast<VioInitReasonCode>(raw.init_reason_code);
         emit(vio_state_handlers_, evt);
