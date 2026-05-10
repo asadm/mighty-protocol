@@ -60,6 +60,7 @@ new MightyClient(
     commandTimeoutMs?: number;        // default 2000
     autoReconnect?: boolean;          // default true
     reconnectDelayMs?: number;        // default 300
+    streamStallTimeoutMs?: number;    // default 3000; <=0 disables
     emitStatAsStatus?: boolean;       // default true
     normalizeChannelAliases?: boolean;// default true
   }
@@ -171,6 +172,13 @@ type VioStateEvent = {
   imuHzCurrent?: number;
   imuHzAverage5s?: number;
   initReasonCode: number;
+  staticInitReasonCode: number;
+  dynamicInitReasonCode: number;
+  memoryTotalBytes?: bigint;
+  memoryUsedBytes?: bigint;
+  memoryFreeBytes?: bigint;
+  lightLevel01?: number;
+  lightRequired01?: number;
 };
 ```
 
@@ -391,6 +399,8 @@ Subscriptions (each returns `Callable[[], None]` unsubscribe):
   "memory_total_bytes": int,
   "memory_used_bytes": int,
   "memory_free_bytes": int,
+  "light_level01": float,
+  "light_required01": float,
 }
 ```
 
@@ -641,6 +651,8 @@ struct VioStateFrame {
   std::optional<uint64_t> memory_total_bytes;
   std::optional<uint64_t> memory_used_bytes;
   std::optional<uint64_t> memory_free_bytes;
+  std::optional<float> light_level01;
+  std::optional<float> light_required01;
   VioInitReasonCode init_reason = VioInitReasonCode::kNone;
 };
 

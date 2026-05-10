@@ -235,6 +235,9 @@ Recommended init reason mapping:
 - message length + UTF-8 message
 - data length + data bytes
 
+Standard command names:
+- `device_id` / `device-id`: returns the device's stable permanent identifier as UTF-8 text in both the `CRES` message and data fields.
+
 #### `CFGQ`
 - `version` (u8)
 - `op` (u8): `0=GET`, `1=SET`
