@@ -1,11 +1,4 @@
 {
   "title": "Docs",
-  "pages": [
-    "index",
-    "quickstart",
-    "pose",
-    "api-reference",
-    "examples",
-    "protocol"
-  ]
+  "pages": ["index", "start", "sdk"]
 }

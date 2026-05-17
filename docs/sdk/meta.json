@@ -1,0 +1,11 @@
+{
+  "title": "SDK",
+  "pages": [
+    "index",
+    "quickstart",
+    "pose",
+    "api-reference",
+    "examples",
+    "protocol"
+  ]
+}

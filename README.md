@@ -2,5 +2,6 @@
 
 Documentation has moved to [`docs/`](./docs/).
 
-- SDK docs: [`docs/index.mdx`](./docs/index.mdx)
-- Protocol spec: [`docs/protocol.mdx`](./docs/protocol.mdx)
+- Device docs: [`docs/index.mdx`](./docs/index.mdx)
+- SDK docs: [`docs/sdk/index.mdx`](./docs/sdk/index.mdx)
+- Protocol spec: [`docs/sdk/protocol.mdx`](./docs/sdk/protocol.mdx)
