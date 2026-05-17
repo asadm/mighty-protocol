@@ -29,9 +29,9 @@ def assert_contains(text, needle, where):
 
 
 def main():
-    protocol_doc = read_text(os.path.join(ROOT, "docs", "protocol.mdx"))
+    protocol_doc = read_text(os.path.join(ROOT, "docs", "sdk", "protocol.mdx"))
     for snippet in REQUIRED_DOC_SNIPPETS:
-        assert_contains(protocol_doc, snippet, "docs/protocol.mdx")
+        assert_contains(protocol_doc, snippet, "docs/sdk/protocol.mdx")
 
     cpp_example = read_text(os.path.join(ROOT, "examples", "cpp", "main.cpp"))
     py_example = read_text(os.path.join(ROOT, "examples", "python", "mightyapp.py"))
@@ -51,7 +51,7 @@ def main():
     assert_contains(js_example, "Q_VIZ_FROM_ODOM", "examples/web/uihelpers.js")
     assert_contains(js_example, "mapCanonicalPoseToViz", "examples/web/uihelpers.js")
 
-    # Basis rows should stay aligned across docs/examples.
+    # Basis rows should stay aligned across docs/sdk examples.
     cpp_rows = ["0.0, -1.0, 0.0", "0.0, 0.0, 1.0", "-1.0, 0.0, 0.0"]
     py_rows = ["(0.0, -1.0, 0.0)", "(0.0, 0.0, 1.0)", "(-1.0, 0.0, 0.0)"]
     js_rows = ["0, -1, 0", "0, 0, 1", "-1, 0, 0"]
@@ -62,7 +62,7 @@ def main():
     for row in js_rows:
         assert_contains(js_example, row, "examples/web/uihelpers.js")
 
-    print("Docs/examples conformance test passed")
+    print("Docs/sdk examples conformance test passed")
 
 
 if __name__ == "__main__":

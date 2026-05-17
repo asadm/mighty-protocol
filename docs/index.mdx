@@ -1,37 +1,84 @@
 ---
 title: Introduction
-description: Mighty SDK docs for Python, JavaScript, and C++.
+description: What is Mighty Camera and why would you need one?
 ---
 
-<div style={{ padding: "10px 14px", border: "1px solid #f59e0b", background: "#fffbeb", borderRadius: "10px", marginBottom: "14px", fontWeight: 600 }}>
-  🚧 WIP: These docs are actively being worked on and may change frequently.
-</div>
+Mighty Camera is a compact visual-inertial motion sensor. It uses a camera, IMU,
+and onboard processing to estimate a device's position and orientation in local
+3D space.
 
-Mighty SDK provides high-level clients for interacting with Mighty Camera devices.
+## What is VIO?
 
-## Connection Overview
+Visual-Inertial Odometry, or VIO, estimates local motion using a camera and an
+IMU. The camera tracks visual features like corners, edges, and texture. The IMU
+measures fast acceleration and rotation. Together, they estimate pose relative to
+where the device started:
 
-Mighty SDK uses a simple connection model: plug in over USB and talk to the camera like a normal network device.
+- position
+- orientation
+- velocity
+- motion trajectory
 
-### Host Connection Model
+VIO is useful when GPS is unavailable, unreliable, or not precise enough, such as
+indoors, near buildings, under structures, in warehouses, or on small robots and
+drones.
 
-When you plug Mighty into a host over USB:
+## VIO, SLAM, and GPS
 
-1. Mighty enumerates as a **USB Ethernet (NCM)** device.
-2. The host creates a new network interface for that USB link.
-3. Mighty runs a **DHCP server** on that link and assigns your machine (host) an IP address.
-4. Mighty itself stays on fixed IP **`192.168.7.1`**.
-5. SDK traffic is carried over **HTTP** to the device on that USB network.
+Visual odometry tracks motion from images. VIO improves this with IMU data,
+which helps with scale, fast motion, and short-term robustness. SLAM adds a map:
+it estimates motion while also building or reusing a representation of the
+environment.
 
-### SDK Scope
+| Term | What it does |
+| --- | --- |
+| Visual Odometry | Tracks camera motion from images |
+| VIO | Tracks motion using camera + IMU |
+| SLAM | Tracks motion and builds or reuses a map |
+| GPS | Gives global outdoor position, but can fail indoors or near obstructions |
 
-- Supported: **USB**
-- **UART / Serial** is not currently supported in SDK
+Mighty Camera focuses on real-time local motion estimation. It is not intended
+to produce a dense 3D mesh, semantic scene understanding, or absolute GPS
+coordinates by itself, but its pose output can be used as an input to systems
+that do mapping, localization, navigation, or scene understanding.
 
-This docs section is organized as:
+## What the board provides
 
-- [Quick Start](/docs/quickstart/python)
-- [Examples](/docs/examples)
-- [Pose Guide](/docs/pose)
-- [API Reference](/docs/api-reference)
-- [Protocol Reference](/docs/protocol)
+The board treats the camera as a motion sensor, not just a video sensor. It
+watches how the world moves across the image and combines that with IMU
+measurements to output tracking data such as:
+
+- orientation
+- position relative to startup
+- velocity
+- timestamps
+- optional image, feature, or debug streams depending on firmware mode
+
+In a robot stack, this is usually used as local odometry for stabilization,
+control, mapping, planning, logging, or fusion with other sensors such as wheel
+odometry, GPS, rangefinders, or barometers.
+
+## Specifications
+
+| Item | Specification |
+| --- | --- |
+| Chipset | Rockchip RV1103G1 (ARMv7) |
+| Camera | OV9281 global shutter |
+| Field of view | 160 degrees |
+| IMU | ICM-42670-P, 6-axis |
+| Update rate | 15 Hz pose, 800 Hz IMU |
+| Interface | USB 2.0, UART, MAVLink |
+| USB output | Pose estimates with synchronized camera and IMU data |
+| UART / MAVLink output | Pose only |
+| Power | 0.2 W idle, 0.8 W peak |
+| Dimensions | 33 mm x 30 mm PCB |
+| Input voltage | 5 V over USB or 1.25 mm JST connector |
+
+## When it works well
+
+VIO works best with stable lighting, visible texture, a rigid mount, a clear
+camera view, controlled vibration, and calibrated camera/IMU timing. It may
+struggle with blank walls, darkness, glare, motion blur, heavy vibration,
+repetitive patterns, or scenes where most visible objects are moving.
+
+For software integration, see the [SDK documentation](/docs/sdk).

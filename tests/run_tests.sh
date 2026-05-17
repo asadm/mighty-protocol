@@ -53,5 +53,5 @@ python3 "$HERE/python_pose_contract_test.py"
 echo "[test] cross-client pose parity"
 python3 "$HERE/cross_client_pose_parity_test.py"
 
-echo "[test] docs/examples conformance"
+echo "[test] docs/sdk examples conformance"
 python3 "$HERE/docs_conformance_test.py"
