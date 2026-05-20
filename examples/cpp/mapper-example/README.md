@@ -42,7 +42,8 @@ Then run:
 By default the example mirrors the offline mapper runner for bag playback:
 `start=12`, `pose-max-dt-ms=5`, and a large image queue so the mapper does not
 drop most of the finite dataset while it catches up. The viewer window stays
-open after the stream ends so the final map can be inspected.
+open after the stream ends so the final map can be inspected. Map points use
+the Mighty blue (`#0099ff`) and the pose trajectory uses Mighty red (`#ff0055`).
 
 Useful options:
 

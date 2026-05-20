@@ -56,6 +56,12 @@ constexpr double kFollowTargetSmoothRate = 2.5;
 constexpr int kPreviewWidthPx = 320;
 constexpr int kPreviewHeightPx = 180;
 constexpr int kPreviewMarginPx = 12;
+constexpr float kBrandBlueR = 0.0f;
+constexpr float kBrandBlueG = 153.0f / 255.0f;
+constexpr float kBrandBlueB = 1.0f;
+constexpr float kBrandRedR = 1.0f;
+constexpr float kBrandRedG = 0.0f;
+constexpr float kBrandRedB = 85.0f / 255.0f;
 
 struct Options {
   std::string base_url;
@@ -315,7 +321,7 @@ void print_usage() {
       << "Usage:\n"
       << "  ./build/mighty_mapper_live [--base-url http://127.0.0.1:8084]\n\n"
       << "Run VIO separately, then start this example. The viewer uses Pangolin,\n"
-      << "white background, black map points, cyan/magenta trajectory lines.\n\n"
+      << "white background, blue map points, and red pose trajectory.\n\n"
       << "Options:\n"
       << "  --pose-max-dt-ms=N  max image/pose timestamp delta (default 5)\n"
       << "  --start-frame=N     first stream image id pushed to mapper (default 12)\n"
@@ -900,7 +906,7 @@ pangolin::OpenGlMatrix default_view_matrix() {
 }
 
 void draw_grid(float extent, float step) {
-  glColor3f(0.0f, 0.62f, 1.0f);
+  glColor3f(kBrandBlueR, kBrandBlueG, kBrandBlueB);
   glLineWidth(1.0f);
   glBegin(GL_LINES);
   for (float v = -extent; v <= extent + 1e-5f; v += step) {
@@ -930,7 +936,7 @@ void draw_trajectory(const std::vector<mighty_mapper::Pose, Eigen::aligned_alloc
 }
 
 void draw_points(const std::vector<mighty_mapper::MapPoint>& points, int stride) {
-  glColor3f(0.0f, 0.0f, 0.0f);
+  glColor3f(kBrandBlueR, kBrandBlueG, kBrandBlueB);
   glPointSize(2.0f);
   glBegin(GL_POINTS);
   for (size_t i = 0; i < points.size(); i += static_cast<size_t>(std::max(1, stride))) {
@@ -945,7 +951,7 @@ void draw_latest_pose_dot(const std::vector<mighty_mapper::Pose, Eigen::aligned_
   if (poses.empty()) return;
   const Eigen::Vector3d p = render_from_mapper(poses.back().t_odom_from_camera);
 
-  glColor3f(1.0f, 0.08f, 0.08f);
+  glColor3f(kBrandRedR, kBrandRedG, kBrandRedB);
   glPointSize(14.0f);
   glBegin(GL_POINTS);
   glVertex3d(p.x(), p.y(), p.z());
@@ -1142,8 +1148,8 @@ void render_loop(SharedState* state, const Options& opts) {
     if (opts.profile) profile.points.add(elapsed_ms(points_start));
 
     const auto traj_start = Clock::now();
-    draw_trajectory(snapshot.trajectory, 0.0f, 0.62f, 1.0f, 0.0f);
-    draw_trajectory(snapshot.trajectory, 1.0f, 0.0f, 0.33f, -0.03f);
+    draw_trajectory(snapshot.trajectory, kBrandRedR, kBrandRedG, kBrandRedB, 0.0f);
+    draw_trajectory(snapshot.trajectory, kBrandRedR, kBrandRedG, kBrandRedB, -0.03f);
     draw_latest_pose_dot(snapshot.trajectory);
     if (opts.profile) profile.trajectory.add(elapsed_ms(traj_start));
 
