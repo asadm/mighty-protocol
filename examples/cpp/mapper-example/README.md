@@ -41,7 +41,8 @@ Then run:
 
 By default the example mirrors the offline mapper runner for bag playback:
 `start=12`, `pose-max-dt-ms=5`, and a large image queue so the mapper does not
-drop most of the finite dataset while it catches up.
+drop most of the finite dataset while it catches up. The viewer window stays
+open after the stream ends so the final map can be inspected.
 
 Useful options:
 
@@ -50,4 +51,5 @@ Useful options:
 ./build/mighty_mapper_live --base-url http://127.0.0.1:8084 --start-frame=0
 ./build/mighty_mapper_live --base-url http://127.0.0.1:8084 --max-queued-images=120
 ./build/mighty_mapper_live --point-stride=2
+./build/mighty_mapper_live --auto-exit
 ```
