@@ -56,6 +56,8 @@ struct Options {
   int mode = 1;
   int point_stride = 1;
   bool auto_exit_on_idle = true;
+  bool profile = false;
+  bool quiet = false;
 };
 
 struct Calibration {
@@ -113,6 +115,123 @@ bool starts_with(const std::string& s, const std::string& prefix) {
   return s.rfind(prefix, 0) == 0;
 }
 
+double elapsed_ms(Clock::time_point start, Clock::time_point end = Clock::now()) {
+  return std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(end - start).count();
+}
+
+struct StageStats {
+  size_t count = 0;
+  double total_ms = 0.0;
+  double max_ms = 0.0;
+
+  void add(double ms) {
+    ++count;
+    total_ms += ms;
+    max_ms = std::max(max_ms, ms);
+  }
+
+  double avg() const { return count > 0 ? total_ms / static_cast<double>(count) : 0.0; }
+
+  void reset() {
+    count = 0;
+    total_ms = 0.0;
+    max_ms = 0.0;
+  }
+};
+
+struct MapperProfileWindow {
+  Clock::time_point started_at = Clock::now();
+  Clock::time_point window_at = Clock::now();
+  size_t window_frames = 0;
+  size_t total_frames = 0;
+  bool saw_points = false;
+  StageStats queue_select;
+  StageStats undistort;
+  StageStats configure;
+  StageStats grayscale;
+  StageStats pose_convert;
+  StageStats push_frame;
+  StageStats snapshot;
+  StageStats status_update;
+  StageStats total;
+
+  void maybe_report(int frame_id, size_t point_count) {
+    ++window_frames;
+    ++total_frames;
+    if (!saw_points && point_count > 0) {
+      saw_points = true;
+      std::cerr << "[mapper-profile] first_points frame_id=" << frame_id
+                << " accepted=" << total_frames
+                << " t=" << elapsed_ms(started_at) * 0.001
+                << "s points=" << point_count << "\n";
+    }
+    if (window_frames < 30 && elapsed_ms(window_at) < 2000.0) return;
+    std::cerr << "[mapper-profile] window frames=" << window_frames
+              << " last_id=" << frame_id
+              << " points=" << point_count
+              << " total.avg/max=" << total.avg() << "/" << total.max_ms
+              << " queue.avg/max=" << queue_select.avg() << "/" << queue_select.max_ms
+              << " undistort.avg/max=" << undistort.avg() << "/" << undistort.max_ms
+              << " configure.avg/max=" << configure.avg() << "/" << configure.max_ms
+              << " gray.avg/max=" << grayscale.avg() << "/" << grayscale.max_ms
+              << " pose.avg/max=" << pose_convert.avg() << "/" << pose_convert.max_ms
+              << " push.avg/max=" << push_frame.avg() << "/" << push_frame.max_ms
+              << " snapshot.avg/max=" << snapshot.avg() << "/" << snapshot.max_ms
+              << " status.avg/max=" << status_update.avg() << "/" << status_update.max_ms
+              << "\n";
+    window_frames = 0;
+    window_at = Clock::now();
+    queue_select.reset();
+    undistort.reset();
+    configure.reset();
+    grayscale.reset();
+    pose_convert.reset();
+    push_frame.reset();
+    snapshot.reset();
+    status_update.reset();
+    total.reset();
+  }
+};
+
+struct RenderProfileWindow {
+  Clock::time_point window_at = Clock::now();
+  size_t window_frames = 0;
+  StageStats snapshot;
+  StageStats clear_activate;
+  StageStats grid;
+  StageStats points;
+  StageStats trajectory;
+  StageStats text;
+  StageStats finish;
+  StageStats total;
+
+  void maybe_report(size_t point_count) {
+    ++window_frames;
+    if (window_frames < 120 && elapsed_ms(window_at) < 2000.0) return;
+    std::cerr << "[render-profile] window frames=" << window_frames
+              << " points=" << point_count
+              << " total.avg/max=" << total.avg() << "/" << total.max_ms
+              << " snapshot.avg/max=" << snapshot.avg() << "/" << snapshot.max_ms
+              << " clear_activate.avg/max=" << clear_activate.avg() << "/" << clear_activate.max_ms
+              << " grid.avg/max=" << grid.avg() << "/" << grid.max_ms
+              << " points.avg/max=" << points.avg() << "/" << points.max_ms
+              << " trajectory.avg/max=" << trajectory.avg() << "/" << trajectory.max_ms
+              << " text.avg/max=" << text.avg() << "/" << text.max_ms
+              << " finish.avg/max=" << finish.avg() << "/" << finish.max_ms
+              << "\n";
+    window_frames = 0;
+    window_at = Clock::now();
+    snapshot.reset();
+    clear_activate.reset();
+    grid.reset();
+    points.reset();
+    trajectory.reset();
+    text.reset();
+    finish.reset();
+    total.reset();
+  }
+};
+
 bool parse_args(int argc, char** argv, Options* opts) {
   if (!opts) return false;
   for (int i = 1; i < argc; ++i) {
@@ -135,6 +254,10 @@ bool parse_args(int argc, char** argv, Options* opts) {
           1, static_cast<size_t>(std::stoull(arg.substr(std::string("--max-queued-images=").size()))));
     } else if (arg == "--no-auto-exit") {
       opts->auto_exit_on_idle = false;
+    } else if (arg == "--profile") {
+      opts->profile = true;
+    } else if (arg == "--quiet") {
+      opts->quiet = true;
     } else if (starts_with(arg, "--preset=")) {
       opts->preset = std::stoi(arg.substr(std::string("--preset=").size()));
     } else if (starts_with(arg, "--mode=")) {
@@ -160,6 +283,8 @@ void print_usage() {
       << "  --start-frame=N     first stream image id pushed to mapper (default 12)\n"
       << "  --max-queued-images=N\n"
       << "                       image queue before dropping old frames (default 3000)\n"
+      << "  --profile          print mapper/render timing windows to stderr\n"
+      << "  --quiet            suppress most core mapper logs\n"
       << "  --idle-exit-sec=N   exit after N seconds without stream data (default 5)\n"
       << "  --no-auto-exit      keep viewer open until the Pangolin window is closed\n";
 }
@@ -552,7 +677,7 @@ mighty_mapper::MapperConfig make_mapper_config(const Calibration& calib,
   config.runtime.preset = opts.preset;
   config.runtime.photometric_mode = opts.mode;
   config.runtime.enable_display = false;
-  config.runtime.quiet = false;
+  config.runtime.quiet = opts.quiet;
   config.pose_prior.enabled = true;
   config.pose_prior.use_metric_initializer_scale = true;
   config.pose_prior.use_backend_prior = true;
@@ -582,13 +707,16 @@ class MappingActiveGuard {
 void mapping_thread(SharedState* state, Options opts) {
   int configured_w = 0;
   int configured_h = 0;
+  MapperProfileWindow profile;
 
   while (true) {
+    const auto frame_start = Clock::now();
     ImageItem image;
     Calibration calib;
     PoseFrame pose;
     double dt_ms = 0.0;
 
+    auto queue_start = Clock::now();
     {
       std::unique_lock<std::mutex> lock(state->mu);
       state->cv.wait(lock, [&]() {
@@ -627,12 +755,16 @@ void mapping_thread(SharedState* state, Options opts) {
       }
       if (!have_item) continue;
     }
+    if (opts.profile) profile.queue_select.add(elapsed_ms(queue_start));
     MappingActiveGuard active_guard(state);
 
+    const auto undistort_start = Clock::now();
     cv::Mat mapper_bgr = undistort_for_mapper(image.bgr, calib);
+    if (opts.profile) profile.undistort.add(elapsed_ms(undistort_start));
     if (mapper_bgr.empty()) continue;
 
     std::shared_ptr<mighty_mapper::Mapper> mapper;
+    const auto configure_start = Clock::now();
     if (mapper_bgr.cols != configured_w || mapper_bgr.rows != configured_h) {
       configured_w = mapper_bgr.cols;
       configured_h = mapper_bgr.rows;
@@ -651,13 +783,18 @@ void mapping_thread(SharedState* state, Options opts) {
       std::lock_guard<std::mutex> lock(state->mu);
       mapper = state->mapper;
     }
+    if (opts.profile) profile.configure.add(elapsed_ms(configure_start));
     if (!mapper) continue;
 
+    const auto grayscale_start = Clock::now();
     cv::Mat gray;
     cv::cvtColor(mapper_bgr, gray, cv::COLOR_BGR2GRAY);
     if (!gray.isContinuous()) gray = gray.clone();
+    if (opts.profile) profile.grayscale.add(elapsed_ms(grayscale_start));
 
+    const auto pose_start = Clock::now();
     auto T_w_c = pose_to_camera_pose(pose, calib);
+    if (opts.profile) profile.pose_convert.add(elapsed_ms(pose_start));
     if (!T_w_c.has_value()) continue;
 
     mighty_mapper::FrameInput frame;
@@ -676,12 +813,20 @@ void mapping_thread(SharedState* state, Options opts) {
     frame.pose_confidence = pose.confidence;
     frame.keyframe_hint = pose.is_keyframe;
 
+    const auto push_start = Clock::now();
     const auto result = mapper->pushFrame(frame);
+    if (opts.profile) profile.push_frame.add(elapsed_ms(push_start));
+
+    const auto snapshot_start = Clock::now();
     const auto snapshot = mapper->snapshot();
+    if (opts.profile) profile.snapshot.add(elapsed_ms(snapshot_start));
+    const size_t point_count = snapshot.points.size();
+
+    const auto status_start = Clock::now();
     {
       std::lock_guard<std::mutex> lock(state->mu);
       ++state->accepted_frames;
-      state->pushed_points = snapshot.points.size();
+      state->pushed_points = point_count;
       std::ostringstream ss;
       ss << "frames=" << state->accepted_frames << " pts=" << state->pushed_points
          << " id=" << image.frame_id
@@ -690,6 +835,11 @@ void mapping_thread(SharedState* state, Options opts) {
       if (state->dropped_images > 0) ss << " dropped=" << state->dropped_images;
       if (result.lost) ss << " lost";
       state->status = ss.str();
+    }
+    if (opts.profile) {
+      profile.status_update.add(elapsed_ms(status_start));
+      profile.total.add(elapsed_ms(frame_start));
+      profile.maybe_report(image.frame_id, point_count);
     }
   }
 
@@ -754,8 +904,10 @@ void render_loop(SharedState* state, const Options& opts) {
   pangolin::View& view = pangolin::CreateDisplay()
                              .SetBounds(0.0, 1.0, 0.0, 1.0, -1600.0f / 1000.0f)
                              .SetHandler(&handler);
+  RenderProfileWindow profile;
 
   while (!pangolin::ShouldQuit()) {
+    const auto render_start = Clock::now();
     std::shared_ptr<mighty_mapper::Mapper> mapper;
     std::string status;
     bool should_exit_idle = false;
@@ -778,17 +930,39 @@ void render_loop(SharedState* state, const Options& opts) {
     if (should_exit_idle) break;
 
     mighty_mapper::MapSnapshot snapshot;
+    const auto snapshot_start = Clock::now();
     if (mapper) snapshot = mapper->snapshot();
+    if (opts.profile) profile.snapshot.add(elapsed_ms(snapshot_start));
 
+    const auto clear_start = Clock::now();
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     view.Activate(camera);
+    if (opts.profile) profile.clear_activate.add(elapsed_ms(clear_start));
+
+    const auto grid_start = Clock::now();
     draw_grid(20.0f, 0.25f);
+    if (opts.profile) profile.grid.add(elapsed_ms(grid_start));
+
+    const auto points_start = Clock::now();
     draw_points(snapshot.points, opts.point_stride);
+    if (opts.profile) profile.points.add(elapsed_ms(points_start));
+
+    const auto traj_start = Clock::now();
     draw_trajectory(snapshot.trajectory, 0.0f, 0.62f, 1.0f, 0.0f);
     draw_trajectory(snapshot.trajectory, 1.0f, 0.0f, 0.33f, -0.03f);
+    if (opts.profile) profile.trajectory.add(elapsed_ms(traj_start));
 
+    const auto text_start = Clock::now();
     pangolin::default_font().Text("%s", status.c_str()).DrawWindow(12, 18);
+    if (opts.profile) profile.text.add(elapsed_ms(text_start));
+
+    const auto finish_start = Clock::now();
     pangolin::FinishFrame();
+    if (opts.profile) {
+      profile.finish.add(elapsed_ms(finish_start));
+      profile.total.add(elapsed_ms(render_start));
+      profile.maybe_report(snapshot.points.size());
+    }
     std::this_thread::sleep_for(std::chrono::milliseconds(16));
   }
   {
