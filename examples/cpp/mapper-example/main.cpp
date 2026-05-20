@@ -45,6 +45,17 @@ constexpr size_t kMaxPoseHistory = 3000;
 constexpr uint64_t kPoseMaxDeltaNsDefault = 5ull * 1000ull * 1000ull;
 constexpr double kAutoExitIdleSecDefault = 5.0;
 constexpr int kStartFrameDefault = 12;
+constexpr int kUiPanelWidthPx = 180;
+constexpr double kFollowBackDistance = 2.4;
+constexpr double kFollowUpOffset = 0.9;
+constexpr double kFollowSideOffset = 0.35;
+constexpr double kFollowPosSmoothRate = 2.5;
+constexpr double kFollowHeadingSmoothRate = 1.8;
+constexpr double kFollowCamSmoothRate = 2.0;
+constexpr double kFollowTargetSmoothRate = 2.5;
+constexpr int kPreviewWidthPx = 320;
+constexpr int kPreviewHeightPx = 180;
+constexpr int kPreviewMarginPx = 12;
 
 struct Options {
   std::string base_url;
@@ -55,9 +66,10 @@ struct Options {
   int preset = 0;
   int mode = 1;
   int point_stride = 1;
-  bool auto_exit_on_idle = true;
+  bool auto_exit_on_idle = false;
   bool profile = false;
   bool quiet = false;
+  bool follow_pose = false;
 };
 
 struct Calibration {
@@ -102,6 +114,8 @@ struct SharedState {
   Clock::time_point last_stream_at = Clock::now();
   std::string status = "starting";
   std::shared_ptr<mighty_mapper::Mapper> mapper;
+  cv::Mat latest_preview_bgr;
+  uint64_t latest_preview_timestamp_ns = 0;
 };
 
 std::string lower_copy(std::string value) {
@@ -232,6 +246,26 @@ struct RenderProfileWindow {
   }
 };
 
+struct FollowCameraState {
+  bool has_target = false;
+  bool has_heading = false;
+  bool has_camera_position = false;
+  double zoom_scale = 1.0;
+  Eigen::Vector3d target = Eigen::Vector3d::Zero();
+  Eigen::Vector3d heading = Eigen::Vector3d::UnitX();
+  Eigen::Vector3d camera_position = Eigen::Vector3d::Zero();
+
+  void reset() {
+    has_target = false;
+    has_heading = false;
+    has_camera_position = false;
+    zoom_scale = 1.0;
+    target.setZero();
+    heading = Eigen::Vector3d::UnitX();
+    camera_position.setZero();
+  }
+};
+
 bool parse_args(int argc, char** argv, Options* opts) {
   if (!opts) return false;
   for (int i = 1; i < argc; ++i) {
@@ -254,10 +288,14 @@ bool parse_args(int argc, char** argv, Options* opts) {
           1, static_cast<size_t>(std::stoull(arg.substr(std::string("--max-queued-images=").size()))));
     } else if (arg == "--no-auto-exit") {
       opts->auto_exit_on_idle = false;
+    } else if (arg == "--auto-exit") {
+      opts->auto_exit_on_idle = true;
     } else if (arg == "--profile") {
       opts->profile = true;
     } else if (arg == "--quiet") {
       opts->quiet = true;
+    } else if (arg == "--follow") {
+      opts->follow_pose = true;
     } else if (starts_with(arg, "--preset=")) {
       opts->preset = std::stoi(arg.substr(std::string("--preset=").size()));
     } else if (starts_with(arg, "--mode=")) {
@@ -285,8 +323,10 @@ void print_usage() {
       << "                       image queue before dropping old frames (default 3000)\n"
       << "  --profile          print mapper/render timing windows to stderr\n"
       << "  --quiet            suppress most core mapper logs\n"
-      << "  --idle-exit-sec=N   exit after N seconds without stream data (default 5)\n"
-      << "  --no-auto-exit      keep viewer open until the Pangolin window is closed\n";
+      << "  --follow           start viewer with trajectory follow mode enabled\n"
+      << "  --auto-exit        close after idle stream timeout\n"
+      << "  --idle-exit-sec=N   idle timeout for --auto-exit (default 5)\n"
+      << "  --no-auto-exit      keep viewer open until closed (default)\n";
 }
 
 bool is_primary_channel(const std::string& channel_or_alias) {
@@ -851,15 +891,23 @@ void mapping_thread(SharedState* state, Options opts) {
   if (mapper) mapper->finish();
 }
 
+Eigen::Vector3d render_from_mapper(const Eigen::Vector3d& p) {
+  return Eigen::Vector3d(p.x(), -p.y(), -p.z());
+}
+
+pangolin::OpenGlMatrix default_view_matrix() {
+  return pangolin::ModelViewLookAt(0.0, 12.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0);
+}
+
 void draw_grid(float extent, float step) {
   glColor3f(0.0f, 0.62f, 1.0f);
   glLineWidth(1.0f);
   glBegin(GL_LINES);
   for (float v = -extent; v <= extent + 1e-5f; v += step) {
-    glVertex3f(-extent, v, 0.0f);
-    glVertex3f(extent, v, 0.0f);
-    glVertex3f(v, -extent, 0.0f);
-    glVertex3f(v, extent, 0.0f);
+    glVertex3f(-extent, 0.0f, v);
+    glVertex3f(extent, 0.0f, v);
+    glVertex3f(v, 0.0f, -extent);
+    glVertex3f(v, 0.0f, extent);
   }
   glEnd();
 }
@@ -868,14 +916,15 @@ void draw_trajectory(const std::vector<mighty_mapper::Pose, Eigen::aligned_alloc
                      float r,
                      float g,
                      float b,
-                     float z_offset) {
+                     float y_offset) {
   if (poses.size() < 2) return;
   glColor3f(r, g, b);
   glLineWidth(4.0f);
   glBegin(GL_LINE_STRIP);
   for (const auto& pose : poses) {
-    const Eigen::Vector3d& t = pose.t_odom_from_camera;
-    glVertex3d(t.x(), t.y(), t.z() + z_offset);
+    Eigen::Vector3d t = render_from_mapper(pose.t_odom_from_camera);
+    t.y() += y_offset;
+    glVertex3d(t.x(), t.y(), t.z());
   }
   glEnd();
 }
@@ -886,9 +935,114 @@ void draw_points(const std::vector<mighty_mapper::MapPoint>& points, int stride)
   glBegin(GL_POINTS);
   for (size_t i = 0; i < points.size(); i += static_cast<size_t>(std::max(1, stride))) {
     const auto& p = points[i];
-    glVertex3f(p.x, p.y, p.z);
+    const Eigen::Vector3d q = render_from_mapper(Eigen::Vector3d(p.x, p.y, p.z));
+    glVertex3f(q.x(), q.y(), q.z());
   }
   glEnd();
+}
+
+void draw_latest_pose_dot(const std::vector<mighty_mapper::Pose, Eigen::aligned_allocator<mighty_mapper::Pose>>& poses) {
+  if (poses.empty()) return;
+  const Eigen::Vector3d p = render_from_mapper(poses.back().t_odom_from_camera);
+
+  glColor3f(1.0f, 0.08f, 0.08f);
+  glPointSize(14.0f);
+  glBegin(GL_POINTS);
+  glVertex3d(p.x(), p.y(), p.z());
+  glEnd();
+
+  constexpr int kLatSteps = 8;
+  constexpr int kLonSteps = 12;
+  constexpr double kRadius = 0.075;
+  glPushMatrix();
+  glTranslated(p.x(), p.y(), p.z());
+  for (int i = 0; i < kLatSteps; ++i) {
+    const double theta0 = M_PI * static_cast<double>(i) / static_cast<double>(kLatSteps);
+    const double theta1 = M_PI * static_cast<double>(i + 1) / static_cast<double>(kLatSteps);
+    glBegin(GL_TRIANGLE_STRIP);
+    for (int j = 0; j <= kLonSteps; ++j) {
+      const double phi = 2.0 * M_PI * static_cast<double>(j) / static_cast<double>(kLonSteps);
+      const double c = std::cos(phi);
+      const double s = std::sin(phi);
+      glVertex3d(kRadius * std::sin(theta0) * c,
+                 kRadius * std::sin(theta0) * s,
+                 kRadius * std::cos(theta0));
+      glVertex3d(kRadius * std::sin(theta1) * c,
+                 kRadius * std::sin(theta1) * s,
+                 kRadius * std::cos(theta1));
+    }
+    glEnd();
+  }
+  glPopMatrix();
+}
+
+Eigen::Vector3d horizontal_heading_from_pose(const mighty_mapper::Pose& pose) {
+  const Eigen::Vector3d camera_forward_odom =
+      pose.q_odom_from_camera.normalized() * Eigen::Vector3d(0.0, 0.0, -1.0);
+  Eigen::Vector3d heading = -render_from_mapper(camera_forward_odom);
+  heading.y() = 0.0;
+  if (heading.squaredNorm() < 1e-9) return Eigen::Vector3d::UnitX();
+  return heading.normalized();
+}
+
+Eigen::Vector3d lerp_vec3(const Eigen::Vector3d& a, const Eigen::Vector3d& b, double alpha) {
+  return a + (b - a) * std::max(0.0, std::min(1.0, alpha));
+}
+
+void update_follow_camera(const mighty_mapper::Pose& latest,
+                          double dt_sec,
+                          FollowCameraState* follow,
+                          pangolin::OpenGlRenderState* camera) {
+  if (!follow || !camera) return;
+  const Eigen::Vector3d latest_target = render_from_mapper(latest.t_odom_from_camera);
+  const Eigen::Vector3d latest_heading = horizontal_heading_from_pose(latest);
+  const double pos_alpha = 1.0 - std::exp(-std::max(0.0, dt_sec) * kFollowPosSmoothRate);
+  const double heading_alpha = 1.0 - std::exp(-std::max(0.0, dt_sec) * kFollowHeadingSmoothRate);
+  const double cam_alpha = 1.0 - std::exp(-std::max(0.0, dt_sec) * kFollowCamSmoothRate);
+  const double target_alpha = 1.0 - std::exp(-std::max(0.0, dt_sec) * kFollowTargetSmoothRate);
+
+  if (!follow->has_target) {
+    follow->target = latest_target;
+    follow->has_target = true;
+  } else {
+    follow->target = lerp_vec3(follow->target, latest_target, pos_alpha);
+  }
+
+  if (!follow->has_heading) {
+    follow->heading = latest_heading;
+    follow->has_heading = true;
+  } else {
+    follow->heading = lerp_vec3(follow->heading, latest_heading, heading_alpha);
+    if (follow->heading.squaredNorm() > 1e-9) follow->heading.normalize();
+    else follow->heading = latest_heading;
+  }
+
+  const Eigen::Vector3d world_up = Eigen::Vector3d::UnitY();
+  Eigen::Vector3d right = follow->heading.cross(world_up);
+  if (right.squaredNorm() < 1e-9) right = Eigen::Vector3d::UnitZ();
+  else right.normalize();
+
+  const Eigen::Vector3d desired_camera =
+      follow->target -
+      follow->heading * (kFollowBackDistance * follow->zoom_scale) +
+      right * (kFollowSideOffset * follow->zoom_scale) +
+      world_up * (kFollowUpOffset * follow->zoom_scale);
+
+  if (!follow->has_camera_position ||
+      (follow->camera_position - desired_camera).squaredNorm() > 100.0) {
+    follow->camera_position = desired_camera;
+    follow->has_camera_position = true;
+  } else {
+    follow->camera_position = lerp_vec3(follow->camera_position, desired_camera, cam_alpha);
+  }
+
+  const Eigen::Vector3d look_target = follow->has_target
+      ? lerp_vec3(follow->target, latest_target, target_alpha)
+      : latest_target;
+  camera->SetModelViewMatrix(pangolin::ModelViewLookAt(
+      follow->camera_position.x(), follow->camera_position.y(), follow->camera_position.z(),
+      look_target.x(), look_target.y(), look_target.z(),
+      pangolin::AxisY));
 }
 
 void render_loop(SharedState* state, const Options& opts) {
@@ -897,24 +1051,48 @@ void render_loop(SharedState* state, const Options& opts) {
   glDisable(GL_LIGHTING);
   glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 
+  pangolin::CreatePanel("ui").SetBounds(0.0, 1.0, 0.0, pangolin::Attach::Pix(kUiPanelWidthPx));
+  pangolin::Var<bool> follow_pose("ui.Follow Pose", opts.follow_pose, true);
+  pangolin::Var<bool> reset_view("ui.Reset View", false, false);
+  pangolin::Var<int> point_stride("ui.Point Stride", opts.point_stride, 1, 50, false);
+  pangolin::Var<int> trajectory_poses("ui.Trajectory Poses", 0);
+  pangolin::Var<int> map_points("ui.Map Points", 0);
+
   pangolin::OpenGlRenderState camera(
       pangolin::ProjectionMatrix(1600, 1000, 900, 900, 800, 500, 0.05, 5000),
-      pangolin::ModelViewLookAt(-4.0, -8.0, 5.0, 0.0, 0.0, 0.0, pangolin::AxisZ));
+      default_view_matrix());
   pangolin::Handler3D handler(camera);
   pangolin::View& view = pangolin::CreateDisplay()
-                             .SetBounds(0.0, 1.0, 0.0, 1.0, -1600.0f / 1000.0f)
+                             .SetBounds(0.0, 1.0, pangolin::Attach::Pix(kUiPanelWidthPx), 1.0,
+                                        -static_cast<float>(1600 - kUiPanelWidthPx) / 1000.0f)
                              .SetHandler(&handler);
+  pangolin::View& preview_view =
+      pangolin::CreateDisplay()
+          .SetBounds(pangolin::Attach::ReversePix(kPreviewMarginPx + kPreviewHeightPx),
+                     pangolin::Attach::ReversePix(kPreviewMarginPx),
+                     pangolin::Attach::ReversePix(kPreviewMarginPx + kPreviewWidthPx),
+                     pangolin::Attach::ReversePix(kPreviewMarginPx),
+                     static_cast<float>(kPreviewWidthPx) / static_cast<float>(kPreviewHeightPx));
   RenderProfileWindow profile;
+  FollowCameraState follow_state;
+  std::unique_ptr<pangolin::GlTexture> preview_texture;
+  int preview_tex_width = 0;
+  int preview_tex_height = 0;
+  auto last_render_at = Clock::now();
 
   while (!pangolin::ShouldQuit()) {
     const auto render_start = Clock::now();
+    const double dt_sec = std::min(0.1, elapsed_ms(last_render_at, render_start) * 0.001);
+    last_render_at = render_start;
     std::shared_ptr<mighty_mapper::Mapper> mapper;
     std::string status;
+    cv::Mat preview_bgr;
     bool should_exit_idle = false;
     {
       std::lock_guard<std::mutex> lock(state->mu);
       mapper = state->mapper;
       status = state->status;
+      if (!state->latest_preview_bgr.empty()) state->latest_preview_bgr.copyTo(preview_bgr);
       if (opts.auto_exit_on_idle && state->saw_stream_data && state->images.empty() &&
           !state->mapping_active) {
         const double idle_sec =
@@ -933,6 +1111,22 @@ void render_loop(SharedState* state, const Options& opts) {
     const auto snapshot_start = Clock::now();
     if (mapper) snapshot = mapper->snapshot();
     if (opts.profile) profile.snapshot.add(elapsed_ms(snapshot_start));
+    map_points = static_cast<int>(std::min<size_t>(
+        snapshot.points.size(), static_cast<size_t>(std::numeric_limits<int>::max())));
+    trajectory_poses = static_cast<int>(std::min<size_t>(
+        snapshot.trajectory.size(), static_cast<size_t>(std::numeric_limits<int>::max())));
+
+    if (pangolin::Pushed(reset_view)) {
+      camera.SetModelViewMatrix(default_view_matrix());
+      follow_state.reset();
+      follow_pose = false;
+    }
+
+    if (follow_pose && !snapshot.trajectory.empty()) {
+      update_follow_camera(snapshot.trajectory.back(), dt_sec, &follow_state, &camera);
+    } else if (!follow_pose) {
+      follow_state.reset();
+    }
 
     const auto clear_start = Clock::now();
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -944,17 +1138,41 @@ void render_loop(SharedState* state, const Options& opts) {
     if (opts.profile) profile.grid.add(elapsed_ms(grid_start));
 
     const auto points_start = Clock::now();
-    draw_points(snapshot.points, opts.point_stride);
+    draw_points(snapshot.points, point_stride);
     if (opts.profile) profile.points.add(elapsed_ms(points_start));
 
     const auto traj_start = Clock::now();
     draw_trajectory(snapshot.trajectory, 0.0f, 0.62f, 1.0f, 0.0f);
     draw_trajectory(snapshot.trajectory, 1.0f, 0.0f, 0.33f, -0.03f);
+    draw_latest_pose_dot(snapshot.trajectory);
     if (opts.profile) profile.trajectory.add(elapsed_ms(traj_start));
 
     const auto text_start = Clock::now();
-    pangolin::default_font().Text("%s", status.c_str()).DrawWindow(12, 18);
+    pangolin::default_font().Text("%s follow=%s", status.c_str(), follow_pose ? "on" : "off")
+        .DrawWindow(kUiPanelWidthPx + 12, 18);
     if (opts.profile) profile.text.add(elapsed_ms(text_start));
+
+    if (!preview_bgr.empty()) {
+      if (!preview_texture || preview_tex_width != preview_bgr.cols ||
+          preview_tex_height != preview_bgr.rows) {
+        preview_texture = std::make_unique<pangolin::GlTexture>(
+            preview_bgr.cols,
+            preview_bgr.rows,
+            GL_RGB,
+            false,
+            0,
+            GL_BGR,
+            GL_UNSIGNED_BYTE);
+        preview_tex_width = preview_bgr.cols;
+        preview_tex_height = preview_bgr.rows;
+      }
+      preview_texture->Upload(preview_bgr.data, GL_BGR, GL_UNSIGNED_BYTE);
+      glDisable(GL_DEPTH_TEST);
+      preview_view.Activate();
+      glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+      preview_texture->RenderToViewportFlipY();
+      glEnable(GL_DEPTH_TEST);
+    }
 
     const auto finish_start = Clock::now();
     pangolin::FinishFrame();
@@ -999,6 +1217,8 @@ int main(int argc, char** argv) {
     ImageItem item;
     item.timestamp_ns = raw->timestamp_ns;
     item.frame_id = static_cast<int>(state.received_images++);
+    state.latest_preview_bgr = bgr.clone();
+    state.latest_preview_timestamp_ns = raw->timestamp_ns;
     item.bgr = std::move(bgr);
     state.images.push_back(std::move(item));
     state.saw_stream_data = true;
