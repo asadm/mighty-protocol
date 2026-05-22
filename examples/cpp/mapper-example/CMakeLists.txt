@@ -18,24 +18,10 @@ list(PREPEND CMAKE_MODULE_PATH "${MIGHTY_MAPPER_ROOT}/cmake")
 list(PREPEND CMAKE_PREFIX_PATH "${REPO_ROOT}/external/pangolin-install")
 list(PREPEND CMAKE_PREFIX_PATH "/opt/homebrew/opt/eigen")
 
-if(APPLE AND CMAKE_OSX_ARCHITECTURES MATCHES "arm64" AND EXISTS "/opt/homebrew/lib/libcholmod.dylib")
-  set(CHOLMOD_INCLUDE_DIR "/opt/homebrew/include/suitesparse" CACHE PATH "CHOLMOD include path" FORCE)
-  set(CSPARSE_INCLUDE_DIR "/opt/homebrew/include/suitesparse" CACHE PATH "CXSparse include path" FORCE)
-  set(CHOLMOD_LIBRARY "/opt/homebrew/lib/libcholmod.dylib" CACHE FILEPATH "CHOLMOD library" FORCE)
-  set(CSPARSE_LIBRARY "/opt/homebrew/lib/libcxsparse.dylib" CACHE FILEPATH "CXSparse library" FORCE)
-  set(AMD_LIBRARY "/opt/homebrew/lib/libamd.dylib" CACHE FILEPATH "AMD library" FORCE)
-  set(CAMD_LIBRARY "/opt/homebrew/lib/libcamd.dylib" CACHE FILEPATH "CAMD library" FORCE)
-  set(CCOLAMD_LIBRARY "/opt/homebrew/lib/libccolamd.dylib" CACHE FILEPATH "CCOLAMD library" FORCE)
-  set(COLAMD_LIBRARY "/opt/homebrew/lib/libcolamd.dylib" CACHE FILEPATH "COLAMD library" FORCE)
-  set(METIS_LIBRARY "/opt/homebrew/lib/libmetis.dylib" CACHE FILEPATH "METIS library" FORCE)
-  set(SUITESPARSECONFIG_LIBRARY "/opt/homebrew/lib/libsuitesparseconfig.dylib" CACHE FILEPATH "SuiteSparse config library" FORCE)
-endif()
-
 find_package(OpenCV REQUIRED COMPONENTS core imgproc calib3d highgui)
 find_package(Eigen3 REQUIRED)
-find_package(SuiteParse REQUIRED)
-find_package(Boost COMPONENTS thread REQUIRED)
-find_package(LibZip QUIET)
+find_package(Threads REQUIRED)
+find_package(GLEW REQUIRED)
 
 if(NOT TARGET Eigen3::Eigen)
   add_library(Eigen3::Eigen INTERFACE IMPORTED)
@@ -60,6 +46,7 @@ if(NOT Pangolin_FOUND)
 endif()
 
 if(NOT TARGET mighty_mapper_core)
+  set(MIGHTY_MAPPER_BUILD_APPS OFF CACHE BOOL "Build standalone mapper applications" FORCE)
   add_subdirectory("${MIGHTY_MAPPER_ROOT}" "${CMAKE_CURRENT_BINARY_DIR}/mighty-mapper" EXCLUDE_FROM_ALL)
 endif()
 
@@ -73,17 +60,13 @@ target_include_directories(mighty_mapper_live PRIVATE
   ${EIGEN3_INCLUDE_DIR}
   ${OpenCV_INCLUDE_DIRS}
   ${Pangolin_INCLUDE_DIRS}
-  ${Boost_INCLUDE_DIRS}
-  ${CSPARSE_INCLUDE_DIR}
-  ${CHOLMOD_INCLUDE_DIR}
+  ${GLEW_INCLUDE_DIRS}
 )
 
 target_link_libraries(mighty_mapper_live PRIVATE
   mighty_mapper_core
-  ${CSPARSE_LIBRARY}
-  ${CHOLMOD_LIBRARIES}
-  ${Boost_LIBRARIES}
-  ${LIBZIP_LIBRARY}
   ${Pangolin_LIBRARIES}
   ${OpenCV_LIBS}
+  Threads::Threads
+  GLEW::GLEW
 )
