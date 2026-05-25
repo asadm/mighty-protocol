@@ -1,0 +1,62 @@
+---
+title: Recording
+description: Record Mighty camera, IMU, pose, and calibration data for replay or offline analysis.
+---
+
+Mighty can record ROS bag v1 files from the browser visualizer or directly on
+the board. Use recordings to replay a run, debug VIO behavior, compare firmware
+changes, or analyze sensor data offline.
+
+## Record from the visualizer
+
+The browser visualizer can record camera, IMU, and pose streams without a local
+app:
+
+1. Plug Mighty Camera into your machine.
+2. Open [mightycamera.com/viz](https://mightycamera.com/viz) and wait for the
+   board to connect.
+3. Click **Start Recording**.
+4. Move the board through the motion you want to capture.
+5. Click **Stop Recording**.
+
+The visualizer downloads a `.bag` file when recording stops. Keep the browser
+tab open until the download starts.
+
+## Record on the board
+
+Mighty can also write a bag directly to its mounted SD card. Board-side
+recording is useful when you do not want a browser to hold the recording session
+open.
+
+| State | Button action | Result |
+| --- | --- | --- |
+| Idle / preview | Long press, about 2 seconds, then release | Start recording |
+| Recording | Press and release | Stop recording |
+
+Recording and VIO are mutually exclusive on the board. Stop VIO before starting
+a board-side recording. If recording is already active, any button press stops
+the recording.
+
+Board-side full recordings are saved under `/mnt/sdcard` and include:
+
+- `/cam0/image_raw/compressed`
+- `/imu0`, IMU data with accelerometer and gyroscope measurements
+- `/calib`, Calibration data for Camera and IMU
+
+## LED states
+
+Recording has the highest-priority LED pattern. When a recording is active, the
+LED shows three quick flashes, then a pause.
+
+| LED pattern | Meaning |
+| --- | --- |
+| Three quick flashes, pause | Recording is active |
+| Slow blink | Idle / preview mode |
+| Fast blink | VIO is starting or initializing |
+| Solid on | VIO is tracking |
+| Double pulse | VIO is degraded |
+| Steady medium blink | VIO is lost |
+
+If the LED stays in the idle pattern after a long press, recording did not
+start. Common causes are an unmounted SD card, an existing active recording, or
+VIO still running.

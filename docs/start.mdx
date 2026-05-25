@@ -22,12 +22,32 @@ The visualizer is the quickest way to confirm that the board is connected, the
 sensors are streaming, and VIO is running before integrating it into your own
 software.
 
-## Recording
+## Board button
 
-You can record a ROS bag v1 file directly from the visualizer, including camera,
-IMU, and pose streams. Click **Start Recording**, then **Stop Recording** when
-you are done. The visualizer will download a `.bag` file that you can replay
-later in the visualizer or analyze offline.
+The button on Mighty can also start and stop VIO without using the browser:
+
+| State | Button action | Result |
+| --- | --- | --- |
+| Idle / preview | Short press and release | Start VIO |
+| VIO running | Press and release | Stop VIO |
+
+A long press while idle starts board-side recording instead of VIO. See
+[Recording](/docs/recording) for the full recording sequence.
+
+## LED states
+
+The board LED shows the current VIO state:
+
+| LED pattern | Meaning |
+| --- | --- |
+| Slow blink | Idle / preview mode |
+| Fast blink | VIO is starting or initializing |
+| Solid on | VIO is tracking |
+| Double pulse | VIO is degraded |
+| Steady medium blink | VIO is lost |
+
+If the LED switches to the recording pattern, recording has priority over VIO in
+the status display. See [Recording](/docs/recording) for that pattern.
 
 ## Mobile and tablet
 
