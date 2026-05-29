@@ -54,3 +54,21 @@ Useful options:
 ./build/mighty_mapper_live --point-stride=2
 ./build/mighty_mapper_live --auto-exit
 ```
+
+Device-like mapper settings can be checked on host first. The faster successful
+device preset was:
+
+```bash
+./build/mighty_mapper_live --base-url http://127.0.0.1:8084 \
+  --mapper-size=320x200 --preset=2 --mode=1 --profile
+```
+
+The smaller tuned config was:
+
+```bash
+./build/mighty_mapper_live --base-url http://127.0.0.1:8084 \
+  --mapper-size=320x200 --preset=2 --mode=1 \
+  --point-density=250 --candidate-density=200 \
+  --min-frames=3 --max-frames=4 --min-opt=0 --max-opt=2 \
+  --pyr-levels=3 --profile
+```
