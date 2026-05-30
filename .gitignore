@@ -6,3 +6,4 @@ examples/web/node_modules
 examples/web/dist
 build
 build-*
+lib/algorithms/
