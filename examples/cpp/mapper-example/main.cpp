@@ -25,10 +25,12 @@
 #include <thread>
 #include <vector>
 
-#include "mighty_mapper/mighty_mapper.h"
+#include "mighty_algorithms/mighty_algorithms.hpp"
 #include "mighty_sdk.h"
 
 namespace {
+
+namespace ma = mighty_algorithms;
 
 using Clock = std::chrono::steady_clock;
 using mighty_protocol::RawFormat;
@@ -128,7 +130,7 @@ struct SharedState {
   bool mapping_active = false;
   Clock::time_point last_stream_at = Clock::now();
   std::string status = "starting";
-  std::shared_ptr<mighty_mapper::Mapper> mapper;
+  std::shared_ptr<ma::Mapper> mapper;
   cv::Mat latest_preview_bgr;
   uint64_t latest_preview_timestamp_ns = 0;
 };
@@ -776,37 +778,35 @@ std::optional<PoseFrame> select_pose(const std::deque<PoseItem>& poses,
   return *best;
 }
 
-mighty_mapper::MapperConfig make_mapper_config(const Calibration& calib,
-                                               int width,
-                                               int height,
-                                               const Options& opts) {
+ma_mapper_options_t make_mapper_options(const Calibration& calib,
+                                        int width,
+                                        int height,
+                                        const Options& opts) {
   const cv::Vec4d intr = intrinsics_for_image_size(calib, width, height);
-  mighty_mapper::MapperConfig config;
-  config.camera.width = width;
-  config.camera.height = height;
-  config.camera.fx = intr[0];
-  config.camera.fy = intr[1];
-  config.camera.cx = intr[2];
-  config.camera.cy = intr[3];
-  config.runtime.preset = opts.preset;
-  config.runtime.photometric_mode = opts.mode;
-  config.runtime.point_density = opts.point_density;
-  config.runtime.candidate_density = opts.candidate_density;
-  config.runtime.min_frames = opts.min_frames;
-  config.runtime.max_frames = opts.max_frames;
-  config.runtime.max_opt_iterations = opts.max_opt_iterations;
-  config.runtime.min_opt_iterations = opts.min_opt_iterations;
-  config.runtime.pyramid_levels = opts.pyramid_levels;
-  config.runtime.enable_display = false;
-  config.runtime.quiet = opts.quiet;
-  config.pose_prior.enabled = true;
-  config.pose_prior.use_metric_initializer_scale = true;
-  config.pose_prior.use_backend_prior = true;
-  config.pose_prior.metric_initializer_min_baseline_m = 0.10;
-  config.pose_prior.backend_prior_translation_weight = 25.0;
-  config.pose_prior.backend_prior_rotation_weight = 100.0;
-  config.point_cloud.sparsity = 1;
-  return config;
+  ma_mapper_options_t options{};
+  ma_mapper_options_default(&options);
+  options.camera.width = width;
+  options.camera.height = height;
+  options.camera.fx = intr[0];
+  options.camera.fy = intr[1];
+  options.camera.cx = intr[2];
+  options.camera.cy = intr[3];
+  options.preset = opts.preset;
+  options.photometric_mode = opts.mode;
+  options.point_density = opts.point_density;
+  options.candidate_density = opts.candidate_density;
+  options.min_frames = opts.min_frames;
+  options.max_frames = opts.max_frames;
+  options.max_opt_iterations = opts.max_opt_iterations;
+  options.min_opt_iterations = opts.min_opt_iterations;
+  options.pyramid_levels = opts.pyramid_levels;
+  options.quiet = opts.quiet ? 1 : 0;
+  options.pose_prior_enabled = 1;
+  options.use_metric_initializer_scale = 1;
+  options.use_backend_prior = 1;
+  options.backend_prior_translation_weight = 25.0;
+  options.backend_prior_rotation_weight = 100.0;
+  return options;
 }
 
 class MappingActiveGuard {
@@ -891,20 +891,20 @@ void mapping_thread(SharedState* state, Options opts) {
     if (opts.profile) profile.undistort.add(elapsed_ms(undistort_start));
     if (mapper_bgr.empty()) continue;
 
-    std::shared_ptr<mighty_mapper::Mapper> mapper;
+    std::shared_ptr<ma::Mapper> mapper;
     const auto configure_start = Clock::now();
     if (mapper_bgr.cols != configured_w || mapper_bgr.rows != configured_h) {
       configured_w = mapper_bgr.cols;
       configured_h = mapper_bgr.rows;
-      auto config = make_mapper_config(calib, configured_w, configured_h, opts);
-      mapper = std::make_shared<mighty_mapper::Mapper>(config);
+      auto options = make_mapper_options(calib, configured_w, configured_h, opts);
+      mapper = std::make_shared<ma::Mapper>(options);
       {
         std::lock_guard<std::mutex> lock(state->mu);
         state->mapper = mapper;
         state->mapper_ready = true;
         std::ostringstream ss;
         ss << "mapper configured " << configured_w << "x" << configured_h
-           << " fx=" << config.camera.fx << " fy=" << config.camera.fy;
+           << " fx=" << options.camera.fx << " fy=" << options.camera.fy;
         state->status = ss.str();
       }
     } else {
@@ -925,7 +925,7 @@ void mapping_thread(SharedState* state, Options opts) {
     if (opts.profile) profile.pose_convert.add(elapsed_ms(pose_start));
     if (!T_w_c.has_value()) continue;
 
-    mighty_mapper::FrameInput frame;
+    ma_mapper_frame_t frame{};
     frame.frame_id = image.frame_id;
     frame.timestamp_ns = image.timestamp_ns;
     frame.timestamp_seconds = static_cast<double>(image.timestamp_ns) * 1e-9;
@@ -934,21 +934,30 @@ void mapping_thread(SharedState* state, Options opts) {
     frame.image.width = gray.cols;
     frame.image.height = gray.rows;
     frame.image.stride_bytes = gray.step[0];
-    frame.image.format = mighty_mapper::PixelFormat::kGray8;
+    frame.image.format = MA_PIXEL_GRAY8;
     frame.has_camera_pose = true;
-    frame.T_odom_camera.q_odom_from_camera = Eigen::Quaterniond(T_w_c->linear());
-    frame.T_odom_camera.t_odom_from_camera = T_w_c->translation();
-    frame.pose_confidence = pose.confidence;
-    frame.keyframe_hint = pose.is_keyframe;
+    Eigen::Quaterniond q_w_c(T_w_c->linear());
+    q_w_c.normalize();
+    frame.camera_pose.timestamp_ns = image.timestamp_ns;
+    frame.camera_pose.px = T_w_c->translation().x();
+    frame.camera_pose.py = T_w_c->translation().y();
+    frame.camera_pose.pz = T_w_c->translation().z();
+    frame.camera_pose.qw = q_w_c.w();
+    frame.camera_pose.qx = q_w_c.x();
+    frame.camera_pose.qy = q_w_c.y();
+    frame.camera_pose.qz = q_w_c.z();
+    frame.camera_pose.frame = MA_POSE_FRAME_CAMERA;
+    frame.camera_pose.confidence = pose.confidence;
+    frame.camera_pose.is_keyframe_hint = pose.is_keyframe ? 1 : 0;
 
     const auto push_start = Clock::now();
     const auto result = mapper->pushFrame(frame);
     if (opts.profile) profile.push_frame.add(elapsed_ms(push_start));
 
     const auto snapshot_start = Clock::now();
-    const auto snapshot = mapper->snapshot();
+    ma::MapperSnapshot snapshot(mapper->snapshot());
     if (opts.profile) profile.snapshot.add(elapsed_ms(snapshot_start));
-    const size_t point_count = snapshot.points.size();
+    const size_t point_count = snapshot.get().point_count;
 
     const auto status_start = Clock::now();
     {
@@ -971,7 +980,7 @@ void mapping_thread(SharedState* state, Options opts) {
     }
   }
 
-  std::shared_ptr<mighty_mapper::Mapper> mapper;
+  std::shared_ptr<ma::Mapper> mapper;
   {
     std::lock_guard<std::mutex> lock(state->mu);
     mapper = state->mapper;
@@ -1000,38 +1009,41 @@ void draw_grid(float extent, float step) {
   glEnd();
 }
 
-void draw_trajectory(const std::vector<mighty_mapper::Pose, Eigen::aligned_allocator<mighty_mapper::Pose>>& poses,
+void draw_trajectory(const ma_mapper_snapshot_t& snapshot,
                      float r,
                      float g,
                      float b,
                      float y_offset) {
-  if (poses.size() < 2) return;
+  if (snapshot.trajectory_count < 2 || !snapshot.trajectory) return;
   glColor3f(r, g, b);
   glLineWidth(4.0f);
   glBegin(GL_LINE_STRIP);
-  for (const auto& pose : poses) {
-    Eigen::Vector3d t = render_from_mapper(pose.t_odom_from_camera);
+  for (size_t i = 0; i < snapshot.trajectory_count; ++i) {
+    const auto& pose = snapshot.trajectory[i];
+    Eigen::Vector3d t = render_from_mapper(Eigen::Vector3d(pose.px, pose.py, pose.pz));
     t.y() += y_offset;
     glVertex3d(t.x(), t.y(), t.z());
   }
   glEnd();
 }
 
-void draw_points(const std::vector<mighty_mapper::MapPoint>& points, int stride) {
+void draw_points(const ma_mapper_snapshot_t& snapshot, int stride) {
+  if (!snapshot.points) return;
   glColor3f(kBrandBlueR, kBrandBlueG, kBrandBlueB);
   glPointSize(2.0f);
   glBegin(GL_POINTS);
-  for (size_t i = 0; i < points.size(); i += static_cast<size_t>(std::max(1, stride))) {
-    const auto& p = points[i];
+  for (size_t i = 0; i < snapshot.point_count; i += static_cast<size_t>(std::max(1, stride))) {
+    const auto& p = snapshot.points[i];
     const Eigen::Vector3d q = render_from_mapper(Eigen::Vector3d(p.x, p.y, p.z));
     glVertex3f(q.x(), q.y(), q.z());
   }
   glEnd();
 }
 
-void draw_latest_pose_dot(const std::vector<mighty_mapper::Pose, Eigen::aligned_allocator<mighty_mapper::Pose>>& poses) {
-  if (poses.empty()) return;
-  const Eigen::Vector3d p = render_from_mapper(poses.back().t_odom_from_camera);
+void draw_latest_pose_dot(const ma_mapper_snapshot_t& snapshot) {
+  if (snapshot.trajectory_count == 0 || !snapshot.trajectory) return;
+  const auto& latest = snapshot.trajectory[snapshot.trajectory_count - 1];
+  const Eigen::Vector3d p = render_from_mapper(Eigen::Vector3d(latest.px, latest.py, latest.pz));
 
   glColor3f(kBrandRedR, kBrandRedG, kBrandRedB);
   glPointSize(14.0f);
@@ -1064,9 +1076,10 @@ void draw_latest_pose_dot(const std::vector<mighty_mapper::Pose, Eigen::aligned_
   glPopMatrix();
 }
 
-Eigen::Vector3d horizontal_heading_from_pose(const mighty_mapper::Pose& pose) {
+Eigen::Vector3d horizontal_heading_from_pose(const ma_pose_t& pose) {
+  const Eigen::Quaterniond q_odom_from_camera(pose.qw, pose.qx, pose.qy, pose.qz);
   const Eigen::Vector3d camera_forward_odom =
-      pose.q_odom_from_camera.normalized() * Eigen::Vector3d(0.0, 0.0, -1.0);
+      q_odom_from_camera.normalized() * Eigen::Vector3d(0.0, 0.0, -1.0);
   Eigen::Vector3d heading = -render_from_mapper(camera_forward_odom);
   heading.y() = 0.0;
   if (heading.squaredNorm() < 1e-9) return Eigen::Vector3d::UnitX();
@@ -1077,12 +1090,13 @@ Eigen::Vector3d lerp_vec3(const Eigen::Vector3d& a, const Eigen::Vector3d& b, do
   return a + (b - a) * std::max(0.0, std::min(1.0, alpha));
 }
 
-void update_follow_camera(const mighty_mapper::Pose& latest,
+void update_follow_camera(const ma_pose_t& latest,
                           double dt_sec,
                           FollowCameraState* follow,
                           pangolin::OpenGlRenderState* camera) {
   if (!follow || !camera) return;
-  const Eigen::Vector3d latest_target = render_from_mapper(latest.t_odom_from_camera);
+  const Eigen::Vector3d latest_target = render_from_mapper(
+      Eigen::Vector3d(latest.px, latest.py, latest.pz));
   const Eigen::Vector3d latest_heading = horizontal_heading_from_pose(latest);
   const double pos_alpha = 1.0 - std::exp(-std::max(0.0, dt_sec) * kFollowPosSmoothRate);
   const double heading_alpha = 1.0 - std::exp(-std::max(0.0, dt_sec) * kFollowHeadingSmoothRate);
@@ -1172,7 +1186,7 @@ void render_loop(SharedState* state, const Options& opts) {
     const auto render_start = Clock::now();
     const double dt_sec = std::min(0.1, elapsed_ms(last_render_at, render_start) * 0.001);
     last_render_at = render_start;
-    std::shared_ptr<mighty_mapper::Mapper> mapper;
+    std::shared_ptr<ma::Mapper> mapper;
     std::string status;
     cv::Mat preview_bgr;
     bool should_exit_idle = false;
@@ -1195,14 +1209,15 @@ void render_loop(SharedState* state, const Options& opts) {
     }
     if (should_exit_idle) break;
 
-    mighty_mapper::MapSnapshot snapshot;
+    ma::MapperSnapshot snapshot;
     const auto snapshot_start = Clock::now();
-    if (mapper) snapshot = mapper->snapshot();
+    if (mapper) snapshot = ma::MapperSnapshot(mapper->snapshot());
     if (opts.profile) profile.snapshot.add(elapsed_ms(snapshot_start));
+    const ma_mapper_snapshot_t& snapshot_view = snapshot.get();
     map_points = static_cast<int>(std::min<size_t>(
-        snapshot.points.size(), static_cast<size_t>(std::numeric_limits<int>::max())));
+        snapshot_view.point_count, static_cast<size_t>(std::numeric_limits<int>::max())));
     trajectory_poses = static_cast<int>(std::min<size_t>(
-        snapshot.trajectory.size(), static_cast<size_t>(std::numeric_limits<int>::max())));
+        snapshot_view.trajectory_count, static_cast<size_t>(std::numeric_limits<int>::max())));
 
     if (pangolin::Pushed(reset_view)) {
       camera.SetModelViewMatrix(default_view_matrix());
@@ -1210,8 +1225,9 @@ void render_loop(SharedState* state, const Options& opts) {
       follow_pose = false;
     }
 
-    if (follow_pose && !snapshot.trajectory.empty()) {
-      update_follow_camera(snapshot.trajectory.back(), dt_sec, &follow_state, &camera);
+    if (follow_pose && snapshot_view.trajectory_count > 0 && snapshot_view.trajectory) {
+      update_follow_camera(
+          snapshot_view.trajectory[snapshot_view.trajectory_count - 1], dt_sec, &follow_state, &camera);
     } else if (!follow_pose) {
       follow_state.reset();
     }
@@ -1226,13 +1242,13 @@ void render_loop(SharedState* state, const Options& opts) {
     if (opts.profile) profile.grid.add(elapsed_ms(grid_start));
 
     const auto points_start = Clock::now();
-    draw_points(snapshot.points, point_stride);
+    draw_points(snapshot_view, point_stride);
     if (opts.profile) profile.points.add(elapsed_ms(points_start));
 
     const auto traj_start = Clock::now();
-    draw_trajectory(snapshot.trajectory, kBrandRedR, kBrandRedG, kBrandRedB, 0.0f);
-    draw_trajectory(snapshot.trajectory, kBrandRedR, kBrandRedG, kBrandRedB, -0.03f);
-    draw_latest_pose_dot(snapshot.trajectory);
+    draw_trajectory(snapshot_view, kBrandRedR, kBrandRedG, kBrandRedB, 0.0f);
+    draw_trajectory(snapshot_view, kBrandRedR, kBrandRedG, kBrandRedB, -0.03f);
+    draw_latest_pose_dot(snapshot_view);
     if (opts.profile) profile.trajectory.add(elapsed_ms(traj_start));
 
     const auto text_start = Clock::now();
@@ -1267,7 +1283,7 @@ void render_loop(SharedState* state, const Options& opts) {
     if (opts.profile) {
       profile.finish.add(elapsed_ms(finish_start));
       profile.total.add(elapsed_ms(render_start));
-      profile.maybe_report(snapshot.points.size());
+      profile.maybe_report(snapshot_view.point_count);
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(16));
   }
