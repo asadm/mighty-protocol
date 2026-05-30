@@ -71,6 +71,15 @@ struct Options {
   int start_frame = kStartFrameDefault;
   int preset = 0;
   int mode = 1;
+  int mapper_width = 0;
+  int mapper_height = 0;
+  float point_density = 0.0f;
+  float candidate_density = 0.0f;
+  int min_frames = 0;
+  int max_frames = 0;
+  int max_opt_iterations = -1;
+  int min_opt_iterations = -1;
+  int pyramid_levels = 0;
   int point_stride = 1;
   bool auto_exit_on_idle = false;
   bool profile = false;
@@ -133,6 +142,17 @@ std::string lower_copy(std::string value) {
 
 bool starts_with(const std::string& s, const std::string& prefix) {
   return s.rfind(prefix, 0) == 0;
+}
+
+bool parse_size(const std::string& value, int* width, int* height) {
+  if (!width || !height) return false;
+  int w = 0;
+  int h = 0;
+  if (std::sscanf(value.c_str(), "%dx%d", &w, &h) != 2) return false;
+  if (w <= 0 || h <= 0) return false;
+  *width = w;
+  *height = h;
+  return true;
 }
 
 double elapsed_ms(Clock::time_point start, Clock::time_point end = Clock::now()) {
@@ -306,12 +326,49 @@ bool parse_args(int argc, char** argv, Options* opts) {
       opts->preset = std::stoi(arg.substr(std::string("--preset=").size()));
     } else if (starts_with(arg, "--mode=")) {
       opts->mode = std::stoi(arg.substr(std::string("--mode=").size()));
+    } else if (starts_with(arg, "--mapper-size=")) {
+      if (!parse_size(arg.substr(std::string("--mapper-size=").size()),
+                      &opts->mapper_width, &opts->mapper_height)) {
+        std::cerr << "invalid --mapper-size, expected WIDTHxHEIGHT\n";
+        return false;
+      }
+    } else if (starts_with(arg, "--mapper-width=")) {
+      opts->mapper_width =
+          std::max(1, std::stoi(arg.substr(std::string("--mapper-width=").size())));
+    } else if (starts_with(arg, "--mapper-height=")) {
+      opts->mapper_height =
+          std::max(1, std::stoi(arg.substr(std::string("--mapper-height=").size())));
+    } else if (starts_with(arg, "--point-density=")) {
+      opts->point_density =
+          std::max(1.0f, std::stof(arg.substr(std::string("--point-density=").size())));
+    } else if (starts_with(arg, "--candidate-density=")) {
+      opts->candidate_density =
+          std::max(1.0f, std::stof(arg.substr(std::string("--candidate-density=").size())));
+    } else if (starts_with(arg, "--min-frames=")) {
+      opts->min_frames =
+          std::max(2, std::stoi(arg.substr(std::string("--min-frames=").size())));
+    } else if (starts_with(arg, "--max-frames=")) {
+      opts->max_frames =
+          std::max(2, std::stoi(arg.substr(std::string("--max-frames=").size())));
+    } else if (starts_with(arg, "--max-opt=")) {
+      opts->max_opt_iterations =
+          std::max(0, std::stoi(arg.substr(std::string("--max-opt=").size())));
+    } else if (starts_with(arg, "--min-opt=")) {
+      opts->min_opt_iterations =
+          std::max(0, std::stoi(arg.substr(std::string("--min-opt=").size())));
+    } else if (starts_with(arg, "--pyr-levels=")) {
+      opts->pyramid_levels =
+          std::max(1, std::stoi(arg.substr(std::string("--pyr-levels=").size())));
     } else if (starts_with(arg, "--point-stride=")) {
       opts->point_stride = std::max(1, std::stoi(arg.substr(std::string("--point-stride=").size())));
     } else {
       std::cerr << "unknown option: " << arg << "\n";
       return false;
     }
+  }
+  if ((opts->mapper_width > 0) != (opts->mapper_height > 0)) {
+    std::cerr << "--mapper-width and --mapper-height must be provided together\n";
+    return false;
   }
   return true;
 }
@@ -330,6 +387,17 @@ void print_usage() {
       << "  --profile          print mapper/render timing windows to stderr\n"
       << "  --quiet            suppress most core mapper logs\n"
       << "  --follow           start viewer with trajectory follow mode enabled\n"
+      << "  --preset=N         mapper preset (default 0; use 2 for fast)\n"
+      << "  --mode=N           photometric mode (default 1; use 2 for affine-off)\n"
+      << "  --mapper-size=WxH  resize frames before mapper, e.g. 320x200\n"
+      << "  --point-density=N  override active point target\n"
+      << "  --candidate-density=N\n"
+      << "                       override candidate point target\n"
+      << "  --min-frames=N     override active window min frames\n"
+      << "  --max-frames=N     override active window max frames\n"
+      << "  --min-opt=N        override min optimizer iterations\n"
+      << "  --max-opt=N        override max optimizer iterations\n"
+      << "  --pyr-levels=N     cap mapper pyramid levels\n"
       << "  --auto-exit        close after idle stream timeout\n"
       << "  --idle-exit-sec=N   idle timeout for --auto-exit (default 5)\n"
       << "  --no-auto-exit      keep viewer open until closed (default)\n";
@@ -722,6 +790,13 @@ mighty_mapper::MapperConfig make_mapper_config(const Calibration& calib,
   config.camera.cy = intr[3];
   config.runtime.preset = opts.preset;
   config.runtime.photometric_mode = opts.mode;
+  config.runtime.point_density = opts.point_density;
+  config.runtime.candidate_density = opts.candidate_density;
+  config.runtime.min_frames = opts.min_frames;
+  config.runtime.max_frames = opts.max_frames;
+  config.runtime.max_opt_iterations = opts.max_opt_iterations;
+  config.runtime.min_opt_iterations = opts.min_opt_iterations;
+  config.runtime.pyramid_levels = opts.pyramid_levels;
   config.runtime.enable_display = false;
   config.runtime.quiet = opts.quiet;
   config.pose_prior.enabled = true;
@@ -806,6 +881,13 @@ void mapping_thread(SharedState* state, Options opts) {
 
     const auto undistort_start = Clock::now();
     cv::Mat mapper_bgr = undistort_for_mapper(image.bgr, calib);
+    if (!mapper_bgr.empty() && opts.mapper_width > 0 && opts.mapper_height > 0 &&
+        (mapper_bgr.cols != opts.mapper_width || mapper_bgr.rows != opts.mapper_height)) {
+      cv::Mat resized;
+      cv::resize(mapper_bgr, resized, cv::Size(opts.mapper_width, opts.mapper_height),
+                 0.0, 0.0, cv::INTER_AREA);
+      mapper_bgr = std::move(resized);
+    }
     if (opts.profile) profile.undistort.add(elapsed_ms(undistort_start));
     if (mapper_bgr.empty()) continue;
 
