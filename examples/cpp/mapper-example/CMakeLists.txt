@@ -12,13 +12,23 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 get_filename_component(MIGHTY_PROTOCOL_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
 get_filename_component(REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../.." ABSOLUTE)
-set(MIGHTY_MAPPER_ROOT "${MIGHTY_PROTOCOL_ROOT}/mighty-algorithms/mighty-mapper")
 
-list(PREPEND CMAKE_MODULE_PATH "${MIGHTY_MAPPER_ROOT}/cmake")
+if(DEFINED ENV{MIGHTY_ALGORITHMS_SDK} AND NOT MightyAlgorithms_DIR)
+  list(PREPEND CMAKE_PREFIX_PATH "$ENV{MIGHTY_ALGORITHMS_SDK}")
+endif()
+if(NOT MightyAlgorithms_DIR)
+  set(_MIGHTY_ALGORITHMS_BUNDLED_SDK
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../lib/algorithms/current")
+  if(EXISTS "${_MIGHTY_ALGORITHMS_BUNDLED_SDK}/lib/cmake/MightyAlgorithms/MightyAlgorithmsConfig.cmake")
+    list(PREPEND CMAKE_PREFIX_PATH "${_MIGHTY_ALGORITHMS_BUNDLED_SDK}")
+  endif()
+endif()
+
 list(PREPEND CMAKE_PREFIX_PATH "${REPO_ROOT}/external/pangolin-install")
 list(PREPEND CMAKE_PREFIX_PATH "/opt/homebrew/opt/eigen")
 
-find_package(OpenCV REQUIRED COMPONENTS core imgproc calib3d highgui)
+find_package(MightyAlgorithms REQUIRED)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc calib3d)
 find_package(Eigen3 REQUIRED)
 find_package(Threads REQUIRED)
 find_package(GLEW REQUIRED)
@@ -45,18 +55,10 @@ if(NOT Pangolin_FOUND)
   message(FATAL_ERROR "Pangolin is required for mapper-example")
 endif()
 
-if(NOT TARGET mighty_mapper_core)
-  set(MIGHTY_MAPPER_BUILD_APPS OFF CACHE BOOL "Build standalone mapper applications" FORCE)
-  add_subdirectory("${MIGHTY_MAPPER_ROOT}" "${CMAKE_CURRENT_BINARY_DIR}/mighty-mapper" EXCLUDE_FROM_ALL)
-endif()
-
 add_executable(mighty_mapper_live main.cpp)
 
 target_include_directories(mighty_mapper_live PRIVATE
   "${MIGHTY_PROTOCOL_ROOT}/cpp"
-  "${MIGHTY_MAPPER_ROOT}/include"
-  "${MIGHTY_MAPPER_ROOT}/src"
-  "${MIGHTY_MAPPER_ROOT}/thirdparty/Sophus"
   ${EIGEN3_INCLUDE_DIR}
   ${OpenCV_INCLUDE_DIRS}
   ${Pangolin_INCLUDE_DIRS}
@@ -64,7 +66,7 @@ target_include_directories(mighty_mapper_live PRIVATE
 )
 
 target_link_libraries(mighty_mapper_live PRIVATE
-  mighty_mapper_core
+  MightyAlgorithms::mighty_algorithms
   ${Pangolin_LIBRARIES}
   ${OpenCV_LIBS}
   Threads::Threads

@@ -3,7 +3,7 @@
 Native live mapper example using:
 
 - Mighty protocol C++ SDK for image, pose, and calibration
-- `mighty_mapper::Mapper` for mapping
+- `MightyAlgorithms::mighty_algorithms` from the packaged binary SDK for mapping
 - Pangolin for a simple viewer
 
 The viewer intentionally draws its own snapshot view so we can debug coordinate
@@ -18,6 +18,10 @@ From this directory:
 cmake -S . -B build
 cmake --build build --target mighty_mapper_live -j
 ```
+
+By default CMake uses the bundled algorithms SDK at
+`../../../lib/algorithms/current`. To test another package, set
+`MIGHTY_ALGORITHMS_SDK=/path/to/mighty-algorithms-sdk`.
 
 On Apple Silicon, the CMake file defaults to an `arm64` target when using
 Homebrew dependencies from `/opt/homebrew`, including when the invoking shell is
