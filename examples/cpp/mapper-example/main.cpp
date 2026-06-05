@@ -48,6 +48,7 @@ constexpr uint64_t kPoseMaxDeltaNsDefault = 5ull * 1000ull * 1000ull;
 constexpr double kAutoExitIdleSecDefault = 5.0;
 constexpr int kStartFrameDefault = 12;
 constexpr int kUiPanelWidthPx = 180;
+constexpr double kFollowDefaultZoomScale = 3.0;
 constexpr double kFollowBackDistance = 2.4;
 constexpr double kFollowUpOffset = 0.9;
 constexpr double kFollowSideOffset = 0.35;
@@ -55,8 +56,8 @@ constexpr double kFollowPosSmoothRate = 2.5;
 constexpr double kFollowHeadingSmoothRate = 1.8;
 constexpr double kFollowCamSmoothRate = 2.0;
 constexpr double kFollowTargetSmoothRate = 2.5;
-constexpr int kPreviewWidthPx = 320;
-constexpr int kPreviewHeightPx = 180;
+constexpr int kPreviewWidthPx = 1280;
+constexpr int kPreviewHeightPx = 720;
 constexpr int kPreviewMarginPx = 12;
 constexpr float kBrandBlueR = 0.0f;
 constexpr float kBrandBlueG = 153.0f / 255.0f;
@@ -86,7 +87,7 @@ struct Options {
   bool auto_exit_on_idle = false;
   bool profile = false;
   bool quiet = false;
-  bool follow_pose = false;
+  bool follow_pose = true;
 };
 
 struct Calibration {
@@ -278,7 +279,7 @@ struct FollowCameraState {
   bool has_target = false;
   bool has_heading = false;
   bool has_camera_position = false;
-  double zoom_scale = 1.0;
+  double zoom_scale = kFollowDefaultZoomScale;
   Eigen::Vector3d target = Eigen::Vector3d::Zero();
   Eigen::Vector3d heading = Eigen::Vector3d::UnitX();
   Eigen::Vector3d camera_position = Eigen::Vector3d::Zero();
@@ -287,7 +288,7 @@ struct FollowCameraState {
     has_target = false;
     has_heading = false;
     has_camera_position = false;
-    zoom_scale = 1.0;
+    zoom_scale = kFollowDefaultZoomScale;
     target.setZero();
     heading = Eigen::Vector3d::UnitX();
     camera_position.setZero();
@@ -324,6 +325,8 @@ bool parse_args(int argc, char** argv, Options* opts) {
       opts->quiet = true;
     } else if (arg == "--follow") {
       opts->follow_pose = true;
+    } else if (arg == "--no-follow") {
+      opts->follow_pose = false;
     } else if (starts_with(arg, "--preset=")) {
       opts->preset = std::stoi(arg.substr(std::string("--preset=").size()));
     } else if (starts_with(arg, "--mode=")) {
@@ -388,7 +391,8 @@ void print_usage() {
       << "                       image queue before dropping old frames (default 3000)\n"
       << "  --profile          print mapper/render timing windows to stderr\n"
       << "  --quiet            suppress most core mapper logs\n"
-      << "  --follow           start viewer with trajectory follow mode enabled\n"
+      << "  --follow           start viewer with trajectory follow mode enabled (default)\n"
+      << "  --no-follow        start viewer with trajectory follow mode disabled\n"
       << "  --preset=N         mapper preset (default 2; use 0 for full quality)\n"
       << "  --mode=N           photometric mode (default 1; use 2 for affine-off)\n"
       << "  --mapper-size=WxH  resize frames before mapper, e.g. 320x200\n"
