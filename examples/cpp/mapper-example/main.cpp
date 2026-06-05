@@ -71,7 +71,7 @@ struct Options {
   double auto_exit_idle_sec = kAutoExitIdleSecDefault;
   size_t max_queued_images = kMaxQueuedImagesDefault;
   int start_frame = kStartFrameDefault;
-  int preset = 0;
+  int preset = 2;
   int mode = 1;
   int mapper_width = 0;
   int mapper_height = 0;
@@ -389,7 +389,7 @@ void print_usage() {
       << "  --profile          print mapper/render timing windows to stderr\n"
       << "  --quiet            suppress most core mapper logs\n"
       << "  --follow           start viewer with trajectory follow mode enabled\n"
-      << "  --preset=N         mapper preset (default 0; use 2 for fast)\n"
+      << "  --preset=N         mapper preset (default 2; use 0 for full quality)\n"
       << "  --mode=N           photometric mode (default 1; use 2 for affine-off)\n"
       << "  --mapper-size=WxH  resize frames before mapper, e.g. 320x200\n"
       << "  --point-density=N  override active point target\n"

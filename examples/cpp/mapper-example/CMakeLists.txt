@@ -33,6 +33,32 @@ find_package(Eigen3 REQUIRED)
 find_package(Threads REQUIRED)
 find_package(GLEW REQUIRED)
 
+get_target_property(_MIGHTY_ALGORITHMS_IMPORTED_LOCATION
+  MightyAlgorithms::mighty_algorithms IMPORTED_LOCATION_RELEASE)
+if(NOT _MIGHTY_ALGORITHMS_IMPORTED_LOCATION)
+  get_target_property(_MIGHTY_ALGORITHMS_IMPORTED_LOCATION
+    MightyAlgorithms::mighty_algorithms IMPORTED_LOCATION)
+endif()
+if(_MIGHTY_ALGORITHMS_IMPORTED_LOCATION)
+  get_filename_component(_MIGHTY_ALGORITHMS_LIB_DIR
+    "${_MIGHTY_ALGORITHMS_IMPORTED_LOCATION}" DIRECTORY)
+endif()
+if(APPLE AND _MIGHTY_ALGORITHMS_LIB_DIR)
+  set(_MIGHTY_PACKAGED_OPENCV_LIBS)
+  foreach(_opencv_component calib3d features2d imgproc flann core)
+    file(GLOB _opencv_candidates
+      "${_MIGHTY_ALGORITHMS_LIB_DIR}/libopencv_${_opencv_component}.*.dylib")
+    if(_opencv_candidates)
+      list(SORT _opencv_candidates)
+      list(GET _opencv_candidates 0 _opencv_candidate)
+      list(APPEND _MIGHTY_PACKAGED_OPENCV_LIBS "${_opencv_candidate}")
+    endif()
+  endforeach()
+  if(_MIGHTY_PACKAGED_OPENCV_LIBS)
+    set(OpenCV_LIBS ${_MIGHTY_PACKAGED_OPENCV_LIBS})
+  endif()
+endif()
+
 if(NOT TARGET Eigen3::Eigen)
   add_library(Eigen3::Eigen INTERFACE IMPORTED)
   set_target_properties(Eigen3::Eigen PROPERTIES
@@ -56,6 +82,12 @@ if(NOT Pangolin_FOUND)
 endif()
 
 add_executable(mighty_mapper_live main.cpp)
+
+if(APPLE AND _MIGHTY_ALGORITHMS_LIB_DIR)
+  # Prefer the packaged SDK dependency set before Homebrew rpaths.
+  target_link_options(mighty_mapper_live PRIVATE
+    "LINKER:-rpath,${_MIGHTY_ALGORITHMS_LIB_DIR}")
+endif()
 
 target_include_directories(mighty_mapper_live PRIVATE
   "${MIGHTY_PROTOCOL_ROOT}/cpp"
