@@ -1,10 +1,9 @@
 import { toU8, isAbortError } from "./utils.js";
 
 export const DEFAULT_BASE_URLS = [
+  "http://192.168.7.1",
   "http://localhost:8080",
   "http://localhost:8084",
-  "http://192.168.7.1:80",
-  "http://192.168.7.1:8080",
 ];
 
 function getDefaultFetch() {
