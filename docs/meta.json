@@ -1,4 +1,4 @@
 {
   "title": "Docs",
-  "pages": ["index", "start", "recording", "sdk"]
+  "pages": ["index", "start", "recording", "multi-camera", "sdk"]
 }

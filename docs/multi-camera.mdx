@@ -1,0 +1,71 @@
+---
+title: Multi-Camera Setup
+description: Use multiple Mighty cameras at the same time by assigning each camera its own USB IP subnet.
+---
+
+Mighty appears to the host computer as a USB Ethernet device. Each camera serves
+the Visualizer and Mighty Protocol over a fixed USB IP address. By default, that
+address is `192.168.7.1`.
+
+If two Mighty cameras use the same USB subnet at the same time, the host cannot
+route to them reliably because both devices claim the same address. Change the
+USB IP range on each camera so every device has its own subnet.
+
+## Choose one range per camera
+
+The Visualizer can assign one of the built-in USB ranges from `7` through `14`.
+The selected number becomes the third part of the address:
+
+| Camera | USB IP range | Camera address |
+| --- | --- | --- |
+| Camera 1 | `7` | `http://192.168.7.1` |
+| Camera 2 | `8` | `http://192.168.8.1` |
+| Camera 3 | `9` | `http://192.168.9.1` |
+| Camera 4 | `10` | `http://192.168.10.1` |
+
+The camera always keeps `.1` for itself. DHCP addresses for the host start at
+`.2`, so a camera on range `10` serves itself at `192.168.10.1` and gives the
+host an address such as `192.168.10.2`.
+
+## Change the range in the Visualizer
+
+Change one camera at a time:
+
+1. Connect only the camera you want to configure.
+2. Open the Visualizer at [mightycamera.com/viz](https://mightycamera.com/viz)
+   or at the camera's current USB address.
+3. Wait for the connection status to show that the camera is connected.
+4. Open the **Status** panel.
+5. Find **USB IP Range**.
+6. Pick an unused range from `7` to `14`.
+7. Click **Apply**.
+8. Wait for the camera to reboot.
+9. Reconnect to the camera at its new address, for example
+   `http://192.168.10.1`.
+
+After every camera has a different range, connect them all to the host. Use the
+connection dropdown in the Visualizer status badge to choose which camera
+endpoint to view or control.
+
+## Example
+
+For two cameras, leave the first camera on the default range and move the second
+camera to range `8`:
+
+| Device | Address after setup |
+| --- | --- |
+| First camera | `http://192.168.7.1` |
+| Second camera | `http://192.168.8.1` |
+
+For three cameras, use `7`, `8`, and `9`. Continue assigning one unique range
+per camera.
+
+## Reset to the default range
+
+If you lose track of a camera's range, hold the camera button for at least 10
+seconds, then release it. This resets the USB IP range to the default
+`192.168.7.x` range and reboots the camera.
+
+After a range change or reset, the host operating system may need a few seconds
+to refresh its USB Ethernet lease. If the new address does not respond
+immediately, unplug and reconnect the camera.
