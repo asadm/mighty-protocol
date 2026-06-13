@@ -4,8 +4,8 @@ Mighty Protocol is the open source SDK and wire protocol implementation for
 Mighty Camera. It lets applications communicate with a Mighty visual-inertial
 odometry device over USB Ethernet using HTTP streams and command requests.
 
-The protocol is fixed at the wire level. This repository focuses on making that
-protocol easy to use from Python, JavaScript, C++, and ROS 2.
+This repository focuses on making the protocol easy to use from Python,
+JavaScript, C++, and ROS 2.
 
 ## What You Can Build
 
