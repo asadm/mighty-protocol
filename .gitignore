@@ -4,7 +4,9 @@ tests/bin/cpp_pose_contract_test
 tests/bin/cpp_pose_viz_map
 __pycache__
 *.egg-info
+.DS_Store
 tmp/
+node_modules/
 examples/web/node_modules
 examples/web/dist
 build
