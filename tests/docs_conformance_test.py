@@ -33,14 +33,16 @@ def main():
     for snippet in REQUIRED_DOC_SNIPPETS:
         assert_contains(protocol_doc, snippet, "docs/sdk/protocol.mdx")
 
-    cpp_example = read_text(os.path.join(ROOT, "examples", "cpp", "main.cpp"))
+    cpp_example_path = os.path.join(ROOT, "examples", "cpp", "dashboard", "main.cpp")
+    cpp_example_label = "examples/cpp/dashboard/main.cpp"
+    cpp_example = read_text(cpp_example_path)
     py_example = read_text(os.path.join(ROOT, "examples", "python", "mightyapp.py"))
     js_example = read_text(os.path.join(ROOT, "examples", "web", "uihelpers.js"))
 
     # Ensure all example clients explicitly apply canonical->viz conversion.
-    assert_contains(cpp_example, "kRvizFromOdom", "examples/cpp/main.cpp")
-    assert_contains(cpp_example, "map_pose_position_odom_to_viz", "examples/cpp/main.cpp")
-    assert_contains(cpp_example, "map_pose_quat_odom_to_viz", "examples/cpp/main.cpp")
+    assert_contains(cpp_example, "kRvizFromOdom", cpp_example_label)
+    assert_contains(cpp_example, "map_pose_position_odom_to_viz", cpp_example_label)
+    assert_contains(cpp_example, "map_pose_quat_odom_to_viz", cpp_example_label)
 
     assert_contains(py_example, "R_VIZ_FROM_ODOM", "examples/python/mightyapp.py")
     assert_contains(py_example, "Q_VIZ_FROM_ODOM", "examples/python/mightyapp.py")
@@ -56,7 +58,7 @@ def main():
     py_rows = ["(0.0, -1.0, 0.0)", "(0.0, 0.0, 1.0)", "(-1.0, 0.0, 0.0)"]
     js_rows = ["0, -1, 0", "0, 0, 1", "-1, 0, 0"]
     for row in cpp_rows:
-        assert_contains(cpp_example, row, "examples/cpp/main.cpp")
+        assert_contains(cpp_example, row, cpp_example_label)
     for row in py_rows:
         assert_contains(py_example, row, "examples/python/mightyapp.py")
     for row in js_rows:
