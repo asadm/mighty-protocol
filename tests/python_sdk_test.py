@@ -189,19 +189,21 @@ def main():
         "imu": 0,
         "vsta": 0,
         "lcon": 0,
+        "keyframe": 0,
         "status": 0,
         "reset": 0,
         "any": 0,
         "error": 0,
     }
 
-    last = {"image": None, "pose": None, "vsta": None}
+    last = {"image": None, "pose": None, "vsta": None, "keyframe": None}
 
     client.on_image(lambda v: (seen.__setitem__("image", seen["image"] + 1), last.__setitem__("image", v)))
     client.on_pose(lambda v: (seen.__setitem__("pose", seen["pose"] + 1), last.__setitem__("pose", v)))
     client.on_imu(lambda _: seen.__setitem__("imu", seen["imu"] + 1))
     client.on_vio_state(lambda v: (seen.__setitem__("vsta", seen["vsta"] + 1), last.__setitem__("vsta", v)))
     client.on_lcon(lambda _: seen.__setitem__("lcon", seen["lcon"] + 1))
+    client.on_keyframe(lambda v: (seen.__setitem__("keyframe", seen["keyframe"] + 1), last.__setitem__("keyframe", v)))
     client.on_status(lambda _: seen.__setitem__("status", seen["status"] + 1))
     client.on_reset(lambda _: seen.__setitem__("reset", seen["reset"] + 1))
     client.on_any(lambda _: seen.__setitem__("any", seen["any"] + 1))
@@ -237,11 +239,16 @@ def main():
 
     device.emit_packet(mp.make_packet(mp.TYPE["LCON"], build_lcon_payload()))
 
+    device.emit_packet(mp.make_packet(mp.TYPE["KEYF"], mp.build_keyframe_payload(
+        14,
+        [0.25, -0.5, 1.0],
+    )))
+
     device.emit_packet(mp.make_packet(mp.TYPE["STAT"], b"hello"))
     device.emit_packet(mp.make_packet(mp.TYPE["RSET"]))
     device.emit_packet(mp.make_packet(b"ZZZZ", b"\xaa"))
 
-    assert wait_until(lambda: seen["any"] >= 8)
+    assert wait_until(lambda: seen["any"] >= 9)
 
     assert seen["image"] == 1
     assert seen["pose"] == 1
@@ -249,6 +256,10 @@ def main():
     assert seen["vsta"] == 1
     assert int(last["vsta"]["init_reason_code"]) == mp.VIO_INIT_REASON["NONE"]
     assert seen["lcon"] == 1
+    assert seen["keyframe"] == 1
+    assert last["keyframe"]["timestamp_ns"] == 14
+    assert last["keyframe"]["descriptor_dim"] == 3
+    assert abs(float(last["keyframe"]["descriptor"][1]) + 0.5) < 1e-6
     assert seen["status"] == 1
     assert seen["reset"] == 1
     assert last["image"]["kind"] == "raw"

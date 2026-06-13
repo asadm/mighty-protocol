@@ -79,6 +79,10 @@ SAMPLE = {
         ],
         "point_size": 1.5,
     },
+    "keyframe": {
+        "timestamp_ns": 123456789,
+        "descriptor": [0.125, -0.25, 0.5, 1.0],
+    },
     "vsta": {
         "version": 4,
         "state": 2,
@@ -118,6 +122,10 @@ def build_packets():
     pkts.append(mp.make_packet(mp.TYPE["VSTA"], struct_vsta()))
     pkts.append(mp.make_packet(mp.TYPE["FEA3"], struct_fea3()))
     pkts.append(mp.make_packet(mp.TYPE["PCLD"], struct_pcld()))
+    pkts.append(mp.make_packet(mp.TYPE["KEYF"], mp.build_keyframe_payload(
+        SAMPLE["keyframe"]["timestamp_ns"],
+        SAMPLE["keyframe"]["descriptor"],
+    )))
     return pkts
 
 def struct_vsta():
@@ -257,7 +265,7 @@ def main():
     stream = b"".join(build_packets())
     frames, rest = mp.parse_frames(stream)
     assert not rest
-    assert len(frames) == 16
+    assert len(frames) == 17
 
     idx = 0
     assert frames[idx]["type"] == "RSET"; idx += 1
@@ -327,6 +335,10 @@ def main():
     assert fea3[1]["id"] == 2
     pcld = mp.decode_pcld_payload(frames[idx]["payload"]); idx += 1
     assert len(pcld["points"]) == len(SAMPLE["pcld"]["points"])
+    keyf = mp.decode_keyframe_payload(frames[idx]["payload"]); idx += 1
+    assert keyf["timestamp_ns"] == SAMPLE["keyframe"]["timestamp_ns"]
+    assert keyf["descriptor_dim"] == len(SAMPLE["keyframe"]["descriptor"])
+    assert almost(keyf["descriptor"][2], SAMPLE["keyframe"]["descriptor"][2], 1e-6)
 
     # Dispatcher sanity
     from dispatcher import FrameDispatcher
@@ -335,7 +347,7 @@ def main():
     d = FrameDispatcher(lambda f: seen.append(f["type"]))
     chunked = stream[:20] + stream[20:]  # two chunks
     d.feed(chunked)
-    assert len(seen) == 16
+    assert len(seen) == 17
 
     # Decoded dispatcher sanity
     from decoded_dispatcher import DecodedDispatcher
@@ -347,6 +359,7 @@ def main():
     dd.on_constraints = lambda segs: decoded_seen.append(("lcon", len(segs)))
     dd.on_features = lambda feats: decoded_seen.append(("fea3", len(feats)))
     dd.on_pointcloud = lambda pts, ps: decoded_seen.append(("pcld", len(pts)))
+    dd.on_keyframe = lambda keyf: decoded_seen.append(("keyf", keyf["descriptor_dim"]))
     dd.on_viz = lambda _: decoded_seen.append(("viz", None))
     dd.on_imu = lambda samples: decoded_seen.append(("imu", len(samples)))
     dd.on_status = lambda txt: decoded_seen.append(("stat", txt))

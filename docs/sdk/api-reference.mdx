@@ -89,6 +89,7 @@ Subscriptions (each returns `() => void` to unsubscribe):
 - `onImu(cb)`
 - `onVioState(cb)`
 - `onViz(cb)`
+- `onKeyframe(cb)`
 - `onStatus(cb)`
 - `onReset(cb)`
 - `onAny(cb)`
@@ -192,6 +193,19 @@ type VizEvent =
   | { subtype: "unknown"; rawSubtype: number; rawPayload: Uint8Array };
 ```
 
+`onKeyframe`:
+
+```ts
+type KeyframeEvent = {
+  timestampNs: bigint;
+  descriptor: Float32Array;
+  descriptorDim: number;
+  descriptorType: number; // 1 = float32
+  flags: number;
+  version: number;
+};
+```
+
 `onStatus`:
 
 ```ts
@@ -213,6 +227,7 @@ type AnyEvent =
   | { type: "imu"; data: ImuEvent }
   | { type: "vio_state"; data: VioStateEvent }
   | { type: "viz"; data: VizEvent }
+  | { type: "keyframe"; data: KeyframeEvent }
   | { type: "status"; data: StatusEvent }
   | { type: "reset"; data: ResetEvent }
   | { type: "unknown"; rawType: string; payload: Uint8Array };
@@ -309,6 +324,7 @@ Subscriptions (each returns `Callable[[], None]` unsubscribe):
 - `on_imu(cb)`
 - `on_vio_state(cb)`
 - `on_viz(cb)`
+- `on_keyframe(cb)`
 - `on_status(cb)`
 - `on_reset(cb)`
 - `on_any(cb)`
@@ -438,6 +454,19 @@ Subscriptions (each returns `Callable[[], None]` unsubscribe):
 {"subtype": "unknown", "raw_subtype": int, "raw": bytes}
 ```
 
+`on_keyframe`:
+
+```python
+{
+  "timestamp_ns": int,
+  "descriptor": list[float],
+  "descriptor_dim": int,
+  "descriptor_type": int,  # 1 = float32
+  "flags": int,
+  "version": int,
+}
+```
+
 `on_status`: `{"text": str}`
 
 `on_reset`: `{"received_at_ms": int}`
@@ -551,6 +580,7 @@ Subscriptions:
 - `Subscription on_imu(ImuHandler cb)`
 - `Subscription on_vio_state(VioStateHandler cb)`
 - `Subscription on_viz(VizHandler cb)`
+- `Subscription on_keyframe(KeyframeHandler cb)`
 - `Subscription on_status(StatusHandler cb)`
 - `Subscription on_reset(ResetHandler cb)`
 - `Subscription on_any(AnyHandler cb)`

@@ -26,6 +26,7 @@ using Clock = std::chrono::steady_clock;
 using mighty_protocol::RawFormat;
 using mighty_protocol::sdk::ImageFrame;
 using mighty_protocol::sdk::ImuBatch;
+using mighty_protocol::sdk::KeyframeEvent;
 using mighty_protocol::sdk::MightyClient;
 using mighty_protocol::sdk::MightyClientOptions;
 using mighty_protocol::sdk::MightyWebDevice;
@@ -65,6 +66,7 @@ struct DashboardState {
   cv::Mat image_bgr;
   std::string image_info = "No frame";
   std::string status_text = "Waiting for data...";
+  std::string keyframe_info = "No keyframe";
   std::string host_version = "Unknown";
   std::string last_error;
   int vio_state_code = -1;
@@ -93,6 +95,7 @@ struct DashboardSnapshot {
   std::string image_info;
   cv::Mat image_bgr;
   std::string status_text;
+  std::string keyframe_info;
   std::string host_version;
   std::string last_error;
   int vio_state_code = -1;
@@ -316,6 +319,7 @@ DashboardSnapshot make_snapshot(DashboardState* state,
   s.image_info = state->image_info;
   s.image_bgr = state->image_bgr.empty() ? cv::Mat() : state->image_bgr.clone();
   s.status_text = state->status_text;
+  s.keyframe_info = state->keyframe_info;
   s.host_version = state->host_version;
   s.last_error = state->last_error;
   s.vio_state_code = state->vio_state_code;
@@ -387,6 +391,11 @@ void draw_status_panel(cv::Mat& canvas,
   cv::putText(canvas, "Status:", cv::Point(x0, y0 + 4 * line_h),
               cv::FONT_HERSHEY_SIMPLEX, 0.48, kInk, 1, cv::LINE_AA);
   cv::putText(canvas, snap.status_text.substr(0, 30), cv::Point(x0 + 64, y0 + 4 * line_h),
+              cv::FONT_HERSHEY_SIMPLEX, 0.44, kInk, 1, cv::LINE_AA);
+
+  cv::putText(canvas, "Keyframe:", cv::Point(x0, y0 + 5 * line_h),
+              cv::FONT_HERSHEY_SIMPLEX, 0.48, kInk, 1, cv::LINE_AA);
+  cv::putText(canvas, snap.keyframe_info.substr(0, 30), cv::Point(x0 + 86, y0 + 5 * line_h),
               cv::FONT_HERSHEY_SIMPLEX, 0.44, kInk, 1, cv::LINE_AA);
 
   cv::putText(canvas, "Host:", cv::Point(col2, y0 + line_h),
@@ -774,6 +783,14 @@ int main() {
       state.pose_path.erase(state.pose_path.begin(), state.pose_path.begin() + static_cast<long>(drop));
     }
     if (evt.confidence == evt.confidence) state.pose_confidence = evt.confidence;
+    mark_data(&state);
+  });
+
+  client->on_keyframe([&state](const KeyframeEvent& evt) {
+    std::lock_guard<std::mutex> lock(state.mu);
+    std::ostringstream ss;
+    ss << evt.timestamp_ns << " dim=" << evt.descriptor.size();
+    state.keyframe_info = ss.str();
     mark_data(&state);
   });
 

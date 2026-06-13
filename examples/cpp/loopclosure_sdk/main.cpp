@@ -7,17 +7,13 @@
 
 int main(int argc, char** argv) {
   if (argc < 2) {
-    std::cerr << "usage: loopclosure_sdk_example /path/to/cosplace_model.{onnx,pt} "
+    std::cerr << "usage: loopclosure_sdk_example /path/to/place_model.{onnx,pt} "
                  "[/path/to/calibration.yaml]\n";
     return 2;
   }
 
   auto options = mighty_algorithms::defaultLoopClosureOptions();
   const std::string model_path = argv[1];
-  if (model_path.find("128") != std::string::npos) {
-    options.cosplace_input_width = 128;
-    options.cosplace_input_height = 128;
-  }
   options.keyframe_translation_m = 0.10;
   options.min_loop_gap = 1;
   options.min_orb_matches = 1;

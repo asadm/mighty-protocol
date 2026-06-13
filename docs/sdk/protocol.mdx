@@ -41,6 +41,7 @@ Raw-frame CRC compatibility rule:
 - `RSET`: reset event
 - `FEA3`: 3D features
 - `PCLD`: point cloud
+- `KEYF`: keyframe descriptor event
 - `CMD `: command request
 - `CRES`: command response
 - `CFGQ`: config request payload
@@ -168,6 +169,20 @@ Version 4 appends:
 Version 5 appends:
 - `static_init_reason_code` (u8)
 - `dynamic_init_reason_code` (u8)
+
+### 3.5 Keyframe Descriptor (`KEYF`)
+
+`KEYF` carries the timestamp and learned descriptor for a VIO keyframe. The
+producer emits one packet only after the descriptor has been computed.
+
+Payload layout, big-endian:
+
+- `version` (u8), currently `1`
+- `descriptor_type` (u8), currently `1` for float32
+- `flags` (u16), currently `0`
+- `timestamp_ns` (u64), matching the VIO/image timestamp of the keyframe
+- `descriptor_dim` (u32)
+- `descriptor` (`f32[descriptor_dim]`)
 
 Version 6 appends:
 - `memory_total_bytes` (u64)

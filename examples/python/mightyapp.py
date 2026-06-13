@@ -113,6 +113,9 @@ def wire_client_callbacks(client: MightyClient, state: DashboardState) -> None:
     def on_status(st: Dict[str, object]) -> None:
         state.update_status(str(st.get("text", "") or ""))
 
+    def on_keyframe(kf: Dict[str, object]) -> None:
+        state.update_status(f"keyframe {int(kf.get('timestamp_ns') or 0)} dim={int(kf.get('descriptor_dim') or 0)}")
+
     def on_reset(_: Dict[str, object]) -> None:
         state.update_status("N/A")
 
@@ -124,6 +127,7 @@ def wire_client_callbacks(client: MightyClient, state: DashboardState) -> None:
     client.on_pose(on_pose)
     client.on_imu(on_imu)
     client.on_vio_state(on_vio_state)
+    client.on_keyframe(on_keyframe)
     client.on_status(on_status)
     client.on_reset(on_reset)
     client.on_error(on_error)

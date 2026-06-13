@@ -36,6 +36,7 @@ class MightyClient:
             "vio_state": set(),
             "viz": set(),
             "lcon": set(),
+            "keyframe": set(),
             "status": set(),
             "reset": set(),
             "any": set(),
@@ -112,6 +113,9 @@ class MightyClient:
 
     def on_constraints(self, cb: Callable[[dict], None]) -> Callable[[], None]:
         return self._subscribe("lcon", cb)
+
+    def on_keyframe(self, cb: Callable[[dict], None]) -> Callable[[], None]:
+        return self._subscribe("keyframe", cb)
 
     def on_status(self, cb: Callable[[dict], None]) -> Callable[[], None]:
         return self._subscribe("status", cb)
@@ -475,6 +479,23 @@ class MightyClient:
                 self._emit("lcon", mapped)
                 if wants_any:
                     self._emit_any({"type": "lcon", "data": mapped})
+                return
+
+            if frame_type == "KEYF":
+                if not self._has_listeners("keyframe") and not wants_any:
+                    return
+                k = mp.decode_keyframe_payload(payload)
+                mapped = {
+                    "timestamp_ns": k.get("timestamp_ns"),
+                    "descriptor": k.get("descriptor", []),
+                    "descriptor_dim": k.get("descriptor_dim", 0),
+                    "descriptor_type": k.get("descriptor_type", 0),
+                    "flags": k.get("flags", 0),
+                    "version": k.get("version", 0),
+                }
+                self._emit("keyframe", mapped)
+                if wants_any:
+                    self._emit_any({"type": "keyframe", "data": mapped})
                 return
 
             if frame_type == "STAT":

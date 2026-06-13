@@ -33,6 +33,10 @@ int main() {
     (void)f;
   });
 
+  auto keyframe_sub = client.on_keyframe([](const KeyframeEvent& k) {
+    (void)k;
+  });
+
   client.connect();
   client.start_vio();
   client.disconnect();

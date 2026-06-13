@@ -20,6 +20,7 @@ TYPE = {
     "RSET": b"RSET",
     "FEA3": b"FEA3",
     "PCLD": b"PCLD",
+    "KEYF": b"KEYF",
     "CMD": b"CMD ",
     "CRES": b"CRES",
     "CFGQ": b"CFGQ",
@@ -342,6 +343,45 @@ def decode_imu_payload(payload: bytes):
 
 def decode_status_payload(payload: bytes):
     return payload.decode("utf-8")
+
+def build_keyframe_payload(timestamp_ns: int,
+                           descriptor,
+                           flags: int = 0,
+                           version: int = 1,
+                           descriptor_type: int = 1) -> bytes:
+    values = list(descriptor or [])
+    header = struct.pack(
+        ">BBHQI",
+        int(version) & 0xFF,
+        int(descriptor_type) & 0xFF,
+        int(flags) & 0xFFFF,
+        int(timestamp_ns) & 0xFFFFFFFFFFFFFFFF,
+        len(values) & 0xFFFFFFFF,
+    )
+    if not values:
+        return header
+    return header + struct.pack(">" + "f" * len(values), *[float(v) for v in values])
+
+def decode_keyframe_payload(payload: bytes):
+    if len(payload) < 16:
+        raise ValueError("payload too short")
+    version, descriptor_type, flags, timestamp_ns, dim = struct.unpack(">BBHQI", payload[:16])
+    if version != 1:
+        raise ValueError(f"unsupported KEYF version {version}")
+    if descriptor_type != 1:
+        raise ValueError(f"unsupported KEYF descriptor type {descriptor_type}")
+    need = 16 + dim * 4
+    if len(payload) < need:
+        raise ValueError("KEYF descriptor truncated")
+    descriptor = list(struct.unpack(">" + "f" * dim, payload[16:need])) if dim else []
+    return {
+        "version": version,
+        "descriptor_type": descriptor_type,
+        "flags": flags,
+        "timestamp_ns": timestamp_ns,
+        "descriptor_dim": dim,
+        "descriptor": descriptor,
+    }
 
 def decode_vio_state_payload(payload: bytes):
     if len(payload) < 1+1+2+8+4+4+4+4+4+4:

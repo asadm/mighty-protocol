@@ -45,6 +45,7 @@ const state = {
   lastError: "",
   imageInfo: "No frame",
   poseInfo: "No pose",
+  keyframeInfo: "No keyframe",
 };
 
 const device = new MightyWebDevice();
@@ -86,6 +87,7 @@ function renderStatusPanel() {
     pose_conf: state.poseConfidence,
     image: state.imageInfo,
     pose: state.poseInfo,
+    keyframe: state.keyframeInfo,
     error: state.lastError || "none",
   });
 }
@@ -115,6 +117,12 @@ client.onPose((pose) => {
   if (typeof pose.confidence === "number") {
     state.poseConfidence = pose.confidence.toFixed(3);
   }
+});
+
+client.onKeyframe((keyframe) => {
+  markDataActivity();
+  state.keyframeInfo = `${keyframe.timestampNs || 0n} dim=${keyframe.descriptorDim || 0}`;
+  state.latestStatus = `keyframe ${state.keyframeInfo}`;
 });
 
 client.onImu((imu) => {

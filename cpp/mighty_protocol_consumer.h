@@ -120,6 +120,7 @@ class DecodedDispatcher {
   using ConstraintsHandler = std::function<void(const Constraints&)>;
   using FeaturesHandler = std::function<void(const std::vector<Feature3D>&)>;
   using PointCloudHandler = std::function<void(const PointCloud&)>;
+  using KeyframeHandler = std::function<void(const KeyframeDescriptor&)>;
   using VizHandler = std::function<void(const std::vector<uint8_t>&)>;
   using ImuHandler = std::function<void(const std::vector<ImuSample>&)>;
   using StatusHandler = std::function<void(const std::string&)>;
@@ -137,6 +138,7 @@ class DecodedDispatcher {
   void on_constraints(ConstraintsHandler h) { constraints_handler_ = std::move(h); }
   void on_features(FeaturesHandler h) { fea_handler_ = std::move(h); }
   void on_pointcloud(PointCloudHandler h) { pcl_handler_ = std::move(h); }
+  void on_keyframe(KeyframeHandler h) { keyframe_handler_ = std::move(h); }
   void on_viz(VizHandler h) { viz_handler_ = std::move(h); }
   void on_imu(ImuHandler h) { imu_handler_ = std::move(h); }
   void on_status(StatusHandler h) { status_handler_ = std::move(h); }
@@ -228,6 +230,12 @@ class DecodedDispatcher {
       if (decode_pcld_payload(f.payload, pts, ps)) {
         pcl_handler_(PointCloud{pts, ps});
       }
+    } else if (type == "KEYF") {
+      if (!keyframe_handler_) return;
+      KeyframeDescriptor keyframe;
+      if (decode_keyframe_payload(f.payload, keyframe)) {
+        keyframe_handler_(keyframe);
+      }
     } else if (type == "VIZ ") {
       if (viz_handler_) viz_handler_(f.payload);
     } else if (type == "IMU ") {
@@ -281,6 +289,7 @@ class DecodedDispatcher {
   ConstraintsHandler constraints_handler_;
   FeaturesHandler fea_handler_;
   PointCloudHandler pcl_handler_;
+  KeyframeHandler keyframe_handler_;
   VizHandler viz_handler_;
   ImuHandler imu_handler_;
   StatusHandler status_handler_;

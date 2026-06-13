@@ -81,6 +81,10 @@ const SAMPLE = {
     ],
     pointSize: 1.5,
   },
+  keyframe: {
+    timestampNs: 123456789n,
+    descriptor: [0.125, -0.25, 0.5, 1.0],
+  },
   vsta: {
     version: 4,
     state: 2,
@@ -114,7 +118,7 @@ const SAMPLE = {
   },
 };
 
-const EXPECTED_COUNT = 18;
+const EXPECTED_COUNT = 19;
 
 function buildPackets() {
   return [
@@ -158,6 +162,7 @@ function buildPackets() {
     proto.makePacket(proto.TYPE.VSTA, proto.buildVioStatePayload(SAMPLE.vsta)),
     proto.makePacket(proto.TYPE.FEA3, proto.buildFea3Payload(SAMPLE.fea3)),
     proto.makePacket(proto.TYPE.PCLD, proto.buildPcldPayload(SAMPLE.pcld.points, SAMPLE.pcld.pointSize)),
+    proto.makePacket(proto.TYPE.KEYF, proto.buildKeyframePayload(SAMPLE.keyframe)),
     proto.makePacket(proto.TYPE.CFGQ, proto.buildConfigRequestPayload(SAMPLE.cfgq)),
     proto.makePacket(proto.TYPE.CFGR, proto.buildConfigResponsePayload(SAMPLE.cfgr)),
   ];
@@ -303,6 +308,13 @@ function verifyFrame(frame, index) {
       assert(almost(res.pointSize, SAMPLE.pcld.pointSize, 1e-4));
       break;
     }
+    case proto.TYPE.KEYF: {
+      const res = proto.decodeKeyframePayload(payload);
+      assert.strictEqual(res.timestampNs, SAMPLE.keyframe.timestampNs);
+      assert.strictEqual(res.descriptorDim, SAMPLE.keyframe.descriptor.length);
+      Array.from(res.descriptor).forEach((v, i) => assert(almost(v, SAMPLE.keyframe.descriptor[i], 1e-6)));
+      break;
+    }
     case proto.TYPE.CFGQ: {
       const res = proto.decodeConfigRequestPayload(payload);
       assert.strictEqual(res.version, SAMPLE.cfgq.version);
@@ -412,6 +424,7 @@ async function runFuzzTests() {
 	    proto.TYPE.IMU,
 	    proto.TYPE.STAT,
 	    proto.TYPE.VSTA,
+      proto.TYPE.KEYF,
       proto.TYPE.CFGQ,
       proto.TYPE.CFGR,
 	  ];
@@ -460,7 +473,7 @@ async function runFuzzTests() {
 	    return proto.buildStatusPayload('fuzz');
 	  }
 
-	  function randomVstaPayload() {
+  function randomVstaPayload() {
 	    return proto.buildVioStatePayload({
 	      version: 4,
 	      state: 2,
@@ -477,6 +490,13 @@ async function runFuzzTests() {
 	      loopClosures: Math.floor(Math.random() * 100),
 	    });
 	  }
+
+  function randomKeyframePayload() {
+    return proto.buildKeyframePayload({
+      timestampNs: BigInt(Math.floor(Math.random() * 1e6)),
+      descriptor: [Math.random(), -Math.random(), Math.random()],
+    });
+  }
 
   function randomCfgqPayload() {
     return proto.buildConfigRequestPayload({
@@ -513,6 +533,7 @@ async function runFuzzTests() {
 	    [proto.TYPE.IMU]: () => randomImuPayload(),
 	    [proto.TYPE.STAT]: () => randomStatPayload(),
 	    [proto.TYPE.VSTA]: () => randomVstaPayload(),
+      [proto.TYPE.KEYF]: () => randomKeyframePayload(),
       [proto.TYPE.CFGQ]: () => randomCfgqPayload(),
       [proto.TYPE.CFGR]: () => randomCfgrPayload(),
 	  };

@@ -22,6 +22,7 @@ device = MightyWebDevice()
 client = MightyClient(device, auto_reconnect=True)
 
 client.on_pose(lambda p: print("pose", p["position_m"], p["confidence"]))
+client.on_keyframe(lambda k: print("keyframe", k["timestamp_ns"], k["descriptor_dim"]))
 client.on_image(lambda img: print("image", img["kind"], img["width"], img["height"]))
 client.on_error(lambda e: print("error:", e))
 

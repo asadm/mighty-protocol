@@ -18,6 +18,7 @@ const device = new MightyWebDevice();
 const client = new MightyClient(device, { autoReconnect: true, reconnectDelayMs: 500 });
 
 client.onPose((pose) => console.log("pose", pose.positionM, pose.confidence));
+client.onKeyframe((keyframe) => console.log("keyframe", keyframe.timestampNs, keyframe.descriptorDim));
 client.onImage((img) => {
   const decoded = decodeRawToRgb(img);
   console.log("image", decoded?.width ?? img.width, decoded?.height ?? img.height);

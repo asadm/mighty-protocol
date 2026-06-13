@@ -20,6 +20,7 @@ const TYPE = {
   RSET: "RSET",
   FEA3: "FEA3",
   PCLD: "PCLD",
+  KEYF: "KEYF",
   CMD: "CMD ",
   CRES: "CRES",
   CFGQ: "CFGQ",
@@ -513,6 +514,31 @@ function buildImuPayload(samples = []) {
 const buildStatusPayload = (text = "") =>
   fromU8((textEncoder || new TextEncoder()).encode(text));
 
+function buildKeyframePayload({
+  timestampNs = 0n,
+  descriptor = [],
+  flags = 0,
+  version = 1,
+  descriptorType = 1,
+} = {}) {
+  const values = descriptor instanceof Float32Array ? descriptor : Array.from(descriptor || []);
+  const dim = values.length >>> 0;
+  const buf = new Uint8Array(1 + 1 + 2 + 8 + 4 + dim * 4);
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  let off = 0;
+  dv.setUint8(off, version & 0xff); off += 1;
+  dv.setUint8(off, descriptorType & 0xff); off += 1;
+  dv.setUint16(off, flags & 0xffff, false); off += 2;
+  dv.setBigUint64(off, BigInt(timestampNs || 0), false); off += 8;
+  dv.setUint32(off, dim, false); off += 4;
+  for (let i = 0; i < dim; i += 1) {
+    const v = Number(values[i]);
+    dv.setFloat32(off, Number.isFinite(v) ? v : 0, false);
+    off += 4;
+  }
+  return fromU8(buf);
+}
+
 function buildVioStatePayload({
   version = 1,
   state = 0,
@@ -945,6 +971,26 @@ function decodeImuPayload(payload) {
 const decodeStatusPayload = (payload) =>
   (textDecoder || new TextDecoder()).decode(toU8(payload));
 
+function decodeKeyframePayload(payload) {
+  const u8 = toU8(payload);
+  if (u8.length < 16) throw new Error("KEYF payload too short");
+  let off = 0;
+  const version = readU8(u8, off); off += 1;
+  const descriptorType = readU8(u8, off); off += 1;
+  const flags = readU16BE(u8, off); off += 2;
+  const timestampNs = readBigU64BE(u8, off); off += 8;
+  const descriptorDim = readU32BE(u8, off); off += 4;
+  if (version !== 1) throw new Error(`unsupported KEYF version ${version}`);
+  if (descriptorType !== 1) throw new Error(`unsupported KEYF descriptor type ${descriptorType}`);
+  if (u8.length < off + descriptorDim * 4) throw new Error("KEYF descriptor truncated");
+  const descriptor = new Float32Array(descriptorDim);
+  for (let i = 0; i < descriptorDim; i += 1) {
+    descriptor[i] = readF32BE(u8, off);
+    off += 4;
+  }
+  return { version, descriptorType, flags, timestampNs, descriptorDim, descriptor };
+}
+
 function decodeVioStatePayload(payload) {
   const u8 = toU8(payload);
   if (u8.length < 1 + 1 + 2 + 8 + 4 + 4 + 4 + 4 + 4 + 4) {
@@ -1156,6 +1202,7 @@ const api = {
   buildVizPayload,
   buildImuPayload,
   buildStatusPayload,
+  buildKeyframePayload,
   buildVioStatePayload,
   buildFea3Payload,
   buildPcldPayload,
@@ -1172,6 +1219,7 @@ const api = {
   decodeVizPayload,
   decodeImuPayload,
   decodeStatusPayload,
+  decodeKeyframePayload,
   decodeVioStatePayload,
   decodeFea3Payload,
   decodePcldPayload,
@@ -1201,6 +1249,7 @@ export {
   buildVizPayload,
   buildImuPayload,
   buildStatusPayload,
+  buildKeyframePayload,
   buildVioStatePayload,
   buildFea3Payload,
   buildPcldPayload,
@@ -1217,6 +1266,7 @@ export {
   decodeVizPayload,
   decodeImuPayload,
   decodeStatusPayload,
+  decodeKeyframePayload,
   decodeVioStatePayload,
   decodeFea3Payload,
   decodePcldPayload,

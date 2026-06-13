@@ -11,6 +11,7 @@ class DecodedDispatcher:
       on_constraints(segments_list)
       on_features(features_list)
       on_pointcloud(points, point_size)
+      on_keyframe(keyframe_dict)
       on_viz(payload_bytes)
       on_imu(samples_list)
       on_status(text)
@@ -29,6 +30,7 @@ class DecodedDispatcher:
         self.on_constraints = None
         self.on_features = None
         self.on_pointcloud = None
+        self.on_keyframe = None
         self.on_viz = None
         self.on_imu = None
         self.on_status = None
@@ -82,6 +84,9 @@ class DecodedDispatcher:
             elif t == "PCLD":
                 if self.on_pointcloud:
                     res = mp.decode_pcld_payload(p); self.on_pointcloud(res["points"], res["point_size"])
+            elif t == "KEYF":
+                if self.on_keyframe:
+                    self.on_keyframe(mp.decode_keyframe_payload(p))
             elif t == "VIZ":
                 if self.on_viz: self.on_viz(p)
             elif t == "IMU":

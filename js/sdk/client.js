@@ -21,6 +21,7 @@ const EVENT_KEYS = [
   "viz",
   "point_cloud",
   "lcon",
+  "keyframe",
   "status",
   "lua_log",
   "reset",
@@ -120,6 +121,7 @@ export class MightyClient {
   onPointCloud(cb) { return this._subscribe("point_cloud", cb); }
   onLcon(cb) { return this._subscribe("lcon", cb); }
   onConstraints(cb) { return this._subscribe("lcon", cb); }
+  onKeyframe(cb) { return this._subscribe("keyframe", cb); }
   onStatus(cb) { return this._subscribe("status", cb); }
   onLuaLog(cb) { return this._subscribe("lua_log", cb); }
   onReset(cb) { return this._subscribe("reset", cb); }
@@ -523,6 +525,21 @@ export class MightyClient {
           const mapped = { segments: segs };
           this._emit("lcon", mapped);
           if (wantsAny) this._emitAny({ type: "lcon", data: mapped });
+          return;
+        }
+        case protocol.TYPE.KEYF: {
+          if (!this._hasListeners("keyframe") && !wantsAny) return;
+          const k = protocol.decodeKeyframePayload(frame.payload);
+          const mapped = {
+            timestampNs: k.timestampNs,
+            descriptor: k.descriptor,
+            descriptorDim: k.descriptorDim,
+            descriptorType: k.descriptorType,
+            flags: k.flags,
+            version: k.version,
+          };
+          this._emit("keyframe", mapped);
+          if (wantsAny) this._emitAny({ type: "keyframe", data: mapped });
           return;
         }
         case protocol.TYPE.STAT: {

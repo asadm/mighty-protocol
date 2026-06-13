@@ -195,6 +195,7 @@ int main() {
     std::atomic<int> imu{0};
     std::atomic<int> vsta{0};
     std::atomic<int> lcon{0};
+    std::atomic<int> keyframe{0};
     std::atomic<int> status{0};
     std::atomic<int> reset{0};
     std::atomic<int> any{0};
@@ -204,6 +205,7 @@ int main() {
   std::optional<ImageFrame> last_image;
   std::optional<PoseFrame> last_pose;
   std::optional<VioStateFrame> last_vsta;
+  std::optional<KeyframeEvent> last_keyframe;
 
   client.on_image([&](const ImageFrame& f) {
     seen.image.fetch_add(1);
@@ -219,6 +221,10 @@ int main() {
     last_vsta = v;
   });
   client.on_lcon([&](const LconFrame&) { seen.lcon.fetch_add(1); });
+  client.on_keyframe([&](const KeyframeEvent& k) {
+    seen.keyframe.fetch_add(1);
+    last_keyframe = k;
+  });
   client.on_status([&](const StatusEvent&) { seen.status.fetch_add(1); });
   client.on_reset([&](const ResetEvent&) { seen.reset.fetch_add(1); });
   client.on_any([&](const AnyEvent&) { seen.any.fetch_add(1); });
@@ -285,11 +291,13 @@ int main() {
   std::vector<PoseConstraintSegment> segs = {seg};
   device->emit_packet(make_packet(build_constraints_payload(segs), TYPE_LCON));
 
+  device->emit_packet(make_packet(build_keyframe_payload(14, std::vector<float>{0.25f, -0.5f, 1.0f}), TYPE_KEYF));
+
   device->emit_packet(make_packet(build_status_payload("hello"), TYPE_STAT));
   device->emit_packet(make_packet(nullptr, 0, TYPE_RSET));
   device->emit_packet(make_packet(std::vector<uint8_t>{0xAA}, "ZZZZ"));
 
-  assert(wait_until([&]() { return seen.any.load() >= 8; }, 2000));
+  assert(wait_until([&]() { return seen.any.load() >= 9; }, 2000));
 
   assert(seen.image.load() == 1);
   assert(last_image.has_value());
@@ -332,6 +340,11 @@ int main() {
   assert(last_vsta->init_reason_code == static_cast<uint8_t>(VioInitReasonCode::kNone));
   assert(last_vsta->init_reason == VioInitReasonCode::kNone);
   assert(seen.lcon.load() == 1);
+  assert(seen.keyframe.load() == 1);
+  assert(last_keyframe.has_value());
+  assert(last_keyframe->timestamp_ns == 14);
+  assert(last_keyframe->descriptor.size() == 3);
+  assert(approx(last_keyframe->descriptor[1], -0.5));
   assert(seen.status.load() == 1);
   assert(seen.reset.load() == 1);
 

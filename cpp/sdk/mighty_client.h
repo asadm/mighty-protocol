@@ -121,6 +121,14 @@ struct LconFrame {
   std::vector<PoseConstraintSegment> segments;
 };
 
+struct KeyframeEvent {
+  uint8_t version = 1;
+  uint8_t descriptor_type = 1;
+  uint16_t flags = 0;
+  uint64_t timestamp_ns = 0;
+  std::vector<float> descriptor;
+};
+
 struct StatusEvent {
   std::string text;
 };
@@ -180,6 +188,7 @@ class MightyClient {
   using VioStateHandler = std::function<void(const VioStateFrame&)>;
   using VizHandler = std::function<void(const VizFrame&)>;
   using LconHandler = std::function<void(const LconFrame&)>;
+  using KeyframeHandler = std::function<void(const KeyframeEvent&)>;
   using StatusHandler = std::function<void(const StatusEvent&)>;
   using ResetHandler = std::function<void(const ResetEvent&)>;
   using AnyHandler = std::function<void(const AnyEvent&)>;
@@ -194,6 +203,7 @@ class MightyClient {
       kVioState,
       kViz,
       kLcon,
+      kKeyframe,
       kStatus,
       kReset,
       kAny,
@@ -259,6 +269,7 @@ class MightyClient {
   Subscription on_viz(VizHandler cb) { return subscribe(viz_handlers_, Subscription::Kind::kViz, std::move(cb)); }
   Subscription on_lcon(LconHandler cb) { return subscribe(lcon_handlers_, Subscription::Kind::kLcon, std::move(cb)); }
   Subscription on_constraints(LconHandler cb) { return on_lcon(std::move(cb)); }
+  Subscription on_keyframe(KeyframeHandler cb) { return subscribe(keyframe_handlers_, Subscription::Kind::kKeyframe, std::move(cb)); }
   Subscription on_status(StatusHandler cb) { return subscribe(status_handlers_, Subscription::Kind::kStatus, std::move(cb)); }
   Subscription on_reset(ResetHandler cb) { return subscribe(reset_handlers_, Subscription::Kind::kReset, std::move(cb)); }
   Subscription on_any(AnyHandler cb) { return subscribe(any_handlers_, Subscription::Kind::kAny, std::move(cb)); }
@@ -273,6 +284,7 @@ class MightyClient {
       case Subscription::Kind::kVioState: vio_state_handlers_.remove(sub.id); break;
       case Subscription::Kind::kViz: viz_handlers_.remove(sub.id); break;
       case Subscription::Kind::kLcon: lcon_handlers_.remove(sub.id); break;
+      case Subscription::Kind::kKeyframe: keyframe_handlers_.remove(sub.id); break;
       case Subscription::Kind::kStatus: status_handlers_.remove(sub.id); break;
       case Subscription::Kind::kReset: reset_handlers_.remove(sub.id); break;
       case Subscription::Kind::kAny: any_handlers_.remove(sub.id); break;
@@ -711,6 +723,23 @@ class MightyClient {
         return;
       }
 
+      if (type == "KEYF") {
+        if (keyframe_handlers_.empty() && !wants_any) return;
+        KeyframeDescriptor decoded;
+        if (!decode_keyframe_payload(frame.payload, decoded)) {
+          throw std::runtime_error("KEYF decode failed");
+        }
+        KeyframeEvent evt;
+        evt.version = decoded.version;
+        evt.descriptor_type = decoded.descriptor_type;
+        evt.flags = decoded.flags;
+        evt.timestamp_ns = decoded.timestamp_ns;
+        evt.descriptor = std::move(decoded.descriptor);
+        emit(keyframe_handlers_, evt);
+        if (wants_any) emit_any(AnyEvent{"keyframe", "", {}});
+        return;
+      }
+
       if (type == "STAT") {
         if (!opts_.emit_stat_as_status) return;
         if (status_handlers_.empty() && !wants_any) return;
@@ -807,6 +836,7 @@ class MightyClient {
   ListenerSet<VioStateHandler> vio_state_handlers_;
   ListenerSet<VizHandler> viz_handlers_;
   ListenerSet<LconHandler> lcon_handlers_;
+  ListenerSet<KeyframeHandler> keyframe_handlers_;
   ListenerSet<StatusHandler> status_handlers_;
   ListenerSet<ResetHandler> reset_handlers_;
   ListenerSet<AnyHandler> any_handlers_;

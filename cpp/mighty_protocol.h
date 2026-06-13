@@ -28,6 +28,7 @@ inline constexpr char TYPE_FEA3[4] = {'F','E','A','3'};
 inline constexpr char TYPE_PCLD[4] = {'P','C','L','D'};
 inline constexpr char TYPE_VSTA[4] = {'V','S','T','A'};
 inline constexpr char TYPE_LLOG[4] = {'L','L','O','G'};
+inline constexpr char TYPE_KEYF[4] = {'K','E','Y','F'};
 inline constexpr char TYPE_CMD[4]  = {'C','M','D',' '};
 inline constexpr char TYPE_CRES[4] = {'C','R','E','S'};
 inline constexpr char TYPE_CFGQ[4] = {'C','F','G','Q'};
@@ -208,6 +209,14 @@ struct Feature3D {
 struct Point3DColor {
   float x, y, z;
   uint8_t r, g, b;
+};
+
+struct KeyframeDescriptor {
+  uint8_t version = 1;
+  uint8_t descriptor_type = 1; // 1 = float32 descriptor
+  uint16_t flags = 0;
+  uint64_t timestamp_ns = 0;
+  std::vector<float> descriptor;
 };
 
 struct VizFeature {
@@ -657,6 +666,30 @@ inline std::vector<uint8_t> build_lua_log_payload(uint32_t seq, const std::strin
     std::memcpy(payload.data() + 4, text.data(), text.size());
   }
   return payload;
+}
+
+inline std::vector<uint8_t> build_keyframe_payload(uint64_t timestamp_ns,
+                                                   const std::vector<float>& descriptor,
+                                                   uint16_t flags = 0) {
+  const uint32_t dim = static_cast<uint32_t>(descriptor.size());
+  std::vector<uint8_t> payload;
+  payload.resize(1 + 1 + 2 + 8 + 4 + static_cast<size_t>(dim) * 4);
+  size_t off = 0;
+  payload[off++] = 1; // version
+  payload[off++] = 1; // descriptor_type: float32
+  payload[off++] = static_cast<uint8_t>((flags >> 8) & 0xFF);
+  payload[off++] = static_cast<uint8_t>(flags & 0xFF);
+  write_u64_be(payload.data() + off, timestamp_ns); off += 8;
+  write_u32_be(payload.data() + off, dim); off += 4;
+  for (float value : descriptor) {
+    write_f32_be(payload.data() + off, value);
+    off += 4;
+  }
+  return payload;
+}
+
+inline std::vector<uint8_t> build_keyframe_payload(const KeyframeDescriptor& keyframe) {
+  return build_keyframe_payload(keyframe.timestamp_ns, keyframe.descriptor, keyframe.flags);
 }
 
 inline std::vector<uint8_t> build_vio_state_payload(const VioState& s) {
@@ -1186,6 +1219,38 @@ inline bool decode_imu_payload(const std::vector<uint8_t>& payload,
 
 inline bool decode_status_payload(const std::vector<uint8_t>& payload, std::string& text) {
   text.assign(payload.begin(), payload.end());
+  return true;
+}
+
+inline bool decode_keyframe_payload(const std::vector<uint8_t>& payload,
+                                    KeyframeDescriptor& out) {
+  if (payload.size() < 16) return false;
+  size_t off = 0;
+  out.version = payload[off++];
+  out.descriptor_type = payload[off++];
+  out.flags = (static_cast<uint16_t>(payload[off]) << 8) | payload[off + 1];
+  off += 2;
+  out.timestamp_ns = 0;
+  for (int k = 0; k < 8; ++k) out.timestamp_ns = (out.timestamp_ns << 8) | payload[off++];
+  uint32_t dim = (static_cast<uint32_t>(payload[off]) << 24) |
+                 (static_cast<uint32_t>(payload[off + 1]) << 16) |
+                 (static_cast<uint32_t>(payload[off + 2]) << 8) |
+                 static_cast<uint32_t>(payload[off + 3]);
+  off += 4;
+  if (out.version != 1 || out.descriptor_type != 1) return false;
+  if (payload.size() < off + static_cast<size_t>(dim) * 4) return false;
+  out.descriptor.clear();
+  out.descriptor.reserve(dim);
+  for (uint32_t i = 0; i < dim; ++i) {
+    uint32_t raw = (static_cast<uint32_t>(payload[off]) << 24) |
+                   (static_cast<uint32_t>(payload[off + 1]) << 16) |
+                   (static_cast<uint32_t>(payload[off + 2]) << 8) |
+                   static_cast<uint32_t>(payload[off + 3]);
+    float value = 0.0f;
+    std::memcpy(&value, &raw, sizeof(float));
+    out.descriptor.push_back(value);
+    off += 4;
+  }
   return true;
 }
 

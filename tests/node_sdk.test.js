@@ -145,6 +145,7 @@ async function main() {
     vsta: 0,
     pcld: 0,
     lcon: 0,
+    keyframe: 0,
     reset: 0,
     status: 0,
     any: 0,
@@ -154,6 +155,7 @@ async function main() {
   let lastPose = null;
   let lastVsta = null;
   let lastPointCloud = null;
+  let lastKeyframe = null;
 
   client.onImage((f) => {
     seen.image += 1;
@@ -173,6 +175,10 @@ async function main() {
     lastPointCloud = p;
   });
   client.onLcon(() => { seen.lcon += 1; });
+  client.onKeyframe((k) => {
+    seen.keyframe += 1;
+    lastKeyframe = k;
+  });
   client.onReset(() => { seen.reset += 1; });
   client.onStatus(() => { seen.status += 1; });
   client.onAny(() => { seen.any += 1; });
@@ -231,6 +237,10 @@ async function main() {
   device.emitPacket(proto.makePacket(proto.TYPE.PCLD, proto.buildPcldPayload([
     { x: 1, y: 2, z: 3, r: 10, g: 20, b: 30 },
   ], 0.01)));
+  device.emitPacket(proto.makePacket(proto.TYPE.KEYF, proto.buildKeyframePayload({
+    timestampNs: 14n,
+    descriptor: [0.25, -0.5, 1.0],
+  })));
   device.emitPacket(proto.makePacket(proto.TYPE.STAT, proto.buildStatusPayload("hello")));
   device.emitPacket(proto.makePacket(proto.TYPE.RSET));
   device.emitPacket(proto.makePacket("ZZZZ", Buffer.from([0xaa])));
@@ -274,9 +284,13 @@ async function main() {
   assert.ok(Array.isArray(lastPointCloud.points));
   assert.strictEqual(lastPointCloud.points.length, 1);
   assert.strictEqual(seen.lcon, 1);
+  assert.strictEqual(seen.keyframe, 1);
+  assert.strictEqual(lastKeyframe.timestampNs, 14n);
+  assert.strictEqual(lastKeyframe.descriptorDim, 3);
+  assert.ok(almost(lastKeyframe.descriptor[1], -0.5));
   assert.strictEqual(seen.status, 1);
   assert.strictEqual(seen.reset, 1);
-  assert.ok(seen.any >= 9);
+  assert.ok(seen.any >= 10);
 
   const cmdRes = await client.startVio();
   assert.strictEqual(cmdRes.ok, true);

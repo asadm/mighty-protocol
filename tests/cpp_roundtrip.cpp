@@ -22,7 +22,7 @@ using namespace mighty_protocol;
 
 namespace {
 
-constexpr int kExpectedFrames = 18; // + CFGQ + CFGR
+constexpr int kExpectedFrames = 19; // + KEYF + CFGQ + CFGR
 
 struct SampleData {
   uint64_t jpg_ts = 111;
@@ -118,6 +118,8 @@ struct SampleData {
   };
   float pcld_size = 1.5f;
 
+  KeyframeDescriptor keyframe{};
+
   ConfigRequest cfgq{};
   ConfigResponse cfgr{};
 
@@ -136,6 +138,9 @@ struct SampleData {
     vsta.loop_closures = 7;
     vsta.build_version = "Mighty v.20260208-deadbeef";
     vsta.init_reason_code = static_cast<uint8_t>(VioInitReasonCode::kNone);
+
+    keyframe.timestamp_ns = 123456789;
+    keyframe.descriptor = {0.125f, -0.25f, 0.5f, 1.0f};
 
     cfgq.version = 1;
     cfgq.op = static_cast<uint8_t>(ConfigOp::kSet);
@@ -293,6 +298,18 @@ bool verify_frame(const Frame& f, int index, const SampleData& s) {
     if (!decode_pcld_payload(f.payload, pts, ps)) return false;
     return pts.size() == s.pcld.size() && ps.has_value() && approx(ps.value(), s.pcld_size, 1e-5);
   }
+  if (type_str == "KEYF") {
+    KeyframeDescriptor out;
+    if (!decode_keyframe_payload(f.payload, out)) return false;
+    if (out.timestamp_ns != s.keyframe.timestamp_ns ||
+        out.descriptor.size() != s.keyframe.descriptor.size()) {
+      return false;
+    }
+    for (size_t i = 0; i < out.descriptor.size(); ++i) {
+      if (!approx(out.descriptor[i], s.keyframe.descriptor[i], 1e-6)) return false;
+    }
+    return true;
+  }
   if (type_str == "CFGQ") {
     ConfigRequest out{};
     if (!decode_config_request_payload(f.payload, out)) return false;
@@ -356,6 +373,7 @@ std::vector<std::vector<uint8_t>> build_sample_packets(const SampleData& s) {
   packets.push_back(make_packet(build_vio_state_payload(s.vsta), TYPE_VSTA));
   packets.push_back(make_packet(build_fea3_payload(s.fea3), TYPE_FEA3));
   packets.push_back(make_packet(build_pcld_payload(s.pcld, s.pcld_size), TYPE_PCLD));
+  packets.push_back(make_packet(build_keyframe_payload(s.keyframe), TYPE_KEYF));
   packets.push_back(make_packet(build_config_request_payload(s.cfgq), TYPE_CFGQ));
   packets.push_back(make_packet(build_config_response_payload(s.cfgr), TYPE_CFGR));
   return packets;
