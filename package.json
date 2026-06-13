@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "description": "SDK and protocol helpers for Mighty Camera (Python, JavaScript, C++)",
+  "license": "Apache-2.0",
   "main": "./js/index.js",
   "homepage": "https://github.com/asadm/mighty-protocol",
   "repository": {
@@ -29,6 +30,7 @@
     "cpp",
     "python",
     "README.md",
+    "LICENSE",
     "PROTOCOL.md",
     "!python/**/__pycache__/**",
     "!python/**/*.egg-info/**",

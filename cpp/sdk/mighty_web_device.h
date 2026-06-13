@@ -169,10 +169,9 @@ class MightyWebDevice : public MightyDeviceIO {
 
   static std::vector<std::string> default_base_urls() {
     return {
+        "http://192.168.7.1",
         "http://localhost:8080",
         "http://localhost:8084",
-        "http://192.168.7.1:80",
-        "http://192.168.7.1:8080",
     };
   }
 

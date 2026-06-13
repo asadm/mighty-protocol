@@ -1,0 +1,327 @@
+---
+title: Recipes
+description: Practical Mighty SDK tasks with context for when and why to use each API.
+---
+
+Recipes show the application-level shape of the SDK. The API reference lists
+every method; this page explains which method to reach for when building a real
+integration.
+
+## Connect To The Default Camera
+
+Use this when your application runs on a host directly connected to Mighty over
+USB. The SDK tries the physical camera first, then localhost development hosts.
+
+```python
+from mighty_sdk import MightyClient, MightyWebDevice
+
+client = MightyClient(MightyWebDevice())
+client.connect()
+```
+
+```js
+import { MightyClient, MightyWebDevice } from "mighty-protocol";
+
+const client = new MightyClient(new MightyWebDevice());
+await client.connect();
+```
+
+```cpp
+auto device = std::make_shared<mighty_protocol::sdk::MightyWebDevice>();
+mighty_protocol::sdk::MightyClient client(device);
+client.connect();
+```
+
+Why use it: default connection keeps simple apps simple and still supports local
+replay/proxy workflows without changing user code.
+
+## Connect To A Specific Host
+
+Use an explicit host when you have multiple cameras, a custom USB IP range, or a
+development proxy.
+
+```python
+device = MightyWebDevice(base_url="http://192.168.7.1")
+```
+
+```js
+const device = new MightyWebDevice({ baseUrl: "http://192.168.7.1" });
+```
+
+```cpp
+mighty_protocol::sdk::MightyWebDeviceOptions opts;
+opts.base_url = "http://192.168.7.1";
+auto device = std::make_shared<mighty_protocol::sdk::MightyWebDevice>(opts);
+```
+
+Why use it: explicit hosts make deployment behavior predictable. They also make
+logs easier to interpret because you know which device or proxy the process
+targeted.
+
+## Start And Stop VIO
+
+Use `start_vio` / `startVio` before consuming pose if your app owns the device
+mode. Use `stop_vio` / `stopVio` when your app exits or returns control to
+another tool.
+
+```python
+res = client.start_vio()
+if not res["ok"]:
+    print("start failed:", res["message"])
+```
+
+```js
+const res = await client.startVio();
+if (!res.ok) console.error("start failed:", res.message);
+```
+
+```cpp
+auto res = client.start_vio();
+if (!res.ok) {
+  std::cerr << "start failed: " << res.message << std::endl;
+}
+```
+
+Why use it: command results distinguish transport failure from device refusal.
+Always print the response message when `ok` is false.
+
+## Subscribe To Pose
+
+Use pose when your downstream system needs local odometry: robot control,
+camera stabilization, trajectory logging, mapping, or sensor fusion.
+
+```python
+def on_pose(p):
+    print(p["timestamp_ns"], p["position_m"], p["orientation_xyzw"], p["confidence"])
+
+client.on_pose(on_pose)
+```
+
+```js
+client.onPose((p) => {
+  console.log(p.timestampNs, p.positionM, p.orientationXyzw, p.confidence);
+});
+```
+
+```cpp
+client.on_pose([](const mighty_protocol::sdk::PoseFrame& p) {
+  std::cout << p.position_m[0] << " " << p.position_m[1] << " "
+            << p.position_m[2] << " confidence=" << p.confidence << std::endl;
+});
+```
+
+Why use it: pose is the primary public VIO output. It is reported as
+`T_odom_body`, with `odom` as the local world frame and `base_link` as the body
+frame. See the pose guide before mapping axes into a renderer or robot stack.
+
+## Monitor VIO State
+
+Use VIO state for health, UI, and automated recovery. Pose tells you where the
+device thinks it is; VIO state tells you how confident the estimator is and why
+it may be waiting.
+
+```python
+def on_state(s):
+    print("state", s["state"], "confidence", s["pose_confidence"],
+          "features", s["num_features"], "init", s["init_reason_code"])
+
+client.on_vio_state(on_state)
+```
+
+```js
+client.onVioState((s) => {
+  console.log("state", s.state, "confidence", s.poseConfidence,
+              "features", s.numFeatures, "init", s.initReasonCode);
+});
+```
+
+Why use it: this is the right stream for status indicators, field diagnostics,
+and warnings such as low light, lost tracking, low feature count, or waiting for
+IMU/parallax during initialization.
+
+## Read IMU Samples
+
+Use IMU batches when your application fuses raw inertial measurements or wants
+to plot device motion independent of VIO pose.
+
+```python
+client.on_imu(lambda imu: print("imu samples", len(imu["samples"])))
+```
+
+```js
+client.onImu((imu) => console.log("imu samples", imu.samples.length));
+```
+
+Why use it: pose is already filtered, but raw IMU is useful for debugging
+vibration, detecting motion, validating timestamps, or feeding your own fusion
+pipeline.
+
+## Display Camera Images
+
+Use image callbacks for previews, feature overlays, recording tools, and visual
+debugging. Images may be mono, RGB/BGR/RGBA, YUV, or stereo raw depending on
+firmware mode.
+
+```python
+def on_image(img):
+    if img["kind"] == "stereo_raw":
+        print("left", img["left"]["width"], img["left"]["height"],
+              "right", img["right"]["width"], img["right"]["height"])
+    else:
+        print(img["width"], img["height"], img["channel"])
+
+client.on_image(on_image)
+```
+
+```js
+import { decodeRawToRgb } from "mighty-protocol";
+
+client.onImage((img) => {
+  if (img.kind === "stereo_raw") {
+    console.log("stereo", img.left.width, img.right.width);
+    return;
+  }
+  const rgba = decodeRawToRgb(img);
+  console.log("image", img.width, img.height, !!rgba);
+});
+```
+
+Why use it: image data is high bandwidth. Subscribe when your app needs a
+preview or debug surface, and avoid expensive image processing inside callbacks
+unless you can keep up with the stream.
+
+## Read The Device ID
+
+Use `device_id` to bind logs or calibration records to a physical board.
+
+```python
+res = client.command("device_id")
+if res["ok"]:
+    print(res["data"].decode("utf-8"))
+```
+
+```js
+const res = await client.command("device_id");
+if (res.ok) console.log(new TextDecoder().decode(res.data));
+```
+
+Why use it: a stable device identifier prevents mixing data from several
+cameras, especially during manufacturing, calibration, and field testing.
+
+## Get And Set Config Values
+
+Use config APIs for named firmware settings exposed by the device. Prefer typed
+application-level wrappers around config keys once your app depends on a
+specific setting.
+
+```python
+print(client.config_get("example.key", as_text=True))
+print(client.config_set("example.key", "value"))
+```
+
+```js
+console.log(await client.configGet("example.key", { as: "text" }));
+console.log(await client.configSet("example.key", "value"));
+```
+
+Why use it: config requests are safer than inventing new ad-hoc commands for
+settings. They also give you a consistent success/found/message shape.
+
+## Handle Errors And Reconnects
+
+Always register `on_error` before connecting. The SDK catches listener
+exceptions, decode failures, command timeouts, and transport issues.
+
+```python
+client.on_error(lambda e: print("sdk error", e["scope"], e["code"], e["message"]))
+```
+
+```js
+client.onError((e) => console.error("sdk error", e.scope, e.code, e.message));
+```
+
+Why use it: without an error handler, an app can look idle when it is actually
+retrying, timing out, or dropping malformed frames. Pair this with `stats()` in
+debug logs.
+
+## Inspect Runtime Stats
+
+Use stats in logs, support bundles, and health checks.
+
+```python
+print(client.stats())
+```
+
+```js
+console.log(client.stats());
+```
+
+```cpp
+auto stats = client.stats();
+std::cout << "frames=" << stats.rx_frames
+          << " bytes=" << stats.rx_bytes
+          << " decode_errors=" << stats.decode_errors << std::endl;
+```
+
+Why use it: stats tell you whether bytes are arriving, whether frames decode,
+and whether reconnects or command timeouts are happening.
+
+## Unsubscribe From A Stream
+
+Use unsubscribe when a UI panel closes or a temporary diagnostic tool stops
+needing a stream.
+
+```python
+unsubscribe = client.on_pose(lambda p: print(p["position_m"]))
+unsubscribe()
+```
+
+```js
+const unsubscribe = client.onPose((p) => console.log(p.positionM));
+unsubscribe();
+```
+
+```cpp
+auto sub = client.on_pose([](const mighty_protocol::sdk::PoseFrame&) {});
+client.unsubscribe(sub);
+```
+
+Why use it: callback ownership matters in long-running apps. Unsubscribing
+prevents closed UI views or stale objects from continuing to receive events.
+
+## Publish To ROS 2
+
+Use the ROS 2 example when your system already consumes standard ROS topics and
+you want Mighty Camera to appear as an odometry/IMU source.
+
+The example lives in `examples/ros2` and publishes:
+
+- `/mighty/odom` as `nav_msgs/msg/Odometry`
+- `/mighty/imu` as `sensor_msgs/msg/Imu`
+- `/mighty/image_raw` as `sensor_msgs/msg/Image` with `mono8` encoding
+- `/mighty/status` as `std_msgs/msg/String`
+- `/mighty/vio_state` as JSON in `std_msgs/msg/String`
+- `/tf` for `odom` -> `base_link` when `publish_tf` is enabled
+
+Run from Docker:
+
+```bash
+docker build -f examples/ros2/Dockerfile -t mighty-ros2 .
+docker run --rm -it --network host mighty-ros2 \
+  ros2 launch mighty_ros2 mighty_ros2.launch.py
+```
+
+Run with an explicit host:
+
+```bash
+ros2 launch mighty_ros2 mighty_ros2.launch.py base_url:=http://192.168.7.1
+```
+
+Why use it: ROS users usually want common message types instead of SDK-specific
+callback dictionaries. The wrapper keeps the conversion deliberately small so
+robot projects can copy it and customize frame names, covariance, topic names,
+or timestamp policy.
+
+Keep `use_device_time` false unless your ROS graph explicitly handles Mighty
+device monotonic timestamps. With the default setting, ROS message stamps use the
+node clock, which is easier for first integrations and visualization tools.

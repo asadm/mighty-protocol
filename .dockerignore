@@ -1,0 +1,13 @@
+.git
+.venv
+__pycache__
+*.pyc
+*.egg-info
+build
+build-*
+tmp
+node_modules
+examples/web/node_modules
+examples/web/dist
+examples/cpp/cli/build
+tests/bin

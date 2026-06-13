@@ -1,7 +1,10 @@
 tests/bin/cpp_sdk_test
 tests/bin/cpp_sdk_integration_test
+tests/bin/cpp_pose_contract_test
+tests/bin/cpp_pose_viz_map
 __pycache__
 *.egg-info
+tmp/
 examples/web/node_modules
 examples/web/dist
 build

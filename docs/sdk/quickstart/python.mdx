@@ -23,7 +23,16 @@ client = MightyClient(device, auto_reconnect=True)
 
 client.on_pose(lambda p: print("pose", p["position_m"], p["confidence"]))
 client.on_keyframe(lambda k: print("keyframe", k["timestamp_ns"], k["descriptor_dim"]))
-client.on_image(lambda img: print("image", img["kind"], img["width"], img["height"]))
+
+def on_image(img):
+    if img["kind"] == "stereo_raw":
+        left = img["left"]
+        right = img["right"]
+        print("stereo", left["width"], left["height"], right["width"], right["height"])
+    else:
+        print("image", img["kind"], img["width"], img["height"])
+
+client.on_image(on_image)
 client.on_error(lambda e: print("error:", e))
 
 client.connect()

@@ -1,0 +1,93 @@
+---
+title: ROS 2
+description: Publish Mighty pose, IMU, status, and TF into a ROS 2 graph.
+---
+
+The ROS 2 example wraps the Python SDK as a small publisher node. Use it when
+your robot stack, visualization tool, or logger already consumes ROS topics and
+you want Mighty Camera to behave like an odometry and IMU source.
+
+The example publishes:
+
+- `/mighty/odom` (`nav_msgs/msg/Odometry`)
+- `/mighty/imu` (`sensor_msgs/msg/Imu`)
+- `/mighty/image_raw` (`sensor_msgs/msg/Image`, `mono8`)
+- `/mighty/status` (`std_msgs/msg/String`)
+- `/mighty/vio_state` (`std_msgs/msg/String`, JSON payload)
+- `/tf` (`odom` -> `base_link`) when `publish_tf:=true`
+
+## Docker
+
+From the repository root:
+
+```bash
+docker build -f examples/ros2/Dockerfile -t mighty-ros2 .
+```
+
+Run the publisher:
+
+```bash
+docker run --rm -it --network host mighty-ros2 \
+  ros2 launch mighty_ros2 mighty_ros2.launch.py
+```
+
+On Linux, `--network host` usually lets the container reach the USB Ethernet
+device directly at `http://192.168.7.1`.
+
+On Docker Desktop or OrbStack for macOS, host networking may not route USB
+Ethernet interfaces into the container. In that case, run a host-side HTTP
+forwarder and pass the forwarded URL:
+
+```bash
+docker run --rm -it mighty-ros2 \
+  ros2 launch mighty_ros2 mighty_ros2.launch.py \
+  base_url:=http://host.docker.internal:18080
+```
+
+## Native ROS 2
+
+From a ROS 2 workspace:
+
+```bash
+mkdir -p ~/ros2_ws/src
+cd ~/ros2_ws/src
+git clone https://github.com/asadm/mighty-protocol.git
+cd ..
+export PYTHONPATH="$PWD/src/mighty-protocol/python:$PYTHONPATH"
+source /opt/ros/humble/setup.bash
+colcon build --packages-select mighty_ros2 --base-paths src/mighty-protocol/examples/ros2/mighty_ros2
+source install/setup.bash
+ros2 launch mighty_ros2 mighty_ros2.launch.py
+```
+
+## Parameters
+
+- `base_url`: explicit Mighty URL. Empty uses SDK defaults.
+- `start_vio`: send `start_vio` when the node starts. Default `true`.
+- `stop_vio_on_shutdown`: send `stop_vio` on shutdown. Default `false`.
+- `publish_tf`: publish `odom` -> `base_link` transforms. Default `true`.
+- `use_device_time`: use SDK device timestamps as ROS stamps. Default `false`.
+- `frame_id`: odometry frame. Default `odom`.
+- `child_frame_id`: body frame. Default `base_link`.
+- `image_frame_id`: image frame. Default `camera`.
+
+`use_device_time` defaults to false because Mighty timestamps are device
+monotonic timestamps, not necessarily synchronized to ROS wall time.
+
+## Inspect Topics
+
+```bash
+ros2 topic list
+ros2 topic echo /mighty/odom
+ros2 topic echo /mighty/imu
+ros2 topic echo /mighty/image_raw
+ros2 topic echo /mighty/vio_state
+```
+
+## Source
+
+The ROS 2 package lives in:
+
+```text
+examples/ros2/mighty_ros2
+```

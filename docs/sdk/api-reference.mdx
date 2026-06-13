@@ -13,7 +13,7 @@ import {
   MightyWebDevice,
   DEFAULT_BASE_URLS,
   decodeRawToRgb,
-} from "./js/sdk/index.js";
+} from "mighty-protocol";
 ```
 
 ### Exports
@@ -89,8 +89,12 @@ Subscriptions (each returns `() => void` to unsubscribe):
 - `onImu(cb)`
 - `onVioState(cb)`
 - `onViz(cb)`
+- `onPointCloud(cb)`
+- `onLcon(cb)`
+- `onConstraints(cb)`
 - `onKeyframe(cb)`
 - `onStatus(cb)`
+- `onLuaLog(cb)`
 - `onReset(cb)`
 - `onAny(cb)`
 - `onError(cb)`
@@ -324,6 +328,8 @@ Subscriptions (each returns `Callable[[], None]` unsubscribe):
 - `on_imu(cb)`
 - `on_vio_state(cb)`
 - `on_viz(cb)`
+- `on_lcon(cb)`
+- `on_constraints(cb)`
 - `on_keyframe(cb)`
 - `on_status(cb)`
 - `on_reset(cb)`
@@ -580,6 +586,8 @@ Subscriptions:
 - `Subscription on_imu(ImuHandler cb)`
 - `Subscription on_vio_state(VioStateHandler cb)`
 - `Subscription on_viz(VizHandler cb)`
+- `Subscription on_lcon(LconHandler cb)`
+- `Subscription on_constraints(LconHandler cb)`
 - `Subscription on_keyframe(KeyframeHandler cb)`
 - `Subscription on_status(StatusHandler cb)`
 - `Subscription on_reset(ResetHandler cb)`

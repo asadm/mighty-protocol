@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "SDK and protocol helpers for Mighty Camera"
 readme = "README.md"
 requires-python = ">=3.8"
+license = { text = "Apache-2.0" }
 authors = [
   { name = "Mighty Camera" }
 ]
@@ -15,7 +16,7 @@ keywords = ["mighty-camera", "vio", "slam", "sdk", "protocol"]
 classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
-  "License :: Other/Proprietary License",
+  "License :: OSI Approved :: Apache Software License",
   "Operating System :: OS Independent"
 ]
 

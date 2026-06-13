@@ -1,4 +1,4 @@
 {
   "title": "Quick Start",
-  "pages": ["python", "javascript", "cpp"]
+  "pages": ["python", "javascript", "cpp", "ros2"]
 }

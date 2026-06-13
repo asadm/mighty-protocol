@@ -1,0 +1,204 @@
+---
+title: Troubleshooting
+description: Diagnose Mighty SDK connection, streaming, command, and VIO state issues.
+---
+
+This page is for the first failure mode: code is written correctly, but the host
+cannot reach the device, the stream is silent, or VIO does not start tracking.
+
+## Mental Model
+
+Mighty SDK talks to the camera over HTTP on a USB Ethernet link. The most common
+device URL is:
+
+```text
+http://192.168.7.1
+```
+
+The SDK default host order is:
+
+1. `http://192.168.7.1`
+2. `http://localhost:8080`
+3. `http://localhost:8084`
+
+Use localhost only when you are running a local proxy, replay bridge, or
+development server. For a physical camera plugged directly into the host,
+`192.168.7.1` should be the first URL to test.
+
+## Quick Checks
+
+### 1. Confirm the device web page opens
+
+Open:
+
+```text
+http://192.168.7.1
+```
+
+If this does not open, the SDK will not connect either. Check the USB cable, USB
+port, and whether the host created a USB Ethernet/NCM network interface.
+
+### 2. Confirm SDK command traffic works
+
+Commands use `POST /command`. The easiest SDK-level check is to request the
+device ID:
+
+```python
+from mighty_sdk import MightyClient, MightyWebDevice
+
+client = MightyClient(MightyWebDevice())
+client.connect()
+print(client.command("device_id"))
+client.disconnect()
+```
+
+Use this before debugging pose or image code. If `device_id` fails, the problem
+is transport or firmware command support, not your pose handler.
+
+### 3. Confirm stream traffic works
+
+Streams use `GET /stream`. Register a status or any-event handler:
+
+```python
+client.on_status(lambda s: print("status", s["text"]))
+client.on_any(lambda e: print("event", e["type"]))
+```
+
+If commands work but no stream events arrive, check whether another program has
+an active stream connection. Some firmware builds may allow only one primary
+stream consumer at a time.
+
+## Connection Problems
+
+### Browser opens, SDK does not connect
+
+Pass the URL explicitly:
+
+```python
+device = MightyWebDevice(base_url="http://192.168.7.1")
+```
+
+```js
+const device = new MightyWebDevice({ baseUrl: "http://192.168.7.1" });
+```
+
+```cpp
+mighty_protocol::sdk::MightyWebDeviceOptions opts;
+opts.base_url = "http://192.168.7.1";
+auto device = std::make_shared<mighty_protocol::sdk::MightyWebDevice>(opts);
+```
+
+Explicit hosts are useful when your machine has several network interfaces or
+you are testing multiple cameras.
+
+### Device URL does not open
+
+Check these in order:
+
+- Use a data-capable USB cable.
+- Try a different USB port.
+- Disable VPN software temporarily if it changes route tables.
+- Confirm the host has a USB Ethernet/NCM interface.
+- Confirm your browser is not forcing HTTPS for `192.168.7.1`.
+- Power-cycle the camera if the USB network interface was created but DHCP did
+  not assign an address.
+
+### Multiple cameras
+
+The default SDK host points at the standard camera address. If you changed a
+camera's USB IP range, pass the camera URL explicitly with `base_url` /
+`baseUrl` / `MightyWebDeviceOptions::base_url`.
+
+## Command Problems
+
+### `start_vio` returns `ok: false`
+
+The command reached the device, but firmware rejected or could not complete it.
+Print the returned `message` field first; it is the most useful diagnostic.
+
+Common causes:
+
+- VIO is already running.
+- Recording or another exclusive mode is active.
+- The firmware build does not expose that command.
+- The camera has not finished booting.
+
+### Command timeout
+
+A timeout means the SDK did not receive a command response within the configured
+timeout. Increase the timeout only after checking the device URL:
+
+```python
+client = MightyClient(device, command_timeout_s=5.0)
+```
+
+```js
+const client = new MightyClient(device, { commandTimeoutMs: 5000 });
+```
+
+Longer timeouts help on slow development firmware, but they should not be used
+to hide a broken connection.
+
+## Stream Problems
+
+### `connect()` succeeds but no callbacks fire
+
+Register `on_any` and `on_error` before calling `connect()`:
+
+```python
+client.on_any(lambda e: print("event", e["type"]))
+client.on_error(lambda e: print("error", e["scope"], e["code"], e["message"]))
+client.connect()
+```
+
+This tells you whether frames are arriving but your specific handler is not
+registered for the event type you expected.
+
+### Decode errors increase
+
+Check `client.stats()`. Decode errors usually mean the stream bytes are not
+Mighty framed packets, the endpoint is being served by the wrong process, or a
+proxy is transforming binary data. Avoid text-mode proxies and make sure the
+response body is passed through as bytes.
+
+## VIO Does Not Track
+
+Starting VIO only begins the estimator. Tracking can still be blocked by scene
+or sensor conditions.
+
+Use `on_vio_state` / `onVioState` to inspect:
+
+- `state`
+- `pose_confidence`
+- `tracking_rate`
+- `num_features`
+- `init_reason_code`
+- `static_init_reason_code`
+- `dynamic_init_reason_code`
+- `light_level01`
+- `light_required01`
+
+Low feature counts usually mean the camera sees a blank wall, darkness, glare,
+or motion blur. Initialization reasons such as waiting for parallax or IMU
+excitation mean the device needs a small amount of translation or rotation to
+estimate scale and gravity reliably.
+
+## Browser JavaScript Notes
+
+The SDK uses `fetch()` and a streaming response body. Modern Chromium, Safari,
+and Edge builds support this. If browser code connects to a URL different from
+the page origin, the device or proxy must allow the request. For local dashboard
+development, the example app uses Vite proxying so the browser can access the
+camera through the dev server origin.
+
+## What To Report In Issues
+
+Include:
+
+- SDK language and version/commit.
+- Operating system.
+- Whether `http://192.168.7.1` opens in a browser.
+- Output of `device_id`.
+- `client.stats()` after a few seconds.
+- Any `on_error` payloads.
+- Firmware/build version from status or VIO state, if available.
