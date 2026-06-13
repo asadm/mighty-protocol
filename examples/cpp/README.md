@@ -1,44 +1,13 @@
-# C++ Example (OpenCV + CMake)
+# C++ Examples
 
-This example shows a lightweight C++ dashboard built on the Mighty SDK using OpenCV HighGUI.
+Working examples:
 
-Main file:
-- `main.cpp`
+- [`dashboard/`](./dashboard): OpenCV HighGUI dashboard with image preview,
+  status, IMU plots, trajectory view, and VIO controls.
+- [`cli/`](./cli): minimal command-line example with no OpenCV dependency.
 
-## Preview
+Work-in-progress examples:
 
-![C++ SDK Dashboard Preview](./screen.png)
-
-Features:
-- Uses SDK defaults via `MightyWebDevice()` (built-in host fallback / retry path)
-- Streams RAW/SRAW image preview
-- Shows VIO status + host info
-- Plots IMU accel/gyro traces
-- Plots pose trajectory in a simple 3D-style view
-- Start/Stop VIO control (button click or `v` key)
-
-## Dependencies
-
-- C++17 compiler
-- CMake >= 3.16
-- OpenCV 4 (`core`, `imgproc`, `highgui`)
-
-## Build
-
-From `examples/cpp`:
-
-```bash
-cmake -S . -B build
-cmake --build build -j
-```
-
-## Run
-
-```bash
-./build/mightyapp
-```
-
-Controls:
-- `q` or `Esc`: quit
-- `v`: start/stop VIO
-- Mouse click on Start/Stop button: start/stop VIO
+- [`wip/`](./wip): mapper and loop-closure experiments. These are kept out of
+  the main example paths because they currently require additional algorithm SDK
+  pieces and are not ready for normal SDK users.

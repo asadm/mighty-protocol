@@ -133,7 +133,7 @@ int main() {
 
 - Python dashboard: [`examples/python`](./examples/python)
 - Web dashboard: [`examples/web`](./examples/web)
-- C++ dashboard: [`examples/cpp`](./examples/cpp)
+- C++ dashboard: [`examples/cpp/dashboard`](./examples/cpp/dashboard)
 - C++ CLI: [`examples/cpp/cli`](./examples/cpp/cli)
 - ROS 2 publisher: [`examples/ros2`](./examples/ros2)
 

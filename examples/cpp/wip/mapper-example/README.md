@@ -20,7 +20,7 @@ cmake --build build --target mighty_mapper_live -j
 ```
 
 By default CMake uses the bundled algorithms SDK at
-`../../../lib/algorithms/current`. To test another package, set
+`../../../../lib/algorithms/current`. To test another package, set
 `MIGHTY_ALGORITHMS_SDK=/path/to/mighty-algorithms-sdk`.
 
 On Apple Silicon, the CMake file defaults to an `arm64` target when using

@@ -10,15 +10,15 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-get_filename_component(MIGHTY_PROTOCOL_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
-get_filename_component(REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../.." ABSOLUTE)
+get_filename_component(MIGHTY_PROTOCOL_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../.." ABSOLUTE)
+get_filename_component(REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../.." ABSOLUTE)
 
 if(DEFINED ENV{MIGHTY_ALGORITHMS_SDK} AND NOT MightyAlgorithms_DIR)
   list(PREPEND CMAKE_PREFIX_PATH "$ENV{MIGHTY_ALGORITHMS_SDK}")
 endif()
 if(NOT MightyAlgorithms_DIR)
   set(_MIGHTY_ALGORITHMS_BUNDLED_SDK
-    "${CMAKE_CURRENT_SOURCE_DIR}/../../../lib/algorithms/current")
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../lib/algorithms/current")
   if(EXISTS "${_MIGHTY_ALGORITHMS_BUNDLED_SDK}/lib/cmake/MightyAlgorithms/MightyAlgorithmsConfig.cmake")
     list(PREPEND CMAKE_PREFIX_PATH "${_MIGHTY_ALGORITHMS_BUNDLED_SDK}")
   endif()
