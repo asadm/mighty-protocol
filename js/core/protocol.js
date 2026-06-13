@@ -24,6 +24,7 @@ const TYPE = {
   CRES: "CRES",
   CFGQ: "CFGQ",
   CFGR: "CFGR",
+  LLOG: "LLOG",
 };
 
 const RAW_FORMAT = {
@@ -679,6 +680,15 @@ function buildCommandResponsePayload({ reqId = 0, status = 0, message = "", data
   return fromU8(buf);
 }
 
+function buildLuaLogPayload({ seq = 0, text = "" } = {}) {
+  const textBytes = (textEncoder || new TextEncoder()).encode(text || "");
+  const buf = new Uint8Array(4 + textBytes.length);
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  dv.setUint32(0, seq >>> 0, false);
+  buf.set(textBytes, 4);
+  return fromU8(buf);
+}
+
 function buildConfigRequestPayload({ version = 1, op = CONFIG_OP.GET, key = "", value = new Uint8Array() } = {}) {
   const keyBytes = (textEncoder || new TextEncoder()).encode(key || "");
   const keyLen = Math.min(255, keyBytes.length);
@@ -1084,6 +1094,14 @@ function decodeCommandResponsePayload(payload) {
   return { reqId, status, message, data };
 }
 
+function decodeLuaLogPayload(payload) {
+  const u8 = toU8(payload);
+  if (u8.length < 4) throw new Error("LLOG payload too short");
+  const seq = readU32BE(u8, 0);
+  const text = (textDecoder || new TextDecoder()).decode(u8.subarray(4));
+  return { seq, text };
+}
+
 function decodeConfigRequestPayload(payload) {
   const u8 = toU8(payload);
   if (u8.length < 1 + 1 + 1 + 4) throw new Error("CFGQ payload too short");
@@ -1143,6 +1161,7 @@ const api = {
   buildPcldPayload,
   buildCommandPayload,
   buildCommandResponsePayload,
+  buildLuaLogPayload,
   buildConfigRequestPayload,
   buildConfigResponsePayload,
   decodeJpgPayload,
@@ -1158,6 +1177,7 @@ const api = {
   decodePcldPayload,
   decodeCommandPayload,
   decodeCommandResponsePayload,
+  decodeLuaLogPayload,
   decodeConfigRequestPayload,
   decodeConfigResponsePayload,
 };
@@ -1186,6 +1206,7 @@ export {
   buildPcldPayload,
   buildCommandPayload,
   buildCommandResponsePayload,
+  buildLuaLogPayload,
   buildConfigRequestPayload,
   buildConfigResponsePayload,
   decodeJpgPayload,
@@ -1201,6 +1222,7 @@ export {
   decodePcldPayload,
   decodeCommandPayload,
   decodeCommandResponsePayload,
+  decodeLuaLogPayload,
   decodeConfigRequestPayload,
   decodeConfigResponsePayload,
 };

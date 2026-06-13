@@ -27,6 +27,7 @@ inline constexpr char TYPE_RSET[4] = {'R','S','E','T'};
 inline constexpr char TYPE_FEA3[4] = {'F','E','A','3'};
 inline constexpr char TYPE_PCLD[4] = {'P','C','L','D'};
 inline constexpr char TYPE_VSTA[4] = {'V','S','T','A'};
+inline constexpr char TYPE_LLOG[4] = {'L','L','O','G'};
 inline constexpr char TYPE_CMD[4]  = {'C','M','D',' '};
 inline constexpr char TYPE_CRES[4] = {'C','R','E','S'};
 inline constexpr char TYPE_CFGQ[4] = {'C','F','G','Q'};
@@ -646,6 +647,16 @@ inline std::vector<uint8_t> build_imu_payload(const std::vector<ImuSample>& batc
 
 inline std::vector<uint8_t> build_status_payload(const std::string& text) {
   return std::vector<uint8_t>(text.begin(), text.end());
+}
+
+inline std::vector<uint8_t> build_lua_log_payload(uint32_t seq, const std::string& text) {
+  std::vector<uint8_t> payload;
+  payload.resize(4 + text.size());
+  write_u32_be(payload.data(), seq);
+  if (!text.empty()) {
+    std::memcpy(payload.data() + 4, text.data(), text.size());
+  }
+  return payload;
 }
 
 inline std::vector<uint8_t> build_vio_state_payload(const VioState& s) {

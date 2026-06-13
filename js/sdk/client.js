@@ -22,6 +22,7 @@ const EVENT_KEYS = [
   "point_cloud",
   "lcon",
   "status",
+  "lua_log",
   "reset",
   "any",
   "error",
@@ -120,6 +121,7 @@ export class MightyClient {
   onLcon(cb) { return this._subscribe("lcon", cb); }
   onConstraints(cb) { return this._subscribe("lcon", cb); }
   onStatus(cb) { return this._subscribe("status", cb); }
+  onLuaLog(cb) { return this._subscribe("lua_log", cb); }
   onReset(cb) { return this._subscribe("reset", cb); }
   onAny(cb) { return this._subscribe("any", cb); }
   onError(cb) { return this._subscribe("error", cb); }
@@ -530,6 +532,14 @@ export class MightyClient {
           const mapped = { text };
           this._emit("status", mapped);
           if (wantsAny) this._emitAny({ type: "status", data: mapped });
+          return;
+        }
+        case protocol.TYPE.LLOG: {
+          if (!this._hasListeners("lua_log") && !wantsAny) return;
+          const log = protocol.decodeLuaLogPayload(frame.payload);
+          const mapped = { seq: log.seq, text: log.text };
+          this._emit("lua_log", mapped);
+          if (wantsAny) this._emitAny({ type: "lua_log", data: mapped });
           return;
         }
         case protocol.TYPE.RSET: {
