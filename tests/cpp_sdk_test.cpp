@@ -74,6 +74,16 @@ class MockDevice : public MightyDeviceIO {
       return true;
     }
 
+    if (cmd.name == "keyframes") {
+      const std::string action(cmd.data.begin(), cmd.data.end());
+      CommandResponse ok;
+      ok.req_id = cmd.req_id;
+      ok.status = 0;
+      ok.message = action == "status" ? "keyframes disabled" : "keyframes " + action;
+      if (response_payload) *response_payload = build_command_response_payload(ok);
+      return true;
+    }
+
     if (cmd.name == "config") {
       ConfigRequest cfgq;
       if (!decode_config_request_payload(cmd.data, cfgq)) {
@@ -350,6 +360,14 @@ int main() {
 
   CommandResult cmd = client.start_vio();
   assert(cmd.ok);
+
+  CommandResult keyframes_on = client.set_keyframes_enabled(true);
+  assert(keyframes_on.ok);
+  assert(keyframes_on.message == "keyframes on");
+
+  CommandResult keyframes_status = client.keyframes_status();
+  assert(keyframes_status.ok);
+  assert(keyframes_status.message == "keyframes disabled");
 
   ConfigGetTextResult cfg_get = client.config_get_text("calib");
   assert(cfg_get.ok);

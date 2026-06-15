@@ -137,6 +137,17 @@ int main() {
       return;
     }
 
+    if (cmd.name == "keyframes") {
+      const std::string action(cmd.data.begin(), cmd.data.end());
+      CommandResponse cres;
+      cres.req_id = cmd.req_id;
+      cres.status = 0;
+      cres.message = action == "status" ? "keyframes disabled" : "keyframes " + action;
+      const auto body = build_command_response_payload(cres);
+      res.set_content(reinterpret_cast<const char*>(body.data()), body.size(), "application/octet-stream");
+      return;
+    }
+
     if (cmd.name == "config") {
       ConfigRequest cfgq;
       if (!decode_config_request_payload(cmd.data, cfgq)) {
@@ -313,6 +324,14 @@ int main() {
 
     CommandResult cmd = client.start_vio();
     assert(cmd.ok);
+
+    CommandResult keyframes_on = client.set_keyframes_enabled(true);
+    assert(keyframes_on.ok);
+    assert(keyframes_on.message == "keyframes on");
+
+    CommandResult keyframes_status = client.keyframes_status();
+    assert(keyframes_status.ok);
+    assert(keyframes_status.message == "keyframes disabled");
 
     ConfigGetTextResult cfg_get = client.config_get_text("calib");
     assert(cfg_get.ok);

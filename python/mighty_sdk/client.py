@@ -249,6 +249,12 @@ class MightyClient:
     def stop_vio(self) -> Dict[str, Any]:
         return self.command("stop_vio")
 
+    def set_keyframes_enabled(self, enabled: bool) -> Dict[str, Any]:
+        return self.command("keyframes", b"on" if enabled else b"off")
+
+    def keyframes_status(self) -> Dict[str, Any]:
+        return self.command("keyframes", b"status")
+
     def _subscribe(self, key: str, cb: Callable[[dict], None]) -> Callable[[], None]:
         if key not in self._listeners:
             raise ValueError(f"unknown event key: {key}")

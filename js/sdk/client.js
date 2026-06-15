@@ -274,6 +274,14 @@ export class MightyClient {
     return this.command("stop_vio");
   }
 
+  async setKeyframesEnabled(enabled) {
+    return this.command("keyframes", encodeText(enabled ? "on" : "off"));
+  }
+
+  async keyframesStatus() {
+    return this.command("keyframes", encodeText("status"));
+  }
+
   _subscribe(key, cb) {
     if (!this._listeners[key]) throw new Error(`Unknown event key: ${key}`);
     if (typeof cb !== "function") throw new Error("listener callback must be a function");

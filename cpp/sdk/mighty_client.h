@@ -421,6 +421,16 @@ class MightyClient {
     return command("stop_vio");
   }
 
+  CommandResult set_keyframes_enabled(bool enabled) {
+    const std::string action = enabled ? "on" : "off";
+    return command("keyframes", std::vector<uint8_t>(action.begin(), action.end()));
+  }
+
+  CommandResult keyframes_status() {
+    const std::string action = "status";
+    return command("keyframes", std::vector<uint8_t>(action.begin(), action.end()));
+  }
+
  private:
   template <typename Fn>
   class ListenerSet {

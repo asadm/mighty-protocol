@@ -81,6 +81,8 @@ Command/config:
 - `configSet(key: string, value: Uint8Array | string): Promise<{ ok: boolean; key: string; value: Uint8Array; message: string }>`
 - `startVio(): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
 - `stopVio(): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
+- `setKeyframesEnabled(enabled: boolean): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
+- `keyframesStatus(): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
 
 Subscriptions (each returns `() => void` to unsubscribe):
 
@@ -320,6 +322,8 @@ Command/config:
   - keys: `ok: bool`, `key: str`, `value: bytes`, `message: str`
 - `start_vio() -> dict[str, Any]`
 - `stop_vio() -> dict[str, Any]`
+- `set_keyframes_enabled(enabled: bool) -> dict[str, Any]`
+- `keyframes_status() -> dict[str, Any]`
 
 Subscriptions (each returns `Callable[[], None]` unsubscribe):
 
@@ -604,6 +608,8 @@ Command/config:
 - `ConfigSetResult config_set_text(const std::string& key, const std::string& value)`
 - `CommandResult start_vio()`
 - `CommandResult stop_vio()`
+- `CommandResult set_keyframes_enabled(bool enabled)`
+- `CommandResult keyframes_status()`
 
 `Subscription`:
 

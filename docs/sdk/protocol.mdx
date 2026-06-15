@@ -252,6 +252,7 @@ Recommended init reason mapping:
 
 Standard command names:
 - `device_id` / `device-id`: returns the device's stable permanent identifier as UTF-8 text in both the `CRES` message and data fields.
+- `keyframes` / `keyframe`: controls device-side `KEYF` descriptor generation. Data is UTF-8 text: `on`/`enable`/`1`/`true`, `off`/`disable`/`0`/`false`, `toggle`, or `status`/`get`. Devices should default this off and only schedule keyframe descriptor work while enabled.
 
 #### `CFGQ`
 - `version` (u8)

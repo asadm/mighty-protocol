@@ -162,6 +162,13 @@ class Handler(BaseHTTPRequestHandler):
             self._send_octet(payload)
             return
 
+        if cmd["name"] == "keyframes":
+            action = bytes(cmd["data"]).decode("utf-8")
+            message = "keyframes disabled" if action == "status" else f"keyframes {action}"
+            payload = mp.build_command_response_payload(cmd["req_id"], 0, message, b"")
+            self._send_octet(payload)
+            return
+
         if cmd["name"] == "config":
             cfgq = mp.decode_config_request_payload(cmd["data"])
             if cfgq["key"] != "calib":
@@ -296,6 +303,14 @@ def main():
 
         cmd = client.start_vio()
         assert cmd["ok"]
+
+        keyframes_on = client.set_keyframes_enabled(True)
+        assert keyframes_on["ok"]
+        assert keyframes_on["message"] == "keyframes on"
+
+        keyframes_status = client.keyframes_status()
+        assert keyframes_status["ok"]
+        assert keyframes_status["message"] == "keyframes disabled"
 
         cfg_get = client.config_get("calib", as_text=True)
         assert cfg_get["ok"]

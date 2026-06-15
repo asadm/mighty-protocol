@@ -85,6 +85,33 @@ if (!res.ok) {
 Why use it: command results distinguish transport failure from device refusal.
 Always print the response message when `ok` is false.
 
+## Enable Device Keyframes
+
+`KEYF` descriptor generation is off by default. Enable it only while a client is
+actively consuming keyframe descriptors, then disable it when the view or tool
+closes.
+
+```python
+res = client.set_keyframes_enabled(True)
+if not res["ok"]:
+    print("keyframes failed:", res["message"])
+```
+
+```js
+const res = await client.setKeyframesEnabled(true);
+if (!res.ok) console.error("keyframes failed:", res.message);
+```
+
+```cpp
+auto res = client.set_keyframes_enabled(true);
+if (!res.ok) {
+  std::cerr << "keyframes failed: " << res.message << std::endl;
+}
+```
+
+Why use it: learned descriptor generation can be expensive, so devices should
+only schedule keyframe work while a client explicitly requests `KEYF` events.
+
 ## Subscribe To Pose
 
 Use pose when your downstream system needs local odometry: robot control,
