@@ -26,8 +26,22 @@ client.onImage((img) => {
 client.onError((e) => console.error(e));
 
 await client.connect();
+await client.setKeyframesEnabled(true);
 await client.startVio();
 ```
+
+Loop closure in a browser:
+
+```js
+const client = new MightyClient(device, {
+  loopclosure: true,
+  loopclosureWasmUrl: "/mighty_loopclosure_device.wasm",
+});
+```
+
+`loopclosureWasmUrl` is optional when the file is served from
+`/mighty_loopclosure_device.wasm`. Pass the real public URL if your app places
+the WASM file somewhere else.
 
 Full web dashboard example:
 - [`examples/web/main.js`](https://github.com/asadm/mighty-protocol/blob/main/examples/web/main.js)

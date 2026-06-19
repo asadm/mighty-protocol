@@ -20,6 +20,10 @@
 #include "../mighty_protocol.h"
 #include "../mighty_protocol_consumer.h"
 
+#if defined(MIGHTY_PROTOCOL_ENABLE_LOOPCLOSURE)
+#include "mighty_loopclosure/mighty_loopclosure_device_c.h"
+#endif
+
 namespace mighty_protocol {
 namespace sdk {
 
@@ -29,6 +33,8 @@ struct MightyClientOptions {
   int reconnect_delay_ms = 300;
   bool emit_stat_as_status = true;
   bool normalize_channel_aliases = true;
+  bool loopclosure = false;
+  std::string loopclosure_calibration_yaml;
 };
 
 struct MightyClientStats {
@@ -69,9 +75,11 @@ struct PoseFrame {
   std::string frame_id = "odom";
   std::string child_frame_id = "base_link";
   std::array<double, 3> position_m{0.0, 0.0, 0.0};
+  std::optional<std::array<double, 3>> raw_position_m;
   std::optional<std::array<double, 4>> orientation_xyzw;
   float confidence = 0.0f;
   bool is_keyframe = false;
+  bool loopclosure_corrected = false;
   std::optional<std::array<double, 3>> linear_velocity_body_mps;
   std::optional<std::array<double, 3>> angular_velocity_body_rps;
   std::optional<std::array<double, 3>> linear_acceleration_body_mps2;
@@ -127,6 +135,14 @@ struct KeyframeEvent {
   uint16_t flags = 0;
   uint64_t timestamp_ns = 0;
   std::vector<float> descriptor;
+};
+
+struct LoopClosureEvent {
+  std::string type;
+  uint64_t timestamp_ns = 0;
+  std::size_t current_keyframe = 0;
+  std::size_t matched_keyframe = 0;
+  std::array<double, 3> pose_translation_correction_m{0.0, 0.0, 0.0};
 };
 
 struct StatusEvent {
@@ -189,6 +205,7 @@ class MightyClient {
   using VizHandler = std::function<void(const VizFrame&)>;
   using LconHandler = std::function<void(const LconFrame&)>;
   using KeyframeHandler = std::function<void(const KeyframeEvent&)>;
+  using LoopClosureHandler = std::function<void(const LoopClosureEvent&)>;
   using StatusHandler = std::function<void(const StatusEvent&)>;
   using ResetHandler = std::function<void(const ResetEvent&)>;
   using AnyHandler = std::function<void(const AnyEvent&)>;
@@ -204,6 +221,7 @@ class MightyClient {
       kViz,
       kLcon,
       kKeyframe,
+      kLoopClosure,
       kStatus,
       kReset,
       kAny,
@@ -224,7 +242,15 @@ class MightyClient {
     });
   }
 
-  ~MightyClient() { disconnect(); }
+  ~MightyClient() {
+    disconnect();
+#if defined(MIGHTY_PROTOCOL_ENABLE_LOOPCLOSURE)
+    if (loopclosure_) {
+      mlc_destroy(loopclosure_);
+      loopclosure_ = nullptr;
+    }
+#endif
+  }
 
   void connect() {
     if (!device_) {
@@ -238,10 +264,18 @@ class MightyClient {
     transport_thread_ = std::thread([this]() {
       this->transport_loop();
     });
+
+    if (opts_.loopclosure) {
+      initialize_loopclosure();
+      set_keyframes_enabled(true);
+    }
   }
 
   void disconnect() {
     const bool was_running = running_.exchange(false);
+    if (was_running && opts_.loopclosure) {
+      set_keyframes_enabled(false);
+    }
     if (device_) {
       device_->disconnect();
     }
@@ -270,6 +304,7 @@ class MightyClient {
   Subscription on_lcon(LconHandler cb) { return subscribe(lcon_handlers_, Subscription::Kind::kLcon, std::move(cb)); }
   Subscription on_constraints(LconHandler cb) { return on_lcon(std::move(cb)); }
   Subscription on_keyframe(KeyframeHandler cb) { return subscribe(keyframe_handlers_, Subscription::Kind::kKeyframe, std::move(cb)); }
+  Subscription on_loopclosure(LoopClosureHandler cb) { return subscribe(loopclosure_handlers_, Subscription::Kind::kLoopClosure, std::move(cb)); }
   Subscription on_status(StatusHandler cb) { return subscribe(status_handlers_, Subscription::Kind::kStatus, std::move(cb)); }
   Subscription on_reset(ResetHandler cb) { return subscribe(reset_handlers_, Subscription::Kind::kReset, std::move(cb)); }
   Subscription on_any(AnyHandler cb) { return subscribe(any_handlers_, Subscription::Kind::kAny, std::move(cb)); }
@@ -285,6 +320,7 @@ class MightyClient {
       case Subscription::Kind::kViz: viz_handlers_.remove(sub.id); break;
       case Subscription::Kind::kLcon: lcon_handlers_.remove(sub.id); break;
       case Subscription::Kind::kKeyframe: keyframe_handlers_.remove(sub.id); break;
+      case Subscription::Kind::kLoopClosure: loopclosure_handlers_.remove(sub.id); break;
       case Subscription::Kind::kStatus: status_handlers_.remove(sub.id); break;
       case Subscription::Kind::kReset: reset_handlers_.remove(sub.id); break;
       case Subscription::Kind::kAny: any_handlers_.remove(sub.id); break;
@@ -431,6 +467,34 @@ class MightyClient {
     return command("keyframes", std::vector<uint8_t>(action.begin(), action.end()));
   }
 
+  bool set_loopclosure_calibration_yaml(const std::string& yaml) {
+    opts_.loopclosure_calibration_yaml = yaml;
+#if defined(MIGHTY_PROTOCOL_ENABLE_LOOPCLOSURE)
+    if (!opts_.loopclosure) {
+      emit_error("loopclosure", "disabled", "loopclosure option is disabled");
+      return false;
+    }
+    if (yaml.empty()) {
+      emit_error("loopclosure", "calibration_failed", "empty calibration yaml");
+      return false;
+    }
+    initialize_loopclosure();
+    if (!loopclosure_) return false;
+    const mlc_status_t status = mlc_set_calibration_yaml(loopclosure_, yaml.c_str());
+    if (status != MLC_STATUS_OK) {
+      emit_error("loopclosure", "calibration_failed", mlc_status_message(status));
+      return false;
+    }
+    return true;
+#else
+    (void)yaml;
+    emit_error("loopclosure",
+               "not_compiled",
+               "MightyClient loopclosure option requires MIGHTY_PROTOCOL_ENABLE_LOOPCLOSURE and the native loop-closure library");
+    return false;
+#endif
+  }
+
  private:
   template <typename Fn>
   class ListenerSet {
@@ -530,6 +594,153 @@ class MightyClient {
     return "";
   }
 
+  bool is_primary_channel(const RawImageFrame& raw) const {
+    std::string channel = raw.channel_alias.empty() ? raw.channel : raw.channel_alias;
+    for (char& ch : channel) {
+      if (ch >= 'A' && ch <= 'Z') ch = static_cast<char>(ch - 'A' + 'a');
+    }
+    return channel == "cam0" || channel == "preview" || channel == "left";
+  }
+
+  void initialize_loopclosure() {
+#if defined(MIGHTY_PROTOCOL_ENABLE_LOOPCLOSURE)
+    if (loopclosure_initialized_) return;
+    mlc_options_t options{};
+    mlc_options_default(&options);
+    mlc_device_loopclosure_t* next = nullptr;
+    mlc_status_t status = mlc_create(&options, &next);
+    if (status != MLC_STATUS_OK || !next) {
+      emit_error("loopclosure", "create_failed", mlc_status_message(status));
+      return;
+    }
+    loopclosure_ = next;
+    mlc_set_event_callback(loopclosure_, &MightyClient::loopclosure_event_trampoline, this);
+    status = mlc_initialize(loopclosure_);
+    if (status != MLC_STATUS_OK) {
+      emit_error("loopclosure", "initialize_failed", mlc_status_message(status));
+      return;
+    }
+    if (!opts_.loopclosure_calibration_yaml.empty()) {
+      status = mlc_set_calibration_yaml(loopclosure_, opts_.loopclosure_calibration_yaml.c_str());
+      if (status != MLC_STATUS_OK) {
+        emit_error("loopclosure", "calibration_failed", mlc_status_message(status));
+      }
+    }
+    loopclosure_initialized_ = true;
+#else
+    emit_error("loopclosure",
+               "not_compiled",
+               "MightyClient loopclosure option requires MIGHTY_PROTOCOL_ENABLE_LOOPCLOSURE and the native loop-closure library");
+#endif
+  }
+
+#if defined(MIGHTY_PROTOCOL_ENABLE_LOOPCLOSURE)
+  static void loopclosure_event_trampoline(const mlc_event_t* event, void* user) {
+    if (!event || !user) return;
+    static_cast<MightyClient*>(user)->handle_loopclosure_event(*event);
+  }
+
+  static std::string loopclosure_event_type_name(uint8_t type) {
+    switch (static_cast<mlc_event_type_t>(type)) {
+      case MLC_EVENT_LOOP_CLOSURE: return "loop_closure";
+    }
+    return "unknown";
+  }
+
+  void handle_loopclosure_event(const mlc_event_t& event) {
+    LoopClosureEvent out;
+    out.type = loopclosure_event_type_name(event.type);
+    out.timestamp_ns = event.timestamp_ns;
+    out.current_keyframe = event.current_keyframe;
+    out.matched_keyframe = event.matched_keyframe;
+    out.pose_translation_correction_m = {
+        event.correction_tx,
+        event.correction_ty,
+        event.correction_tz,
+    };
+    {
+      std::lock_guard<std::mutex> lock(loopclosure_mu_);
+      loopclosure_translation_correction_ = out.pose_translation_correction_m;
+      loopclosure_has_correction_ = true;
+    }
+    emit(loopclosure_handlers_, out);
+  }
+
+  void push_loopclosure_image(const RawImageFrame& raw) {
+    if (!opts_.loopclosure || !loopclosure_initialized_ || !loopclosure_) return;
+    if (!is_primary_channel(raw)) return;
+    mlc_raw_image_t image{};
+    image.timestamp_ns = raw.timestamp_ns;
+    image.frame_id = loopclosure_next_frame_id_.fetch_add(1);
+    image.width = raw.width;
+    image.height = raw.height;
+    image.format = raw.format;
+    image.data = raw.data.data();
+    image.size_bytes = raw.data.size();
+    const mlc_status_t status = mlc_push_image(loopclosure_, &image);
+    if (status != MLC_STATUS_OK) {
+      emit_error("loopclosure", "push_image_failed", mlc_status_message(status));
+    }
+  }
+
+  void push_loopclosure_pose(const PoseFrame& pose) {
+    if (!opts_.loopclosure || !loopclosure_initialized_ || !loopclosure_) return;
+    if (!pose.is_public || !pose.timestamp_ns || !pose.orientation_xyzw) return;
+    if (!(pose.pose_type == "body" || pose.pose_type == "camera" ||
+          pose.pose_type_raw == 0 || pose.pose_type_raw == 1)) {
+      return;
+    }
+    const auto& q = *pose.orientation_xyzw;
+    mlc_pose_t raw{};
+    raw.timestamp_ns = *pose.timestamp_ns;
+    raw.px = pose.raw_position_m ? (*pose.raw_position_m)[0] : pose.position_m[0];
+    raw.py = pose.raw_position_m ? (*pose.raw_position_m)[1] : pose.position_m[1];
+    raw.pz = pose.raw_position_m ? (*pose.raw_position_m)[2] : pose.position_m[2];
+    raw.qw = q[3];
+    raw.qx = q[0];
+    raw.qy = q[1];
+    raw.qz = q[2];
+    raw.frame = (pose.pose_type == "camera" || pose.pose_type_raw == 1)
+        ? MLC_POSE_FRAME_CAMERA
+        : MLC_POSE_FRAME_BODY;
+    raw.confidence = pose.confidence;
+    const mlc_status_t status = mlc_push_pose(loopclosure_, &raw);
+    if (status != MLC_STATUS_OK) {
+      emit_error("loopclosure", "push_pose_failed", mlc_status_message(status));
+    }
+  }
+
+  void push_loopclosure_keyframe(const KeyframeEvent& keyframe) {
+    if (!opts_.loopclosure || !loopclosure_initialized_ || !loopclosure_) return;
+    mlc_device_keyframe_t raw{};
+    raw.timestamp_ns = keyframe.timestamp_ns;
+    raw.frame_id = -1;
+    raw.descriptor_type = keyframe.descriptor_type;
+    raw.flags = keyframe.flags;
+    raw.descriptor = keyframe.descriptor.data();
+    raw.descriptor_count = keyframe.descriptor.size();
+    const mlc_status_t status = mlc_push_keyframe(loopclosure_, &raw);
+    if (status != MLC_STATUS_OK) {
+      emit_error("loopclosure", "push_keyframe_failed", mlc_status_message(status));
+    }
+  }
+#else
+  void push_loopclosure_image(const RawImageFrame&) {}
+  void push_loopclosure_pose(const PoseFrame&) {}
+  void push_loopclosure_keyframe(const KeyframeEvent&) {}
+#endif
+
+  void apply_loopclosure_correction(PoseFrame* pose) {
+    if (!pose || !opts_.loopclosure || !pose->is_public) return;
+    std::lock_guard<std::mutex> lock(loopclosure_mu_);
+    if (!loopclosure_has_correction_) return;
+    pose->raw_position_m = pose->position_m;
+    for (size_t i = 0; i < 3; ++i) {
+      pose->position_m[i] += loopclosure_translation_correction_[i];
+    }
+    pose->loopclosure_corrected = true;
+  }
+
   static std::string map_pose_type(uint32_t pose_type) {
     if (pose_type == 0) return "body";
     if (pose_type == 1) return "camera";
@@ -562,13 +773,14 @@ class MightyClient {
 
     try {
       if (type == "RAW ") {
-        if (image_handlers_.empty() && !wants_any) return;
+        if (image_handlers_.empty() && !wants_any && !opts_.loopclosure) return;
         RawImageFrame raw;
         if (!decode_raw_payload(frame.payload, raw.timestamp_ns, raw.width, raw.height,
                                 raw.format, raw.channel, raw.data)) {
           throw std::runtime_error("RAW decode failed");
         }
         raw.channel_alias = map_channel_alias(raw.channel);
+        push_loopclosure_image(raw);
         ImageFrame evt;
         evt.kind = ImageFrame::Kind::kRaw;
         evt.left = std::move(raw);
@@ -578,7 +790,7 @@ class MightyClient {
       }
 
       if (type == "SRAW") {
-        if (image_handlers_.empty() && !wants_any) return;
+        if (image_handlers_.empty() && !wants_any && !opts_.loopclosure) return;
         RawImageFrame left;
         RawImageFrame right;
         if (!decode_stereo_raw_payload(frame.payload,
@@ -598,6 +810,13 @@ class MightyClient {
         }
         left.channel_alias = map_channel_alias(left.channel);
         right.channel_alias = map_channel_alias(right.channel);
+        if (is_primary_channel(left)) {
+          push_loopclosure_image(left);
+        } else if (is_primary_channel(right)) {
+          push_loopclosure_image(right);
+        } else {
+          push_loopclosure_image(left);
+        }
 
         ImageFrame evt;
         evt.kind = ImageFrame::Kind::kStereoRaw;
@@ -609,7 +828,7 @@ class MightyClient {
       }
 
       if (type == "POSE" || type == "UPOS") {
-        if (pose_handlers_.empty() && !wants_any) return;
+        if (pose_handlers_.empty() && !wants_any && !opts_.loopclosure) return;
         uint32_t pose_type = 0;
         PoseFrame evt;
         evt.is_public = (type == "POSE");
@@ -633,6 +852,8 @@ class MightyClient {
         evt.pose_type = map_pose_type(pose_type);
         evt.confidence = clamp01(evt.confidence);
         evt.is_keyframe = (evt.pose_flags & (1u << 1)) != 0;
+        push_loopclosure_pose(evt);
+        apply_loopclosure_correction(&evt);
         emit(pose_handlers_, evt);
         if (wants_any) emit_any(AnyEvent{"pose", "", {}});
         return;
@@ -734,7 +955,7 @@ class MightyClient {
       }
 
       if (type == "KEYF") {
-        if (keyframe_handlers_.empty() && !wants_any) return;
+        if (keyframe_handlers_.empty() && !wants_any && !opts_.loopclosure) return;
         KeyframeDescriptor decoded;
         if (!decode_keyframe_payload(frame.payload, decoded)) {
           throw std::runtime_error("KEYF decode failed");
@@ -745,6 +966,7 @@ class MightyClient {
         evt.flags = decoded.flags;
         evt.timestamp_ns = decoded.timestamp_ns;
         evt.descriptor = std::move(decoded.descriptor);
+        push_loopclosure_keyframe(evt);
         emit(keyframe_handlers_, evt);
         if (wants_any) emit_any(AnyEvent{"keyframe", "", {}});
         return;
@@ -847,10 +1069,20 @@ class MightyClient {
   ListenerSet<VizHandler> viz_handlers_;
   ListenerSet<LconHandler> lcon_handlers_;
   ListenerSet<KeyframeHandler> keyframe_handlers_;
+  ListenerSet<LoopClosureHandler> loopclosure_handlers_;
   ListenerSet<StatusHandler> status_handlers_;
   ListenerSet<ResetHandler> reset_handlers_;
   ListenerSet<AnyHandler> any_handlers_;
   ListenerSet<ErrorHandler> error_handlers_;
+
+  mutable std::mutex loopclosure_mu_;
+  bool loopclosure_has_correction_ = false;
+  std::array<double, 3> loopclosure_translation_correction_{0.0, 0.0, 0.0};
+#if defined(MIGHTY_PROTOCOL_ENABLE_LOOPCLOSURE)
+  mlc_device_loopclosure_t* loopclosure_ = nullptr;
+  bool loopclosure_initialized_ = false;
+  std::atomic<int> loopclosure_next_frame_id_{0};
+#endif
 };
 
 }  // namespace sdk

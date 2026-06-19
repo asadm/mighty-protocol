@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Mighty Loop Closure WASM Example</title>
+    <link rel="stylesheet" href="./style.css" />
+    <link rel="stylesheet" href="./loopclosure.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">MIGHTY LOOP CLOSURE WASM</div>
+        <div class="topbar-actions">
+          <span id="connBadge" class="badge badge-off">DISCONNECTED</span>
+          <button id="connectBtn" class="btn" type="button">Connect</button>
+          <button id="vioBtn" class="btn" type="button">Start VIO</button>
+        </div>
+      </header>
+
+      <main class="loop-layout">
+        <section class="panel loop-plot-panel">
+          <h2>Topdown</h2>
+          <div id="loopPlot" class="loop-plot"></div>
+        </section>
+
+        <aside class="loop-sidebar">
+          <section class="panel">
+            <h2>Status</h2>
+            <div class="settings-grid status-grid">
+              <div class="status-cell">
+                <div class="setting-label">Source</div>
+                <div id="sourceText" class="setting-value mono">(none)</div>
+              </div>
+              <div class="status-cell">
+                <div class="setting-label">Keyframes</div>
+                <div id="keyframeText" class="setting-value mono">0</div>
+              </div>
+              <div class="status-cell">
+                <div class="setting-label">Loops</div>
+                <div id="loopText" class="setting-value mono">0</div>
+              </div>
+              <div class="status-cell">
+                <div class="setting-label">Frames</div>
+                <div id="frameText" class="setting-value mono">0</div>
+              </div>
+              <div class="status-cell status-cell-wide">
+                <div class="setting-label">Last Error</div>
+                <div id="errorText" class="setting-value mono">none</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel loop-events-panel">
+            <h2>Events</h2>
+            <ol id="eventList" class="loop-events"></ol>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <script type="module" src="./loopclosure.js"></script>
+  </body>
+</html>

@@ -5,6 +5,7 @@ from typing import Any, Callable, Dict, Optional
 import mighty_protocol as mp
 from dispatcher import FrameDispatcher
 
+from .loopclosure import LoopClosureError, NativeLoopClosure
 from .utils import clamp01, sleep_seconds, to_bytes
 
 
@@ -14,6 +15,10 @@ DEFAULT_OPTS = {
     "reconnect_delay_s": 0.3,
     "emit_stat_as_status": True,
     "normalize_channel_aliases": True,
+    "loopclosure": False,
+    "loopclosure_calibration_yaml": "",
+    "loopclosure_library": "",
+    "loopclosure_options": None,
 }
 
 VIO_STATE = mp.VIO_STATE
@@ -39,6 +44,7 @@ class MightyClient:
             "keyframe": set(),
             "status": set(),
             "reset": set(),
+            "loopclosure": set(),
             "any": set(),
             "error": set(),
         }
@@ -57,6 +63,20 @@ class MightyClient:
             "command_timeouts": 0,
         }
 
+        self._loopclosure: Optional[NativeLoopClosure] = None
+        if bool(self.opts.get("loopclosure", False)):
+            try:
+                self._loopclosure = NativeLoopClosure(
+                    library_path=self.opts.get("loopclosure_library") or None,
+                    options=self.opts.get("loopclosure_options") or None,
+                    on_event=self._handle_loopclosure_event,
+                )
+                calibration = str(self.opts.get("loopclosure_calibration_yaml") or "")
+                if calibration:
+                    self._loopclosure.set_calibration_yaml(calibration)
+            except LoopClosureError as exc:
+                self._emit_error("loopclosure", "initialize_failed", str(exc), exc)
+
         self._frame_dispatcher = FrameDispatcher(self._handle_frame)
 
     def connect(self) -> None:
@@ -66,8 +86,12 @@ class MightyClient:
             self._running = True
             self._loop_thread = threading.Thread(target=self._transport_loop, name="MightyClientLoop", daemon=True)
             self._loop_thread.start()
+        if self._loopclosure:
+            self.set_keyframes_enabled(True)
 
     def disconnect(self) -> None:
+        if self._loopclosure:
+            self.set_keyframes_enabled(False)
         with self._state_lock:
             self._running = False
         try:
@@ -122,6 +146,9 @@ class MightyClient:
 
     def on_reset(self, cb: Callable[[dict], None]) -> Callable[[], None]:
         return self._subscribe("reset", cb)
+
+    def on_loopclosure(self, cb: Callable[[dict], None]) -> Callable[[], None]:
+        return self._subscribe("loopclosure", cb)
 
     def on_any(self, cb: Callable[[dict], None]) -> Callable[[], None]:
         return self._subscribe("any", cb)
@@ -255,6 +282,19 @@ class MightyClient:
     def keyframes_status(self) -> Dict[str, Any]:
         return self.command("keyframes", b"status")
 
+    def set_loopclosure_calibration_yaml(self, yaml_or_path: str) -> bool:
+        if not self._loopclosure:
+            self._emit_error("loopclosure", "disabled", "loopclosure option is disabled")
+            return False
+        try:
+            ok = self._loopclosure.set_calibration_yaml(yaml_or_path)
+            if not ok:
+                self._emit_error("loopclosure", "calibration_failed", "native calibration load failed")
+            return ok
+        except Exception as exc:
+            self._emit_error("loopclosure", "calibration_failed", str(exc), exc)
+            return False
+
     def _subscribe(self, key: str, cb: Callable[[dict], None]) -> Callable[[], None]:
         if key not in self._listeners:
             raise ValueError(f"unknown event key: {key}")
@@ -305,6 +345,40 @@ class MightyClient:
         with self._state_lock:
             return len(self._listeners.get(key, [])) > 0
 
+    def _handle_loopclosure_event(self, event: dict) -> None:
+        self._emit("loopclosure", event)
+        if self._has_listeners("any"):
+            self._emit_any({"type": "loopclosure", "data": event})
+
+    def _push_loopclosure_image(self, image: dict) -> None:
+        if not self._loopclosure:
+            return
+        try:
+            self._loopclosure.push_image(image)
+        except Exception as exc:
+            self._emit_error("loopclosure", "push_image_failed", str(exc), exc)
+
+    def _push_loopclosure_pose(self, pose: dict) -> None:
+        if not self._loopclosure:
+            return
+        try:
+            self._loopclosure.push_pose(pose)
+        except Exception as exc:
+            self._emit_error("loopclosure", "push_pose_failed", str(exc), exc)
+
+    def _push_loopclosure_keyframe(self, keyframe: dict) -> None:
+        if not self._loopclosure:
+            return
+        try:
+            self._loopclosure.push_keyframe(keyframe)
+        except Exception as exc:
+            self._emit_error("loopclosure", "push_keyframe_failed", str(exc), exc)
+
+    def _apply_loopclosure_correction(self, pose: dict) -> dict:
+        if not self._loopclosure or not pose.get("is_public", False):
+            return pose
+        return self._loopclosure.correct_pose(pose)
+
     def _handle_bytes(self, chunk: bytes) -> None:
         b = to_bytes(chunk)
         with self._state_lock:
@@ -336,10 +410,11 @@ class MightyClient:
         frame_type = frame.get("type", "")
         payload = frame.get("payload", b"")
         wants_any = self._has_listeners("any")
+        wants_loopclosure = self._loopclosure is not None
 
         try:
             if frame_type == "RAW ":
-                if not self._has_listeners("image") and not wants_any:
+                if not self._has_listeners("image") and not wants_any and not wants_loopclosure:
                     return
                 raw = mp.decode_raw_payload(payload)
                 mapped = {
@@ -352,13 +427,14 @@ class MightyClient:
                     "channel_alias": self._map_channel_alias(raw.get("channel", "")),
                     "data": to_bytes(raw.get("data", b"")),
                 }
+                self._push_loopclosure_image(mapped)
                 self._emit("image", mapped)
                 if wants_any:
                     self._emit_any({"type": "image", "data": mapped})
                 return
 
             if frame_type == "SRAW":
-                if not self._has_listeners("image") and not wants_any:
+                if not self._has_listeners("image") and not wants_any and not wants_loopclosure:
                     return
                 sraw = mp.decode_stereo_raw_payload(payload)
                 left_raw = sraw.get("left", {})
@@ -384,13 +460,14 @@ class MightyClient:
                     "data": to_bytes(right_raw.get("data", b"")),
                 }
                 mapped = {"kind": "stereo_raw", "left": left, "right": right}
+                self._push_loopclosure_image(mapped)
                 self._emit("image", mapped)
                 if wants_any:
                     self._emit_any({"type": "image", "data": mapped})
                 return
 
             if frame_type in ("POSE", "UPOS"):
-                if not self._has_listeners("pose") and not wants_any:
+                if not self._has_listeners("pose") and not wants_any and not wants_loopclosure:
                     return
                 p = mp.decode_pose_payload(payload)
                 pose_flags = int(p.get("pose_flags", 0))
@@ -412,6 +489,8 @@ class MightyClient:
                     "angular_acceleration_body_rps2": p.get("angular_acceleration_body_rps2"),
                     "timestamp_ns": p.get("timestamp_ns"),
                 }
+                self._push_loopclosure_pose(mapped)
+                mapped = self._apply_loopclosure_correction(mapped)
                 self._emit("pose", mapped)
                 if wants_any:
                     self._emit_any({"type": "pose", "data": mapped})
@@ -488,7 +567,7 @@ class MightyClient:
                 return
 
             if frame_type == "KEYF":
-                if not self._has_listeners("keyframe") and not wants_any:
+                if not self._has_listeners("keyframe") and not wants_any and not wants_loopclosure:
                     return
                 k = mp.decode_keyframe_payload(payload)
                 mapped = {
@@ -499,6 +578,7 @@ class MightyClient:
                     "flags": k.get("flags", 0),
                     "version": k.get("version", 0),
                 }
+                self._push_loopclosure_keyframe(mapped)
                 self._emit("keyframe", mapped)
                 if wants_any:
                     self._emit_any({"type": "keyframe", "data": mapped})

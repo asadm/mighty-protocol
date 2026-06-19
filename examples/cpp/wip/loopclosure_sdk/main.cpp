@@ -1,69 +1,145 @@
-#include "mighty_algorithms/mighty_algorithms.hpp"
-
-#include <cstdint>
+#include <atomic>
+#include <chrono>
+#include <csignal>
 #include <iostream>
-#include <string>
-#include <vector>
+#include <memory>
+#include <thread>
+
+#include "cpp/mighty_sdk.h"
+#include "examples/cpp/wip/loopclosure_sdk/utils.h"
+
+namespace {
+
+using loopclosure_sdk_example::Options;
+using loopclosure_sdk_example::State;
+using loopclosure_sdk_example::parse_args;
+using loopclosure_sdk_example::print_loop_event;
+using loopclosure_sdk_example::print_usage;
+using loopclosure_sdk_example::record_keyframe_pose;
+using loopclosure_sdk_example::record_loop_event;
+using loopclosure_sdk_example::set_error;
+using loopclosure_sdk_example::set_source;
+using loopclosure_sdk_example::set_status;
+using loopclosure_sdk_example::write_svg;
+
+using mighty_protocol::sdk::LoopClosureEvent;
+using mighty_protocol::sdk::MightyClient;
+using mighty_protocol::sdk::MightyClientOptions;
+using mighty_protocol::sdk::MightyErrorEvent;
+using mighty_protocol::sdk::MightyWebDevice;
+using mighty_protocol::sdk::MightyWebDeviceOptions;
+using mighty_protocol::sdk::PoseFrame;
+using mighty_protocol::sdk::StatusEvent;
+
+std::atomic<bool> g_stop{false};
+
+void handle_signal(int) {
+  g_stop.store(true);
+}
+
+}  // namespace
 
 int main(int argc, char** argv) {
-  if (argc < 2) {
-    std::cerr << "usage: loopclosure_sdk_example /path/to/place_model.{onnx,pt} "
-                 "[/path/to/calibration.yaml]\n";
+#if !defined(MIGHTY_PROTOCOL_ENABLE_LOOPCLOSURE)
+  std::cerr << "This example must be compiled with MIGHTY_PROTOCOL_ENABLE_LOOPCLOSURE.\n";
+  return 2;
+#else
+  Options opts;
+  if (!parse_args(argc, argv, &opts)) {
+    print_usage(argv[0]);
     return 2;
   }
 
-  auto options = mighty_algorithms::defaultLoopClosureOptions();
-  const std::string model_path = argv[1];
-  options.keyframe_translation_m = 0.10;
-  options.min_loop_gap = 1;
-  options.min_orb_matches = 1;
-  options.min_orb_inliers = 1;
-  options.pnp_min_matches = 1;
-  options.pnp_min_inliers = 1;
+  std::signal(SIGINT, handle_signal);
+  std::signal(SIGTERM, handle_signal);
 
-  mighty_algorithms::LoopClosure loopclosure(options);
-  loopclosure.initialize(model_path);
-  if (argc >= 3) {
-    loopclosure.setCalibrationYaml(argv[2]);
+  MightyWebDeviceOptions device_opts;
+  if (!opts.host.empty()) device_opts.base_url = opts.host;
+  auto device = std::make_shared<MightyWebDevice>(device_opts);
+
+  MightyClientOptions client_opts;
+  client_opts.loopclosure = true;
+  client_opts.loopclosure_calibration_yaml = opts.calibration_yaml;
+
+  State state;
+  auto client = std::make_shared<MightyClient>(device, client_opts);
+
+  client->on_error([&](const MightyErrorEvent& e) {
+    const std::string text = e.scope + " " + e.code + ": " + e.message;
+    set_error(&state, text);
+    std::cerr << "[error] " << text << std::endl;
+  });
+
+  client->on_status([&](const StatusEvent& s) {
+    set_status(&state, s.text);
+    std::cout << "[status] " << s.text << std::endl;
+  });
+
+  client->on_pose([&](const PoseFrame& p) {
+    record_keyframe_pose(&state, p);
+  });
+
+  client->on_loopclosure([&](const LoopClosureEvent& e) {
+    print_loop_event(e);
+    record_loop_event(&state, e);
+    write_svg(opts, state, opts.output_svg);
+  });
+
+  client->connect();
+  const auto info = device->get_info();
+  set_source(&state, info.source);
+  std::cout << "transport=http source=" << info.source << std::endl;
+
+  bool calibration_loaded = false;
+  if (!opts.calibration_yaml.empty()) {
+    calibration_loaded = client->set_loopclosure_calibration_yaml(opts.calibration_yaml);
+  } else {
+    for (int attempt = 0; attempt < 40 && !g_stop.load(); ++attempt) {
+      const auto result = client->config_get_text("calib");
+      if (result.ok && result.found && !result.value.empty()) {
+        calibration_loaded = client->set_loopclosure_calibration_yaml(result.value);
+        break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    }
+  }
+  std::cout << "loop-closure calibration loaded="
+            << (calibration_loaded ? "true" : "false") << std::endl;
+
+  if (opts.start_vio) {
+    const auto res = client->start_vio();
+    std::cout << "start_vio ok=" << (res.ok ? "true" : "false")
+              << " status=" << static_cast<int>(res.status)
+              << " message=\"" << res.message << "\"" << std::endl;
   }
 
-  constexpr int kWidth = 320;
-  constexpr int kHeight = 240;
-  std::vector<uint8_t> bgr(static_cast<size_t>(kWidth) * kHeight * 3, 0);
-  for (int y = 0; y < kHeight; ++y) {
-    for (int x = 0; x < kWidth; ++x) {
-      const size_t off = (static_cast<size_t>(y) * kWidth + x) * 3;
-      bgr[off + 0] = static_cast<uint8_t>((x + y) & 255);
-      bgr[off + 1] = static_cast<uint8_t>((2 * x) & 255);
-      bgr[off + 2] = static_cast<uint8_t>((2 * y) & 255);
+  write_svg(opts, state, opts.output_svg);
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(opts.seconds);
+  auto next_render = std::chrono::steady_clock::now();
+  while (!g_stop.load() && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    if (std::chrono::steady_clock::now() >= next_render) {
+      write_svg(opts, state, opts.output_svg);
+      next_render = std::chrono::steady_clock::now() + std::chrono::milliseconds(opts.update_ms);
     }
   }
 
-  for (int i = 0; i < 3; ++i) {
-    ma_loopclosure_frame_t frame{};
-    frame.frame_id = i;
-    frame.timestamp_ns = static_cast<uint64_t>(i) * 33333333ull;
-    frame.image.data = bgr.data();
-    frame.image.size_bytes = bgr.size();
-    frame.image.width = kWidth;
-    frame.image.height = kHeight;
-    frame.image.stride_bytes = static_cast<size_t>(kWidth) * 3;
-    frame.image.format = MA_PIXEL_BGR8;
-    frame.pose.timestamp_ns = frame.timestamp_ns;
-    frame.pose.px = 0.10 * i;
-    frame.pose.qw = 1.0;
-    frame.pose.frame = MA_POSE_FRAME_CAMERA;
-    frame.pose.confidence = 1.0f;
-    frame.pose.is_keyframe_hint = 1;
-
-    mighty_algorithms::LoopClosureResult result(loopclosure.pushFrame(frame));
-    std::cout << "frame=" << i
-              << " keyframes=" << result.get().keyframes_added
-              << " loops=" << result.get().loops_accepted
-              << " trajectory=" << result.get().trajectory_count << "\n";
+  if (opts.start_vio) {
+    const auto res = client->stop_vio();
+    std::cout << "stop_vio ok=" << (res.ok ? "true" : "false")
+              << " status=" << static_cast<int>(res.status)
+              << " message=\"" << res.message << "\"" << std::endl;
   }
+  client->disconnect();
+  write_svg(opts, state, opts.output_svg);
 
-  mighty_algorithms::LoopClosureResult trajectory(loopclosure.trajectory());
-  std::cout << "final trajectory=" << trajectory.get().trajectory_count << "\n";
+  const auto stats = client->stats();
+  std::cout << "wrote " << opts.output_svg << "\n";
+  std::cout << "stats frames=" << stats.rx_frames
+            << " bytes=" << stats.rx_bytes
+            << " decode_errors=" << stats.decode_errors
+            << " reconnects=" << stats.reconnects
+            << " command_timeouts=" << stats.command_timeouts << std::endl;
   return 0;
+#endif
 }

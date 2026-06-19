@@ -1,4 +1,9 @@
 import * as protocol from "../core/protocol.js";
+import {
+  DEFAULT_LOOPCLOSURE_WASM_URL,
+  NativeLoopClosureWasm,
+  createLoopClosureWasmModule,
+} from "./loopclosure-wasm.js";
 import { toU8, encodeText, decodeText, sleep, isAbortError } from "./utils.js";
 
 export const VIO_STATE = protocol.VIO_STATE;
@@ -11,6 +16,11 @@ const DEFAULT_OPTS = {
   streamStallTimeoutMs: 3000,
   emitStatAsStatus: true,
   normalizeChannelAliases: true,
+  loopclosure: false,
+  loopclosureWasmUrl: DEFAULT_LOOPCLOSURE_WASM_URL,
+  loopclosureCalibrationYaml: "",
+  loopclosureWasmModule: null,
+  loopclosureWasmOptions: null,
 };
 
 const EVENT_KEYS = [
@@ -25,6 +35,7 @@ const EVENT_KEYS = [
   "status",
   "lua_log",
   "reset",
+  "loopclosure",
   "any",
   "error",
 ];
@@ -72,15 +83,38 @@ export class MightyClient {
       reconnects: 0,
       commandTimeouts: 0,
     };
+    this._loopclosure = null;
+    this._loopclosureInit = null;
   }
 
   async connect() {
     if (this._running) return;
+    if (this.opts.loopclosure && !this._loopclosure) await this.enableLoopclosureWasm();
     this._running = true;
     this._loopTask = this._runTransportLoop();
+    if (this._loopclosure) {
+      const res = await this.setKeyframesEnabled(true);
+      if (!res.ok) {
+        this._emitError({
+          scope: "loopclosure",
+          code: "keyframes_failed",
+          message: res.message || "failed to enable keyframes",
+        });
+      }
+    }
   }
 
   async disconnect() {
+    if (this._loopclosure) {
+      await this.setKeyframesEnabled(false).catch((err) => {
+        this._emitError({
+          scope: "loopclosure",
+          code: "keyframes_failed",
+          message: err?.message || String(err),
+          cause: err,
+        });
+      });
+    }
     this._running = false;
     this._clearStreamStallWatchdog();
     this._transportAbortReason = null;
@@ -125,6 +159,7 @@ export class MightyClient {
   onStatus(cb) { return this._subscribe("status", cb); }
   onLuaLog(cb) { return this._subscribe("lua_log", cb); }
   onReset(cb) { return this._subscribe("reset", cb); }
+  onLoopclosure(cb) { return this._subscribe("loopclosure", cb); }
   onAny(cb) { return this._subscribe("any", cb); }
   onError(cb) { return this._subscribe("error", cb); }
 
@@ -282,6 +317,99 @@ export class MightyClient {
     return this.command("keyframes", encodeText("status"));
   }
 
+  async enableLoopclosureWasm(options = {}) {
+    if (this._loopclosure) return this._loopclosure;
+    if (this._loopclosureInit && Object.keys(options || {}).length === 0) return this._loopclosureInit;
+
+    const init = (async () => {
+      const wasmOptions = {
+        ...(this.opts.loopclosureWasmOptions || {}),
+        ...((options && options.wasm) || {}),
+      };
+      if (options && Object.prototype.hasOwnProperty.call(options, "wasmUrl")) {
+        wasmOptions.wasmUrl = options.wasmUrl;
+      } else if (
+        this.opts.loopclosureWasmUrl
+        && !wasmOptions.wasmUrl
+        && !wasmOptions.locateFile
+        && !wasmOptions.wasmBinary
+      ) {
+        wasmOptions.wasmUrl = this.opts.loopclosureWasmUrl;
+      }
+
+      const module = options.module
+        || this.opts.loopclosureWasmModule
+        || await createLoopClosureWasmModule(wasmOptions);
+      const loopclosure = new NativeLoopClosureWasm(module, {
+        onEvent: (event) => this._handleLoopclosureEvent(event),
+      });
+      const calibration = options.calibrationYaml ?? this.opts.loopclosureCalibrationYaml;
+      if (calibration) loopclosure.setCalibrationYaml(calibration);
+      this._loopclosure = loopclosure;
+      return loopclosure;
+    })();
+
+    this._loopclosureInit = init;
+    try {
+      return await init;
+    } catch (err) {
+      this._logLoopclosureWasmLoadError(err);
+      this._emitError({
+        scope: "loopclosure",
+        code: "initialize_failed",
+        message: err?.message || String(err),
+        cause: err,
+      });
+      throw err;
+    } finally {
+      if (!this._loopclosure) this._loopclosureInit = null;
+    }
+  }
+
+  _logLoopclosureWasmLoadError(err) {
+    if (err && err._mightyLoopclosureLogged) return;
+    if (err) err._mightyLoopclosureLogged = true;
+    const wasmUrl = err?.wasmUrl || this.opts.loopclosureWasmUrl || DEFAULT_LOOPCLOSURE_WASM_URL;
+    if (typeof console !== "undefined" && typeof console.error === "function") {
+      console.error(
+        `Mighty SDK loop closure could not load ${wasmUrl}. ` +
+        `Put mighty_loopclosure_device.wasm at ${DEFAULT_LOOPCLOSURE_WASM_URL}, ` +
+        "or pass loopclosureWasmUrl with the URL where your app serves it.",
+        err
+      );
+    }
+  }
+
+  setLoopclosureCalibrationYaml(yamlOrPath) {
+    if (!this._loopclosure) {
+      this._emitError({
+        scope: "loopclosure",
+        code: "disabled",
+        message: "loopclosure option is disabled",
+      });
+      return false;
+    }
+    try {
+      return this._loopclosure.setCalibrationYaml(yamlOrPath);
+    } catch (err) {
+      this._emitError({
+        scope: "loopclosure",
+        code: "calibration_failed",
+        message: err?.message || String(err),
+        cause: err,
+      });
+      return false;
+    }
+  }
+
+  closeLoopclosure() {
+    if (this._loopclosure) {
+      this._loopclosure.close();
+      this._loopclosure = null;
+    }
+    this._loopclosureInit = null;
+  }
+
   _subscribe(key, cb) {
     if (!this._listeners[key]) throw new Error(`Unknown event key: ${key}`);
     if (typeof cb !== "function") throw new Error("listener callback must be a function");
@@ -366,6 +494,58 @@ export class MightyClient {
     return !!set && set.size > 0;
   }
 
+  _handleLoopclosureEvent(event) {
+    this._emit("loopclosure", event);
+    if (this._hasListeners("any")) this._emitAny({ type: "loopclosure", data: event });
+  }
+
+  _pushLoopclosureImage(image) {
+    if (!this._loopclosure) return;
+    try {
+      this._loopclosure.pushImage(image);
+    } catch (err) {
+      this._emitError({
+        scope: "loopclosure",
+        code: "push_image_failed",
+        message: err?.message || String(err),
+        cause: err,
+      });
+    }
+  }
+
+  _pushLoopclosurePose(pose) {
+    if (!this._loopclosure) return;
+    try {
+      this._loopclosure.pushPose(pose);
+    } catch (err) {
+      this._emitError({
+        scope: "loopclosure",
+        code: "push_pose_failed",
+        message: err?.message || String(err),
+        cause: err,
+      });
+    }
+  }
+
+  _pushLoopclosureKeyframe(keyframe) {
+    if (!this._loopclosure) return;
+    try {
+      this._loopclosure.pushKeyframe(keyframe);
+    } catch (err) {
+      this._emitError({
+        scope: "loopclosure",
+        code: "push_keyframe_failed",
+        message: err?.message || String(err),
+        cause: err,
+      });
+    }
+  }
+
+  _applyLoopclosureCorrection(pose) {
+    if (!this._loopclosure || !pose.isPublic) return pose;
+    return this._loopclosure.correctPose(pose);
+  }
+
   _handleBytes(chunk) {
     const u8 = toU8(chunk);
     this._stats.rxBytes += u8.length;
@@ -392,11 +572,12 @@ export class MightyClient {
     this._stats.rxFrames += 1;
 
     const wantsAny = this._hasListeners("any");
+    const wantsLoopclosure = !!this._loopclosure;
 
     try {
       switch (frame.type) {
         case protocol.TYPE.RAW: {
-          if (!this._hasListeners("image") && !wantsAny) return;
+          if (!this._hasListeners("image") && !wantsAny && !wantsLoopclosure) return;
           const raw = protocol.decodeRawPayload(frame.payload);
           const mapped = {
             kind: "raw",
@@ -408,12 +589,13 @@ export class MightyClient {
             channelAlias: this._mapChannelAlias(raw.channel),
             data: toU8(raw.data),
           };
+          this._pushLoopclosureImage(mapped);
           this._emit("image", mapped);
           if (wantsAny) this._emitAny({ type: "image", data: mapped });
           return;
         }
         case protocol.TYPE.SRAW: {
-          if (!this._hasListeners("image") && !wantsAny) return;
+          if (!this._hasListeners("image") && !wantsAny && !wantsLoopclosure) return;
           const stereo = protocol.decodeStereoRawPayload(frame.payload);
           const left = {
             kind: "raw",
@@ -436,15 +618,16 @@ export class MightyClient {
             data: toU8(stereo.right.data),
           };
           const mapped = { kind: "stereo_raw", left, right };
+          this._pushLoopclosureImage(mapped);
           this._emit("image", mapped);
           if (wantsAny) this._emitAny({ type: "image", data: mapped });
           return;
         }
         case protocol.TYPE.POSE:
         case protocol.TYPE.UPOSE: {
-          if (!this._hasListeners("pose") && !wantsAny) return;
+          if (!this._hasListeners("pose") && !wantsAny && !wantsLoopclosure) return;
           const p = protocol.decodePosePayload(frame.payload);
-          const mapped = {
+          let mapped = {
             isPublic: frame.type === protocol.TYPE.POSE,
             packetType: frame.type === protocol.TYPE.POSE ? "POSE" : "UPOS",
             poseType: this._mapPoseType(p.poseType),
@@ -462,6 +645,8 @@ export class MightyClient {
             angularAccelerationBodyRps2: p.angularAccelerationBodyRps2 || undefined,
             timestampNs: p.timestampNs === null ? undefined : p.timestampNs,
           };
+          this._pushLoopclosurePose(mapped);
+          mapped = this._applyLoopclosureCorrection(mapped);
           this._emit("pose", mapped);
           if (wantsAny) this._emitAny({ type: "pose", data: mapped });
           return;
@@ -536,7 +721,7 @@ export class MightyClient {
           return;
         }
         case protocol.TYPE.KEYF: {
-          if (!this._hasListeners("keyframe") && !wantsAny) return;
+          if (!this._hasListeners("keyframe") && !wantsAny && !wantsLoopclosure) return;
           const k = protocol.decodeKeyframePayload(frame.payload);
           const mapped = {
             timestampNs: k.timestampNs,
@@ -546,6 +731,7 @@ export class MightyClient {
             flags: k.flags,
             version: k.version,
           };
+          this._pushLoopclosureKeyframe(mapped);
           this._emit("keyframe", mapped);
           if (wantsAny) this._emitAny({ type: "keyframe", data: mapped });
           return;

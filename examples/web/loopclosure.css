@@ -1,0 +1,67 @@
+.loop-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 10px;
+  padding: 10px;
+  overflow: hidden;
+}
+
+.loop-plot-panel,
+.loop-events-panel {
+  min-height: 0;
+}
+
+.loop-plot {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--ink);
+  background: #f8f8f4;
+  overflow: hidden;
+}
+
+.loop-plot svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.loop-sidebar {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+}
+
+.loop-events {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin: 0;
+  padding: 0 0 0 22px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.loop-events li {
+  padding: 7px 0;
+  border-bottom: 1px solid var(--paper-dark);
+}
+
+.loop-event-type {
+  font-weight: 700;
+  color: var(--c-magenta);
+}
+
+@media (max-width: 1000px) {
+  .loop-layout {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+
+  .loop-plot-panel {
+    min-height: 520px;
+  }
+}

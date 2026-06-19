@@ -59,6 +59,32 @@ C++ is header-only for the protocol/client SDK:
 For a tiny C++ command-line example, see
 [`examples/cpp/cli`](./examples/cpp/cli).
 
+## Loop Closure Binaries
+
+Loop closure uses prebuilt native/WASM binaries generated from
+`mighty-algorithms`. Download the bundle for the algorithms commit you want and
+unzip it at this repository root:
+
+```bash
+curl -L -o /tmp/mighty-loopclosure-sdk-<commit>.zip \
+  https://mightycamera.com/downloads/mighty-loopclosure-sdk-<commit>.zip
+unzip -o /tmp/mighty-loopclosure-sdk-<commit>.zip -d .
+```
+
+The zip installs `lib/loopclosure/<platform>/` packages for macOS, Windows x64,
+Linux x64, Linux arm64, Linux armv7, and WASM.
+
+For browser apps, serve `mighty_loopclosure_device.wasm` from your static
+assets. The JavaScript SDK defaults to `/mighty_loopclosure_device.wasm`; use
+`loopclosureWasmUrl` if your app serves it somewhere else:
+
+```js
+const client = new MightyClient(device, {
+  loopclosure: true,
+  loopclosureWasmUrl: "/assets/mighty_loopclosure_device.wasm",
+});
+```
+
 ## Quick Start
 
 Python:
