@@ -425,6 +425,23 @@ Serial.println(value)
 Serial.flush()
 ```
 
+Recipe: send hello and print received bytes:
+
+```lua
+function setup()
+  Serial.begin(115200)
+  Serial.println("hello")
+end
+
+function loop()
+  local available = Serial.available()
+  if available > 0 then
+    local rx = Serial.readBytes(available)
+    print("rx", rx)
+  end
+end
+```
+
 Recipe: echo bytes:
 
 ```lua
