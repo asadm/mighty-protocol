@@ -119,6 +119,7 @@ export class NativeLoopClosureWasm {
     this.onEvent = typeof options.onEvent === "function" ? options.onEvent : null;
     this.hasPoseCorrection = false;
     this.poseTranslationCorrectionM = [0, 0, 0];
+    this.trajectory = [];
     this.nextFrameId = 0;
     this.handle = 0;
     this.callbackPtr = 0;
@@ -154,7 +155,9 @@ export class NativeLoopClosureWasm {
   setCalibrationYaml(yamlOrPath) {
     const ptr = writeCString(this.module, yamlOrPath);
     try {
-      return this.module._mlc_set_calibration_yaml(this.handle, ptr) === 0;
+      const status = this.module._mlc_set_calibration_yaml(this.handle, ptr);
+      this._check(status, "mlc_set_calibration_yaml");
+      return true;
     } finally {
       this.module._free(ptr);
     }
@@ -226,7 +229,8 @@ export class NativeLoopClosureWasm {
     if (!this.hasPoseCorrection) return pose;
     const pos = pose.positionM || pose.position_m;
     if (!pos || pos.length < 3) return pose;
-    const corrected = pos.map((v, i) => Number(v) + this.poseTranslationCorrectionM[i]);
+    const correction = this._correctionForTimestamp(pose.timestampNs ?? pose.timestamp_ns);
+    const corrected = pos.map((v, i) => Number(v) + correction[i]);
     return {
       ...pose,
       positionM: pose.positionM ? corrected : pose.positionM,
@@ -238,10 +242,76 @@ export class NativeLoopClosureWasm {
     };
   }
 
+  getTrajectory() {
+    return this.trajectory.map((p) => ({
+      keyframeIndex: p.keyframeIndex,
+      timestampNs: p.timestampNs,
+      rawPositionM: p.rawPositionM.slice(),
+      positionM: p.positionM.slice(),
+    }));
+  }
+
+  _readTrajectory() {
+    const count = Number(this.module._mlc_trajectory_size(this.handle) || 0);
+    if (!count) return [];
+    const tsPtr = this.module._malloc(8);
+    const rawPtr = this.module._malloc(3 * 8);
+    const optPtr = this.module._malloc(3 * 8);
+    const out = [];
+    try {
+      for (let i = 0; i < count; i += 1) {
+        const status = this.module._mlc_trajectory_pose(this.handle, i, tsPtr, rawPtr, optPtr);
+        if (status !== 0) continue;
+        const raw = [0, 1, 2].map((j) => this.module.getValue(rawPtr + j * 8, "double"));
+        const opt = [0, 1, 2].map((j) => this.module.getValue(optPtr + j * 8, "double"));
+        out.push({
+          keyframeIndex: i,
+          timestampNs: readU64(this.module, tsPtr),
+          rawPositionM: raw,
+          positionM: opt,
+        });
+      }
+    } finally {
+      this.module._free(optPtr);
+      this.module._free(rawPtr);
+      this.module._free(tsPtr);
+    }
+    return out;
+  }
+
+  _correctionForTimestamp(timestampNs) {
+    if (!this.trajectory.length) return this.poseTranslationCorrectionM;
+    if (timestampNs === undefined || timestampNs === null) return this.poseTranslationCorrectionM;
+    const t = Number(timestampNs);
+    let prev = null;
+    let next = null;
+    for (const pose of this.trajectory) {
+      const poseTime = Number(pose.timestampNs);
+      if (poseTime <= t) prev = pose;
+      if (poseTime >= t) {
+        next = pose;
+        break;
+      }
+    }
+    const correctionOf = (pose) => pose.positionM.map((v, i) => Number(v) - Number(pose.rawPositionM[i]));
+    if (prev && next && prev !== next) {
+      const a = Number(prev.timestampNs);
+      const b = Number(next.timestampNs);
+      const alpha = b > a ? Math.max(0, Math.min(1, (t - a) / (b - a))) : 0;
+      const pc = correctionOf(prev);
+      const nc = correctionOf(next);
+      return pc.map((v, i) => v + (nc[i] - v) * alpha);
+    }
+    if (prev) return correctionOf(prev);
+    if (next) return correctionOf(next);
+    return this.poseTranslationCorrectionM;
+  }
+
   _readEvent(ptr) {
     const correction = [0, 1, 2].map((i) => this.module.getValue(ptr + this.layout.eventCorrectionTxOffset + i * 8, "double"));
     this.hasPoseCorrection = true;
     this.poseTranslationCorrectionM = correction;
+    this.trajectory = this._readTrajectory();
     return {
       type: EVENT_NAMES[this.module.getValue(ptr + this.layout.eventTypeOffset, "i8")] || "unknown",
       timestampNs: readU64(this.module, ptr + this.layout.eventTimestampNsOffset),

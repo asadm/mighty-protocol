@@ -732,6 +732,10 @@ class MightyClient {
 
   void apply_loopclosure_correction(PoseFrame* pose) {
     if (!pose || !opts_.loopclosure || !pose->is_public) return;
+    if (!(pose->pose_type == "body" || pose->pose_type == "camera" ||
+          pose->pose_type_raw == 0 || pose->pose_type_raw == 1)) {
+      return;
+    }
     std::lock_guard<std::mutex> lock(loopclosure_mu_);
     if (!loopclosure_has_correction_) return;
     pose->raw_position_m = pose->position_m;

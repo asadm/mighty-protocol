@@ -358,8 +358,12 @@ class MightyClient:
         except Exception as exc:
             self._emit_error("loopclosure", "push_image_failed", str(exc), exc)
 
+    @staticmethod
+    def _is_loopclosure_pose(pose: dict) -> bool:
+        return pose.get("pose_type") in ("body", "camera")
+
     def _push_loopclosure_pose(self, pose: dict) -> None:
-        if not self._loopclosure:
+        if not self._loopclosure or not self._is_loopclosure_pose(pose):
             return
         try:
             self._loopclosure.push_pose(pose)
@@ -375,7 +379,7 @@ class MightyClient:
             self._emit_error("loopclosure", "push_keyframe_failed", str(exc), exc)
 
     def _apply_loopclosure_correction(self, pose: dict) -> dict:
-        if not self._loopclosure or not pose.get("is_public", False):
+        if not self._loopclosure or not pose.get("is_public", False) or not self._is_loopclosure_pose(pose):
             return pose
         return self._loopclosure.correct_pose(pose)
 

@@ -287,6 +287,52 @@ async function main() {
   assert.ok(almost(lastPose.angularVelocityBodyRps[1], poseSample.angularVelocityBodyRps[1]));
   assert.ok(almost(lastPose.linearAccelerationBodyMps2[0], poseSample.linearAccelerationBodyMps2[0]));
   assert.ok(almost(lastPose.angularAccelerationBodyRps2[2], poseSample.angularAccelerationBodyRps2[2]));
+
+  const pushedLoopclosurePoses = [];
+  let correctedLoopclosurePoses = 0;
+  client._loopclosure = {
+    pushPose(pose) {
+      pushedLoopclosurePoses.push(pose);
+    },
+    correctPose(pose) {
+      correctedLoopclosurePoses += 1;
+      return {
+        ...pose,
+        rawPositionM: pose.positionM.map(Number),
+        positionM: pose.positionM.map((v) => Number(v) + 10),
+        loopclosureCorrected: true,
+      };
+    },
+  };
+
+  device.emitPacket(proto.makePacket(proto.TYPE.POSE, proto.buildPosePayload({
+    poseType: 2,
+    positionM: [9, 8, 7],
+    timestampNs: 15n,
+  })));
+  await sleep(5);
+  assert.strictEqual(lastPose.poseType, "other");
+  assert.strictEqual(lastPose.poseTypeRaw, 2);
+  assert.deepStrictEqual(lastPose.positionM, [9, 8, 7]);
+  assert.strictEqual(lastPose.rawPositionM, undefined);
+  assert.strictEqual(lastPose.loopclosureCorrected, undefined);
+  assert.strictEqual(pushedLoopclosurePoses.length, 0);
+  assert.strictEqual(correctedLoopclosurePoses, 0);
+
+  device.emitPacket(proto.makePacket(proto.TYPE.POSE, proto.buildPosePayload({
+    poseType: 0,
+    positionM: [2, 3, 4],
+    timestampNs: 16n,
+  })));
+  await sleep(5);
+  assert.strictEqual(lastPose.poseType, "body");
+  assert.deepStrictEqual(lastPose.rawPositionM, [2, 3, 4]);
+  assert.deepStrictEqual(lastPose.positionM, [12, 13, 14]);
+  assert.strictEqual(lastPose.loopclosureCorrected, true);
+  assert.strictEqual(pushedLoopclosurePoses.length, 1);
+  assert.strictEqual(correctedLoopclosurePoses, 1);
+  client._loopclosure = null;
+
   assert.strictEqual(seen.imu, 1);
   assert.strictEqual(seen.vsta, 1);
   assert.strictEqual(lastVsta.initReasonCode, proto.VIO_INIT_REASON.NONE);

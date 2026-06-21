@@ -47,6 +47,35 @@ function clamp01(v) {
   return v;
 }
 
+async function decodeJpegToRgbaFrame(jpegData) {
+  if (typeof createImageBitmap !== "function" || typeof Blob === "undefined") {
+    throw new Error("JPEG loopclosure decode requires browser image APIs");
+  }
+  const bitmap = await createImageBitmap(new Blob([toU8(jpegData)], { type: "image/jpeg" }));
+  try {
+    const width = bitmap.width || 0;
+    const height = bitmap.height || 0;
+    if (width <= 0 || height <= 0) throw new Error("decoded JPEG has invalid dimensions");
+    const canvas = typeof OffscreenCanvas === "function"
+      ? new OffscreenCanvas(width, height)
+      : document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) throw new Error("unable to create JPEG decode canvas");
+    ctx.drawImage(bitmap, 0, 0);
+    const pixels = ctx.getImageData(0, 0, width, height).data;
+    return {
+      width,
+      height,
+      format: protocol.RAW_FORMAT.RGBA32,
+      data: new Uint8Array(pixels),
+    };
+  } finally {
+    bitmap.close?.();
+  }
+}
+
 function timeoutPromise(ms, message) {
   return new Promise((_, reject) => {
     const t = setTimeout(() => {
@@ -54,6 +83,10 @@ function timeoutPromise(ms, message) {
       reject(new Error(message));
     }, Math.max(1, Number(ms) || 1));
   });
+}
+
+function isLoopclosurePose(pose) {
+  return pose?.poseType === "body" || pose?.poseType === "camera";
 }
 
 export class MightyClient {
@@ -381,13 +414,9 @@ export class MightyClient {
   }
 
   setLoopclosureCalibrationYaml(yamlOrPath) {
+    this.opts.loopclosureCalibrationYaml = yamlOrPath || "";
     if (!this._loopclosure) {
-      this._emitError({
-        scope: "loopclosure",
-        code: "disabled",
-        message: "loopclosure option is disabled",
-      });
-      return false;
+      return true;
     }
     try {
       return this._loopclosure.setCalibrationYaml(yamlOrPath);
@@ -408,6 +437,10 @@ export class MightyClient {
       this._loopclosure = null;
     }
     this._loopclosureInit = null;
+  }
+
+  loopclosureTrajectory() {
+    return this._loopclosure ? this._loopclosure.getTrajectory() : [];
   }
 
   _subscribe(key, cb) {
@@ -513,8 +546,32 @@ export class MightyClient {
     }
   }
 
-  _pushLoopclosurePose(pose) {
+  _pushLoopclosureJpegImage(image) {
     if (!this._loopclosure) return;
+    void decodeJpegToRgbaFrame(image.data).then((decoded) => {
+      if (!this._loopclosure) return;
+      this._pushLoopclosureImage({
+        kind: "raw",
+        timestampNs: image.timestampNs,
+        width: decoded.width,
+        height: decoded.height,
+        format: decoded.format,
+        channel: image.channel,
+        channelAlias: image.channelAlias,
+        data: decoded.data,
+      });
+    }).catch((err) => {
+      this._emitError({
+        scope: "loopclosure",
+        code: "jpeg_decode_failed",
+        message: err?.message || String(err),
+        cause: err,
+      });
+    });
+  }
+
+  _pushLoopclosurePose(pose) {
+    if (!this._loopclosure || !isLoopclosurePose(pose)) return;
     try {
       this._loopclosure.pushPose(pose);
     } catch (err) {
@@ -542,7 +599,7 @@ export class MightyClient {
   }
 
   _applyLoopclosureCorrection(pose) {
-    if (!this._loopclosure || !pose.isPublic) return pose;
+    if (!this._loopclosure || !pose.isPublic || !isLoopclosurePose(pose)) return pose;
     return this._loopclosure.correctPose(pose);
   }
 
@@ -576,6 +633,23 @@ export class MightyClient {
 
     try {
       switch (frame.type) {
+        case protocol.TYPE.JPG:
+        case protocol.TYPE.RJPG: {
+          if (!this._hasListeners("image") && !wantsAny && !wantsLoopclosure) return;
+          const jpg = protocol.decodeJpgPayload(frame.payload, frame.type === protocol.TYPE.RJPG);
+          const channel = frame.type === protocol.TYPE.RJPG ? "ref" : (jpg.channel || "preview");
+          const mapped = {
+            kind: "jpg",
+            timestampNs: jpg.timestampNs,
+            channel,
+            channelAlias: this._mapChannelAlias(channel),
+            data: toU8(jpg.data),
+          };
+          this._pushLoopclosureJpegImage(mapped);
+          this._emit("image", mapped);
+          if (wantsAny) this._emitAny({ type: "image", data: mapped });
+          return;
+        }
         case protocol.TYPE.RAW: {
           if (!this._hasListeners("image") && !wantsAny && !wantsLoopclosure) return;
           const raw = protocol.decodeRawPayload(frame.payload);

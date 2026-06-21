@@ -21,10 +21,16 @@ const state = {
   vioRunning: false,
   events: [],
   keyframes: [],
+  poseHistory: [],
+  plotPoses: [],
   loops: 0,
   frames: 0,
   lastError: "",
+  lastStatusRenderMs: 0,
+  lastPlotRenderMs: 0,
 };
+
+const DEFAULT_DEVICE_BASE_URL = "http://192.168.7.1";
 
 function bounds(raw, opt) {
   const all = raw.concat(opt);
@@ -50,12 +56,15 @@ function bounds(raw, opt) {
 }
 
 function renderPlot() {
-  const raw = state.keyframes.map((p) => {
+  const plotted = state.keyframes.length ? state.keyframes : state.plotPoses;
+  const raw = plotted.map((p) => {
     const pos = p.rawPositionM || p.positionM;
     return [pos[0], pos[1]];
   });
-  const opt = state.keyframes.map((p) => [p.positionM[0], p.positionM[1]]);
-  const loopEdges = state.events.map((e) => [e.currentKeyframe, e.matchedKeyframe]);
+  const opt = plotted.map((p) => [p.positionM[0], p.positionM[1]]);
+  const loopEdges = state.keyframes.length
+    ? state.events.map((e) => [e.currentKeyframe, e.matchedKeyframe])
+    : [];
   const { minX, maxX, minY, maxY } = bounds(raw, opt);
   const width = 1320;
   const height = 760;
@@ -76,8 +85,8 @@ function renderPlot() {
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}">`;
   svg += `<rect width="${width}" height="${height}" fill="#f8f8f4"/>`;
   svg += `<text x="48" y="40" font-family="Space Mono, monospace" font-size="18" font-weight="700" fill="#111111">Mighty Loop Closure WASM</text>`;
-  svg += `<text x="48" y="66" font-family="Space Mono, monospace" font-size="13" fill="#111111">keyframes: ${state.keyframes.length} | loops: ${loopEdges.length}</text>`;
-  for (const [x0, title] of [[rawX, "Unoptimized keyframes"], [optX, "Optimized keyframes"]]) {
+  svg += `<text x="48" y="66" font-family="Space Mono, monospace" font-size="13" fill="#111111">poses: ${state.plotPoses.length} | keyframes: ${state.keyframes.length} | loops: ${loopEdges.length}</text>`;
+  for (const [x0, title] of [[rawX, "Unoptimized path"], [optX, "Optimized path"]]) {
     svg += `<rect x="${x0}" y="${headerH}" width="${plotW}" height="${plotH}" fill="#fff" stroke="#d4d4ce"/>`;
     for (let i = 1; i < 10; i += 1) {
       const gx = x0 + plotW * i / 10;
@@ -126,23 +135,104 @@ function renderStatus() {
   ui.errorText.textContent = state.lastError || "none";
 }
 
-const device = new MightyWebDevice();
+function timestampDistance(a, b) {
+  if (typeof a !== "bigint" || typeof b !== "bigint") return null;
+  return a > b ? a - b : b - a;
+}
+
+function nearestPose(timestampNs) {
+  let best = null;
+  let bestDistance = null;
+  for (const pose of state.poseHistory) {
+    const distance = timestampDistance(pose.timestampNs, timestampNs);
+    if (distance === null) continue;
+    if (bestDistance === null || distance < bestDistance) {
+      best = pose;
+      bestDistance = distance;
+    }
+  }
+  return best || state.poseHistory[state.poseHistory.length - 1] || null;
+}
+
+function rememberPose(pose) {
+  if (!Array.isArray(pose.positionM)) return;
+  state.poseHistory.push(pose);
+  while (state.poseHistory.length > 2000) state.poseHistory.shift();
+  state.plotPoses.push(pose);
+  while (state.plotPoses.length > 1500) state.plotPoses.shift();
+}
+
+function refreshOptimizedKeyframes() {
+  const trajectory = client?.loopclosureTrajectory?.() || [];
+  if (!trajectory.length) return;
+  for (const item of trajectory) {
+    const index = item.keyframeIndex;
+    if (index >= state.keyframes.length) continue;
+    state.keyframes[index] = {
+      ...state.keyframes[index],
+      rawPositionM: item.rawPositionM,
+      positionM: item.positionM,
+    };
+  }
+}
+
+function renderStatusSoon() {
+  const now = performance.now();
+  if (now - state.lastStatusRenderMs < 250) return;
+  state.lastStatusRenderMs = now;
+  renderStatus();
+}
+
+function renderPlotSoon() {
+  const now = performance.now();
+  if (now - state.lastPlotRenderMs < 250) return;
+  state.lastPlotRenderMs = now;
+  renderPlot();
+}
+
+const device = new MightyWebDevice({ baseUrl: DEFAULT_DEVICE_BASE_URL });
 let client = null;
+
+window.addEventListener("error", (event) => {
+  state.lastError = event.message || String(event.error || "window error");
+  renderStatus();
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason;
+  state.lastError = reason?.message || String(reason || "unhandled rejection");
+  renderStatus();
+});
 
 function wireClient(nextClient) {
   nextClient.onImage(() => {
     state.frames += 1;
+    renderStatusSoon();
   });
 
   nextClient.onPose((pose) => {
-    if (pose.isKeyframe && Array.isArray(pose.positionM)) {
-      state.keyframes.push(pose);
-    }
+    rememberPose(pose);
+    renderPlotSoon();
+    renderStatusSoon();
+  });
+
+  nextClient.onKeyframe((keyframe) => {
+    const pose = nearestPose(keyframe.timestampNs);
+    if (!pose || !Array.isArray(pose.positionM)) return;
+    const keyframePose = {
+      ...pose,
+      keyframeTimestampNs: keyframe.timestampNs,
+    };
+    state.keyframes.push(keyframePose);
+    refreshOptimizedKeyframes();
+    renderPlot();
+    renderStatus();
   });
 
   nextClient.onLoopclosure((event) => {
     state.events.push(event);
     state.loops = state.events.length;
+    refreshOptimizedKeyframes();
     addEventRow(event);
     renderPlot();
     renderStatus();
@@ -160,6 +250,7 @@ async function ensureClient() {
     autoReconnect: true,
     reconnectDelayMs: 1000,
     loopclosure: true,
+    loopclosureWasmUrl: "/mighty_loopclosure_device.wasm",
   });
   wireClient(client);
   return client;
@@ -178,8 +269,9 @@ async function connect() {
   const nextClient = await ensureClient();
   state.running = true;
   state.lastError = "";
-  await nextClient.connect();
+  renderStatus();
   await loadCalibration(nextClient);
+  await nextClient.connect();
   renderStatus();
 }
 
@@ -224,4 +316,8 @@ window.addEventListener("beforeunload", () => {
 
 renderPlot();
 renderStatus();
-void connect();
+connect().catch((err) => {
+  state.running = false;
+  state.lastError = err?.message || String(err);
+  renderStatus();
+});

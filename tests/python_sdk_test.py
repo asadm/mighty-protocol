@@ -296,6 +296,51 @@ def main():
     assert abs(float(last["pose"]["linear_acceleration_body_mps2"][0]) - 7.0) < 1e-6
     assert abs(float(last["pose"]["angular_acceleration_body_rps2"][2]) - 0.9) < 1e-6
 
+    class StubLoopclosure:
+        def __init__(self):
+            self.pushed = []
+            self.corrected = 0
+
+        def push_pose(self, pose):
+            self.pushed.append(pose)
+
+        def correct_pose(self, pose):
+            self.corrected += 1
+            out = dict(pose)
+            out["raw_position_m"] = [float(v) for v in pose["position_m"]]
+            out["position_m"] = [float(v) + 10.0 for v in pose["position_m"]]
+            out["loopclosure_corrected"] = True
+            return out
+
+    stub_loopclosure = StubLoopclosure()
+    client._loopclosure = stub_loopclosure
+
+    device.emit_packet(mp.make_packet(mp.TYPE["POSE"], build_pose_payload(
+        pose_type=2,
+        position=(9.0, 8.0, 7.0),
+        timestamp_ns=15)))
+    assert wait_until(lambda: seen["pose"] >= 2)
+    assert last["pose"]["pose_type"] == "other"
+    assert int(last["pose"]["pose_type_raw"]) == 2
+    assert [float(v) for v in last["pose"]["position_m"]] == [9.0, 8.0, 7.0]
+    assert "raw_position_m" not in last["pose"]
+    assert "loopclosure_corrected" not in last["pose"]
+    assert len(stub_loopclosure.pushed) == 0
+    assert stub_loopclosure.corrected == 0
+
+    device.emit_packet(mp.make_packet(mp.TYPE["POSE"], build_pose_payload(
+        pose_type=0,
+        position=(2.0, 3.0, 4.0),
+        timestamp_ns=16)))
+    assert wait_until(lambda: seen["pose"] >= 3)
+    assert last["pose"]["pose_type"] == "body"
+    assert [float(v) for v in last["pose"]["raw_position_m"]] == [2.0, 3.0, 4.0]
+    assert [float(v) for v in last["pose"]["position_m"]] == [12.0, 13.0, 14.0]
+    assert last["pose"]["loopclosure_corrected"] is True
+    assert len(stub_loopclosure.pushed) == 1
+    assert stub_loopclosure.corrected == 1
+    client._loopclosure = None
+
     start_res = client.start_vio()
     assert start_res["ok"]
 
