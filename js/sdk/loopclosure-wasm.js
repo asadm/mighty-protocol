@@ -1,7 +1,30 @@
-import createMightyLoopClosureModule from "../../lib/loopclosure/wasm/lib/mighty_loopclosure_device.js";
 import { RAW_FORMAT } from "../core/protocol.js";
 
 export const DEFAULT_LOOPCLOSURE_WASM_URL = "/mighty_loopclosure_device.wasm";
+const LOOPCLOSURE_MODULE_URL = "../../lib/loopclosure/wasm/lib/mighty_loopclosure_device.js";
+
+let loopclosureModuleFactoryPromise = null;
+
+async function loadLoopClosureModuleFactory() {
+  if (!loopclosureModuleFactoryPromise) {
+    loopclosureModuleFactoryPromise = (async () => {
+      try {
+        const moduleUrl = new URL(LOOPCLOSURE_MODULE_URL, import.meta.url).href;
+        const imported = await import(/* webpackIgnore: true */ moduleUrl);
+        return imported.default || imported.createMightyLoopClosureModule || imported;
+      } catch (err) {
+        const error = new Error(
+          "Mighty loop closure module package is not available. " +
+          "Build or install mighty-protocol/lib/loopclosure/wasm before enabling loop closure."
+        );
+        error.code = "loopclosure_module_not_found";
+        error.cause = err;
+        throw error;
+      }
+    })();
+  }
+  return loopclosureModuleFactoryPromise;
+}
 
 const EVENT_NAMES = {
   1: "loop_closure",
@@ -96,6 +119,9 @@ async function fetchWasmBinary(wasmUrl) {
 }
 
 export async function createLoopClosureWasmModule(options = {}) {
+  const createMightyLoopClosureModule = options.moduleFactory
+    || options.createModule
+    || await loadLoopClosureModuleFactory();
   const wasmUrl = options.wasmUrl || options.url || "";
   const locateFile = options.locateFile || (wasmUrl
     ? ((name) => (name === "mighty_loopclosure_device.wasm" ? wasmUrl : name))
