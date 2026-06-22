@@ -1,0 +1,89 @@
+---
+title: Calibration
+description: Calibrate the Mighty camera and IMU from the browser.
+---
+
+<div style={{ position: "relative", width: "100%", aspectRatio: "16 / 9", marginBottom: "1.5rem" }}>
+  <iframe
+    src="https://www.youtube.com/embed/Izaisw8VI-8"
+    title="Mighty Camera calibration walkthrough"
+    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+    allowFullScreen
+    style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: 0, borderRadius: 8 }}
+  />
+</div>
+
+Calibration estimates the camera intrinsics, the camera-to-IMU transform, and
+the camera/IMU time offset. A good calibration improves VIO accuracy, reduces
+drift, and makes recorded bags easier to replay and debug.
+
+## Open the calibration page
+
+1. Plug Mighty Camera into your machine.
+2. Open [mightycamera.com/calib](https://mightycamera.com/calib).
+3. Wait for the page to connect to the camera.
+
+The first screen shows an AprilGrid calibration target made from many AprilTags.
+This target is what the calibration server detects in the camera images.
+
+## Measure the target
+
+1. Put the browser in full screen so the AprilGrid is displayed at its final
+   size.
+2. Measure the black grid area from edge to edge, excluding the surrounding
+   white margin.
+3. Enter the measured width in centimeters.
+4. Click **Next**.
+
+Measure the physical target as it appears on your monitor. The calibration uses
+this number to recover metric scale.
+
+## Record a calibration bag
+
+Point Mighty Camera at the AprilGrid and click **Start**. Move the camera
+smoothly while keeping the grid visible and in focus.
+
+Use varied motion:
+
+- Rotate around all axes.
+- Move forward and backward.
+- Sweep the target through the center and edges of the fisheye view.
+- Use slow figure-eight motions.
+- Keep motion smooth enough to avoid blur.
+
+The goal is to excite both the camera model and all IMU axes. It is fine if only
+part of the grid is visible sometimes, but the calibration works best when the
+target stays detectable for most of the recording.
+
+Click **Stop** when you have captured enough motion, then click **Next**. The
+page records a ROS bag. You can download it for debugging, but normal calibration
+does not require downloading it.
+
+## Run calibration
+
+Click **Start Calibration**. The page uploads the recording and waits for the
+calibration server to finish.
+
+When calibration completes, open **Show Report** first. Check:
+
+- Camera reprojection error is low, usually around or below 0.5 px for a good
+  recording.
+- IMU residuals are reasonable and do not show obvious timing or motion-blur
+  failures.
+- The estimated camera/IMU timeshift is small and stable for your hardware.
+
+## Save to the device
+
+If the report looks good, click **Save Calibration to Device**. This writes the
+new `calib.yaml` to the board.
+
+After saving, close the page and unplug or restart the device. The visualizer
+and VIO runtime will use the saved calibration on the next run.
+
+## Tips
+
+- Use a bright, evenly lit screen.
+- Avoid reflections, glare, and motion blur.
+- Keep the target in focus.
+- Do not cover the lens or shake the USB cable during recording.
+- Recalibrate after changing the lens or mount.
