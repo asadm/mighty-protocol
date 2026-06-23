@@ -1,4 +1,4 @@
 {
   "title": "Docs",
-  "pages": ["index", "start", "recording", "calibration", "multi-camera", "lua", "sdk"]
+  "pages": ["index", "start", "recording", "calibration", "updating-firmware", "multi-camera", "lua", "sdk"]
 }

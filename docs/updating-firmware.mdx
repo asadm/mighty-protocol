@@ -1,0 +1,47 @@
+---
+title: Updating Firmware
+description: Update Mighty Camera firmware from the browser.
+---
+
+<div style={{ position: "relative", width: "100%", aspectRatio: "16 / 9", marginBottom: "1.5rem" }}>
+  <iframe
+    src="https://www.youtube.com/embed/3YfMtWLtjro"
+    title="Mighty Camera firmware update walkthrough"
+    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+    allowFullScreen
+    style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: 0, borderRadius: 8 }}
+  />
+</div>
+
+The firmware update page guides you through putting Mighty into update mode,
+selecting the USB device, flashing the firmware, and restarting the device.
+
+## Update from the browser
+
+1. Plug Mighty Camera into your machine.
+2. Open Chrome, Chromium, or Edge.
+3. Go to [mightycamera.com/update](https://mightycamera.com/update).
+4. Wait for the page to find Mighty and prepare the update.
+5. Click **Select Device** when the page asks for the Rockchip device, then
+   choose Mighty from the browser's USB device picker.
+6. Keep the device connected while the page flashes the firmware and restarts
+   the device.
+7. If the browser asks again, click **Select Device** a second time and choose
+   the re-enumerated Rockchip device.
+8. Wait for **Update complete**.
+
+Do not unplug Mighty while the update is flashing or restarting.
+
+## If the device is not detected
+
+If the update page cannot find the device, put it into bootloader mode manually:
+
+1. Unplug Mighty.
+2. Press and hold the board button.
+3. While holding the button, connect the USB cable.
+4. Release the button.
+5. Open the update page and click **Select Device** at the bottom.
+
+The update should continue from the Rockchip bootloader path. This path requires
+you to
+[recalibrate your device](/docs/calibration) after the update completes.
