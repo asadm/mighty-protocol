@@ -13,51 +13,39 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 get_filename_component(MIGHTY_PROTOCOL_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../.." ABSOLUTE)
 get_filename_component(REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../.." ABSOLUTE)
 
-if(DEFINED ENV{MIGHTY_ALGORITHMS_SDK} AND NOT MightyAlgorithms_DIR)
-  list(PREPEND CMAKE_PREFIX_PATH "$ENV{MIGHTY_ALGORITHMS_SDK}")
-endif()
-if(NOT MightyAlgorithms_DIR)
-  set(_MIGHTY_ALGORITHMS_BUNDLED_SDK
-    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../lib/algorithms/current")
-  if(EXISTS "${_MIGHTY_ALGORITHMS_BUNDLED_SDK}/lib/cmake/MightyAlgorithms/MightyAlgorithmsConfig.cmake")
-    list(PREPEND CMAKE_PREFIX_PATH "${_MIGHTY_ALGORITHMS_BUNDLED_SDK}")
-  endif()
-endif()
-
 list(PREPEND CMAKE_PREFIX_PATH "${REPO_ROOT}/external/pangolin-install")
 list(PREPEND CMAKE_PREFIX_PATH "/opt/homebrew/opt/eigen")
 
-find_package(MightyAlgorithms REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc calib3d)
 find_package(Eigen3 REQUIRED)
 find_package(Threads REQUIRED)
 find_package(GLEW REQUIRED)
 
-get_target_property(_MIGHTY_ALGORITHMS_IMPORTED_LOCATION
-  MightyAlgorithms::mighty_algorithms IMPORTED_LOCATION_RELEASE)
-if(NOT _MIGHTY_ALGORITHMS_IMPORTED_LOCATION)
-  get_target_property(_MIGHTY_ALGORITHMS_IMPORTED_LOCATION
-    MightyAlgorithms::mighty_algorithms IMPORTED_LOCATION)
+if(DEFINED ENV{MIGHTY_LOOPCLOSURE_SDK})
+  set(_MIGHTY_LOOPCLOSURE_SDK "$ENV{MIGHTY_LOOPCLOSURE_SDK}")
+else()
+  set(_MIGHTY_LOOPCLOSURE_SDK
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../lib/loopclosure/macos-arm64-static")
 endif()
-if(_MIGHTY_ALGORITHMS_IMPORTED_LOCATION)
-  get_filename_component(_MIGHTY_ALGORITHMS_LIB_DIR
-    "${_MIGHTY_ALGORITHMS_IMPORTED_LOCATION}" DIRECTORY)
+set(_MIGHTY_LOOPCLOSURE_INCLUDE_DIR "${_MIGHTY_LOOPCLOSURE_SDK}/include")
+if(APPLE)
+  set(_MIGHTY_LOOPCLOSURE_LIBRARY
+    "${_MIGHTY_LOOPCLOSURE_SDK}/lib/libmighty_loopclosure_device.dylib")
+elseif(WIN32)
+  set(_MIGHTY_LOOPCLOSURE_LIBRARY
+    "${_MIGHTY_LOOPCLOSURE_SDK}/lib/mighty_loopclosure_device.dll")
+else()
+  set(_MIGHTY_LOOPCLOSURE_LIBRARY
+    "${_MIGHTY_LOOPCLOSURE_SDK}/lib/libmighty_loopclosure_device.so")
 endif()
-if(APPLE AND _MIGHTY_ALGORITHMS_LIB_DIR)
-  set(_MIGHTY_PACKAGED_OPENCV_LIBS)
-  foreach(_opencv_component calib3d features2d imgproc flann core)
-    file(GLOB _opencv_candidates
-      "${_MIGHTY_ALGORITHMS_LIB_DIR}/libopencv_${_opencv_component}.*.dylib")
-    if(_opencv_candidates)
-      list(SORT _opencv_candidates)
-      list(GET _opencv_candidates 0 _opencv_candidate)
-      list(APPEND _MIGHTY_PACKAGED_OPENCV_LIBS "${_opencv_candidate}")
-    endif()
-  endforeach()
-  if(_MIGHTY_PACKAGED_OPENCV_LIBS)
-    set(OpenCV_LIBS ${_MIGHTY_PACKAGED_OPENCV_LIBS})
-  endif()
+if(NOT EXISTS "${_MIGHTY_LOOPCLOSURE_LIBRARY}")
+  message(FATAL_ERROR "mighty loopclosure SDK library not found: ${_MIGHTY_LOOPCLOSURE_LIBRARY}")
 endif()
+
+add_library(MightyLoopClosureDevice::mighty_loopclosure_device SHARED IMPORTED)
+set_target_properties(MightyLoopClosureDevice::mighty_loopclosure_device PROPERTIES
+  IMPORTED_LOCATION "${_MIGHTY_LOOPCLOSURE_LIBRARY}"
+  INTERFACE_INCLUDE_DIRECTORIES "${_MIGHTY_LOOPCLOSURE_INCLUDE_DIR}")
 
 if(NOT TARGET Eigen3::Eigen)
   add_library(Eigen3::Eigen INTERFACE IMPORTED)
@@ -83,14 +71,16 @@ endif()
 
 add_executable(mighty_mapper_live main.cpp)
 
-if(APPLE AND _MIGHTY_ALGORITHMS_LIB_DIR)
-  # Prefer the packaged SDK dependency set before Homebrew rpaths.
+get_filename_component(_MIGHTY_LOOPCLOSURE_LIB_DIR
+  "${_MIGHTY_LOOPCLOSURE_LIBRARY}" DIRECTORY)
+if(APPLE AND _MIGHTY_LOOPCLOSURE_LIB_DIR)
   target_link_options(mighty_mapper_live PRIVATE
-    "LINKER:-rpath,${_MIGHTY_ALGORITHMS_LIB_DIR}")
+    "LINKER:-rpath,${_MIGHTY_LOOPCLOSURE_LIB_DIR}")
 endif()
 
 target_include_directories(mighty_mapper_live PRIVATE
   "${MIGHTY_PROTOCOL_ROOT}/cpp"
+  "${_MIGHTY_LOOPCLOSURE_INCLUDE_DIR}"
   ${EIGEN3_INCLUDE_DIR}
   ${OpenCV_INCLUDE_DIRS}
   ${Pangolin_INCLUDE_DIRS}
@@ -98,7 +88,7 @@ target_include_directories(mighty_mapper_live PRIVATE
 )
 
 target_link_libraries(mighty_mapper_live PRIVATE
-  MightyAlgorithms::mighty_algorithms
+  MightyLoopClosureDevice::mighty_loopclosure_device
   ${Pangolin_LIBRARIES}
   ${OpenCV_LIBS}
   Threads::Threads
