@@ -1,4 +1,4 @@
-import createMightyLoopClosureModule from "../../lib/loopclosure/wasm/lib/mighty_loopclosure_device.js";
+import createMightyLoopClosureModule from "../../../lib/loopclosure/wasm/lib/mighty_loopclosure_device.js";
 import {
   NativeMapperWasm,
   createLoopClosureWasmModule,

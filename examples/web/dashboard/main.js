@@ -9,7 +9,7 @@ import {
   createImuPlotter,
   createPosePlot,
   mapCanonicalPoseToViz,
-} from "./uihelpers.js";
+} from "../shared/uihelpers.js";
 
 const VIO_STATE_LABELS = {
   0: "OFF",

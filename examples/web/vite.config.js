@@ -38,8 +38,9 @@ export default defineConfig({
     rollupOptions: {
       input: {
         index: resolve(here, "index.html"),
-        loopclosure: resolve(here, "loopclosure.html"),
-        mapper: resolve(here, "mapper.html"),
+        dashboard: resolve(here, "dashboard/index.html"),
+        loopclosure: resolve(here, "loopclosure/index.html"),
+        mapper: resolve(here, "mapper/index.html"),
       },
     },
   },

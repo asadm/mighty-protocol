@@ -1,15 +1,14 @@
 # Web Example (Vanilla JS + Vite)
 
 This example shows SDK usage in plain browser JS using npm modules:
-- `main.js`: SDK/device/client usage
-- `mapper.js`: live WASM mapper with a Three.js view matching the Pangolin mapper style
-- `loopclosure.js`: loop-closure WASM usage
-- `uihelpers.js`: UI rendering helpers
-- `style.css`: lightweight CMYK-inspired styling
+- `dashboard/`: SDK/device/client usage
+- `mapper/`: live WASM mapper with a Three.js view matching the Pangolin mapper style
+- `loopclosure/`: loop-closure WASM usage
+- `shared/`: UI rendering helpers and shared styling
 
 ## Preview
 
-![Web SDK Dashboard Preview](./screen.png)
+![Web SDK Dashboard Preview](./dashboard/screen.png)
 
 Dependencies:
 - `mighty-protocol` from local path (`file:../..`)
@@ -27,10 +26,22 @@ npm run dev
 
 Open the local URL printed by Vite (default `http://localhost:8090`).
 
+Dashboard page:
+
+```text
+http://localhost:8090/dashboard/
+```
+
 Mapper page:
 
 ```text
-http://localhost:8090/mapper.html
+http://localhost:8090/mapper/
+```
+
+Loop-closure page:
+
+```text
+http://localhost:8090/loopclosure/
 ```
 
 For a local bag replay, start VIO separately:
