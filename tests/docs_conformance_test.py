@@ -37,7 +37,9 @@ def main():
     cpp_example_label = "examples/cpp/dashboard/main.cpp"
     cpp_example = read_text(cpp_example_path)
     py_example = read_text(os.path.join(ROOT, "examples", "python", "mightyapp.py"))
-    js_example = read_text(os.path.join(ROOT, "examples", "web", "uihelpers.js"))
+    js_example_path = os.path.join(ROOT, "examples", "web", "shared", "uihelpers.js")
+    js_example_label = "examples/web/shared/uihelpers.js"
+    js_example = read_text(js_example_path)
 
     # Ensure all example clients explicitly apply canonical->viz conversion.
     assert_contains(cpp_example, "kRvizFromOdom", cpp_example_label)
@@ -49,9 +51,9 @@ def main():
     assert_contains(py_example, "_map_position_odom_to_viz", "examples/python/mightyapp.py")
     assert_contains(py_example, "_map_quat_odom_to_viz", "examples/python/mightyapp.py")
 
-    assert_contains(js_example, "R_VIZ_FROM_ODOM", "examples/web/uihelpers.js")
-    assert_contains(js_example, "Q_VIZ_FROM_ODOM", "examples/web/uihelpers.js")
-    assert_contains(js_example, "mapCanonicalPoseToViz", "examples/web/uihelpers.js")
+    assert_contains(js_example, "R_VIZ_FROM_ODOM", js_example_label)
+    assert_contains(js_example, "Q_VIZ_FROM_ODOM", js_example_label)
+    assert_contains(js_example, "mapCanonicalPoseToViz", js_example_label)
 
     # Basis rows should stay aligned across docs/sdk examples.
     cpp_rows = ["0.0, -1.0, 0.0", "0.0, 0.0, 1.0", "-1.0, 0.0, 0.0"]
@@ -62,7 +64,7 @@ def main():
     for row in py_rows:
         assert_contains(py_example, row, "examples/python/mightyapp.py")
     for row in js_rows:
-        assert_contains(js_example, row, "examples/web/uihelpers.js")
+        assert_contains(js_example, row, js_example_label)
 
     print("Docs/sdk examples conformance test passed")
 
