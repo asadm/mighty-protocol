@@ -8,16 +8,21 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <cmath>
 #include <condition_variable>
 #include <cstdint>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "mighty_loopclosure/mighty_loopclosure_device_c.h"
 #include "mighty_sdk.h"
@@ -62,6 +67,8 @@ struct Options {
   bool profile = false;
   bool quiet = false;
   bool follow_pose = true;
+  std::string dump_map_path;
+  size_t dump_after_processed = 350;
 };
 
 struct SharedState {
@@ -90,6 +97,15 @@ std::string lower_copy(std::string value) {
 
 bool starts_with(const std::string& s, const std::string& prefix) {
   return s.rfind(prefix, 0) == 0;
+}
+
+uint32_t fnv1a32(const uint8_t* data, size_t size) {
+  uint32_t hash = 2166136261u;
+  for (size_t i = 0; i < size; ++i) {
+    hash ^= data[i];
+    hash *= 16777619u;
+  }
+  return hash;
 }
 
 double elapsed_ms(Clock::time_point start, Clock::time_point end = Clock::now()) {
@@ -128,7 +144,7 @@ struct MapperProfileWindow {
   StageStats grayscale;
   StageStats pose_convert;
   StageStats push_frame;
-  StageStats snapshot;
+  StageStats map_update;
   StageStats status_update;
   StageStats total;
 
@@ -153,7 +169,7 @@ struct MapperProfileWindow {
               << " gray.avg/max=" << grayscale.avg() << "/" << grayscale.max_ms
               << " pose.avg/max=" << pose_convert.avg() << "/" << pose_convert.max_ms
               << " push.avg/max=" << push_frame.avg() << "/" << push_frame.max_ms
-              << " snapshot.avg/max=" << snapshot.avg() << "/" << snapshot.max_ms
+              << " map_update.avg/max=" << map_update.avg() << "/" << map_update.max_ms
               << " status.avg/max=" << status_update.avg() << "/" << status_update.max_ms
               << "\n";
     window_frames = 0;
@@ -164,7 +180,7 @@ struct MapperProfileWindow {
     grayscale.reset();
     pose_convert.reset();
     push_frame.reset();
-    snapshot.reset();
+    map_update.reset();
     status_update.reset();
     total.reset();
   }
@@ -173,7 +189,7 @@ struct MapperProfileWindow {
 struct RenderProfileWindow {
   Clock::time_point window_at = Clock::now();
   size_t window_frames = 0;
-  StageStats snapshot;
+  StageStats map_update;
   StageStats clear_activate;
   StageStats grid;
   StageStats points;
@@ -188,7 +204,7 @@ struct RenderProfileWindow {
     std::cerr << "[render-profile] window frames=" << window_frames
               << " points=" << point_count
               << " total.avg/max=" << total.avg() << "/" << total.max_ms
-              << " snapshot.avg/max=" << snapshot.avg() << "/" << snapshot.max_ms
+              << " map_update.avg/max=" << map_update.avg() << "/" << map_update.max_ms
               << " clear_activate.avg/max=" << clear_activate.avg() << "/" << clear_activate.max_ms
               << " grid.avg/max=" << grid.avg() << "/" << grid.max_ms
               << " points.avg/max=" << points.avg() << "/" << points.max_ms
@@ -198,7 +214,7 @@ struct RenderProfileWindow {
               << "\n";
     window_frames = 0;
     window_at = Clock::now();
-    snapshot.reset();
+    map_update.reset();
     clear_activate.reset();
     grid.reset();
     points.reset();
@@ -229,6 +245,34 @@ struct FollowCameraState {
   }
 };
 
+struct RenderMap {
+  std::map<int, std::vector<mmp_map_point_t>> frames;
+  std::vector<mmp_pose_sample_t> trajectory;
+  uint64_t revision = 0;
+  size_t point_count = 0;
+
+  void reset() {
+    frames.clear();
+    trajectory.clear();
+    revision = 0;
+    point_count = 0;
+  }
+
+  void replace_frame(int frame_id, const mmp_map_point_t* points, size_t count) {
+    auto& dst = frames[frame_id];
+    point_count -= dst.size();
+    dst.assign(points, points + count);
+    point_count += dst.size();
+  }
+
+  void remove_frame(int frame_id) {
+    auto it = frames.find(frame_id);
+    if (it == frames.end()) return;
+    point_count -= it->second.size();
+    frames.erase(it);
+  }
+};
+
 bool parse_args(int argc, char** argv, Options* opts) {
   if (!opts) return false;
   for (int i = 1; i < argc; ++i) {
@@ -253,6 +297,17 @@ bool parse_args(int argc, char** argv, Options* opts) {
       opts->follow_pose = true;
     } else if (arg == "--no-follow") {
       opts->follow_pose = false;
+    } else if (starts_with(arg, "--dump-map=")) {
+      opts->dump_map_path = arg.substr(std::string("--dump-map=").size());
+    } else if (arg == "--dump-map" && i + 1 < argc) {
+      opts->dump_map_path = argv[++i];
+    } else if (starts_with(arg, "--dump-after-processed=")) {
+      opts->dump_after_processed = std::max<size_t>(
+          1, static_cast<size_t>(std::stoull(
+                 arg.substr(std::string("--dump-after-processed=").size()))));
+    } else if (arg == "--dump-after-processed" && i + 1 < argc) {
+      opts->dump_after_processed =
+          std::max<size_t>(1, static_cast<size_t>(std::stoull(argv[++i])));
     } else if (starts_with(arg, "--point-stride=")) {
       opts->point_stride = std::max(1, std::stoi(arg.substr(std::string("--point-stride=").size())));
     } else {
@@ -275,6 +330,9 @@ void print_usage() {
       << "  --follow           start viewer with trajectory follow mode enabled (default)\n"
       << "  --no-follow        start viewer with trajectory follow mode disabled\n"
       << "  --point-stride=N   render every Nth map point (default 1)\n"
+      << "  --dump-map=PATH    run headless and write final raw map points CSV\n"
+      << "  --dump-after-processed=N\n"
+      << "                     processed-frame cutoff for --dump-map (default 350)\n"
       << "  --auto-exit        close after idle stream timeout\n"
       << "  --idle-exit-sec=N   idle timeout for --auto-exit (default 5)\n"
       << "  --no-auto-exit      keep viewer open until closed (default)\n";
@@ -412,17 +470,121 @@ void draw_grid(float extent, float step) {
   glEnd();
 }
 
-void draw_trajectory(const mmp_snapshot_t& snapshot,
+void apply_map_update(mmp_device_mapper_t* mapper, RenderMap* render_map) {
+  if (!mapper || !render_map) return;
+  mmp_map_update_t update{};
+  const mmp_status_t status =
+      mmp_map_update(mapper, render_map->revision, render_map->trajectory.size(), &update);
+  if (status != MMP_STATUS_OK) {
+    mmp_map_update_destroy(&update);
+    return;
+  }
+
+  if (update.reset) render_map->reset();
+  if (update.frames && update.frame_count > 0) {
+    for (size_t i = 0; i < update.frame_count; ++i) {
+      const mmp_map_frame_update_t& frame = update.frames[i];
+      if (frame.remove) {
+        render_map->remove_frame(frame.frame_id);
+      } else {
+        render_map->replace_frame(frame.frame_id, frame.points, frame.point_count);
+      }
+    }
+  }
+  if (update.trajectory && update.trajectory_count > 0) {
+    if (update.trajectory_start == 0) {
+      render_map->trajectory.clear();
+    } else if (update.trajectory_start != render_map->trajectory.size()) {
+      render_map->trajectory.clear();
+      render_map->revision = 0;
+      mmp_map_update_destroy(&update);
+      return;
+    }
+    render_map->trajectory.insert(render_map->trajectory.end(),
+                                  update.trajectory,
+                                  update.trajectory + update.trajectory_count);
+  }
+  render_map->revision = update.revision;
+  mmp_map_update_destroy(&update);
+}
+
+bool write_map_csv(const RenderMap& map, const std::string& path) {
+  std::ofstream out(path, std::ios::trunc);
+  if (!out) return false;
+  out << "frame_id,point_index,x,y,z\n";
+  out << std::setprecision(9);
+  for (const auto& kv : map.frames) {
+    const int frame_id = kv.first;
+    const auto& points = kv.second;
+    for (size_t i = 0; i < points.size(); ++i) {
+      const auto& p = points[i];
+      out << frame_id << "," << i << ","
+          << p.x << "," << p.y << "," << p.z << "\n";
+    }
+  }
+  return true;
+}
+
+bool collect_headless(SharedState* state, const Options& opts, RenderMap* out_map) {
+  if (!state || !out_map) return false;
+  const auto start = Clock::now();
+  Clock::time_point last_report = start;
+  bool reached_target = false;
+  while (true) {
+    mmp_device_mapper_t* mapper = nullptr;
+    size_t accepted = 0;
+    bool saw_stream_data = false;
+    bool stop = false;
+    Clock::time_point last_stream_at = Clock::now();
+    {
+      std::lock_guard<std::mutex> lock(state->mu);
+      mapper = state->mapper;
+      accepted = state->accepted_frames;
+      saw_stream_data = state->saw_stream_data;
+      stop = state->stop;
+      last_stream_at = state->last_stream_at;
+    }
+    apply_map_update(mapper, out_map);
+    if (accepted >= opts.dump_after_processed) {
+      reached_target = true;
+      break;
+    }
+    if (stop) break;
+
+    const auto now = Clock::now();
+    const double elapsed_sec =
+        std::chrono::duration_cast<std::chrono::duration<double>>(now - start).count();
+    if (saw_stream_data &&
+        std::chrono::duration_cast<std::chrono::duration<double>>(
+            now - last_stream_at).count() > opts.auto_exit_idle_sec) {
+      break;
+    }
+    if (elapsed_sec > 60.0) break;
+    if (opts.profile && elapsed_ms(last_report, now) > 1000.0) {
+      std::cerr << "[dump-map] processed=" << accepted
+                << " points=" << out_map->point_count
+                << " frames=" << out_map->frames.size() << "\n";
+      last_report = now;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  for (int i = 0; i < 10; ++i) {
+    apply_map_update(state->mapper, out_map);
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  return reached_target;
+}
+
+void draw_trajectory(const RenderMap& map,
                      float r,
                      float g,
                      float b,
                      float y_offset) {
-  if (snapshot.trajectory_count < 2 || !snapshot.trajectory) return;
+  if (map.trajectory.size() < 2) return;
   glColor3f(r, g, b);
   glLineWidth(4.0f);
   glBegin(GL_LINE_STRIP);
-  for (size_t i = 0; i < snapshot.trajectory_count; ++i) {
-    const auto& pose = snapshot.trajectory[i];
+  for (const auto& pose : map.trajectory) {
     Eigen::Vector3d t = render_from_mapper(Eigen::Vector3d(pose.px, pose.py, pose.pz));
     t.y() += y_offset;
     glVertex3d(t.x(), t.y(), t.z());
@@ -430,22 +592,25 @@ void draw_trajectory(const mmp_snapshot_t& snapshot,
   glEnd();
 }
 
-void draw_points(const mmp_snapshot_t& snapshot, int stride) {
-  if (!snapshot.points) return;
+void draw_points(const RenderMap& map, int stride) {
   glColor3f(kBrandBlueR, kBrandBlueG, kBrandBlueB);
   glPointSize(2.0f);
   glBegin(GL_POINTS);
-  for (size_t i = 0; i < snapshot.point_count; i += static_cast<size_t>(std::max(1, stride))) {
-    const auto& p = snapshot.points[i];
-    const Eigen::Vector3d q = render_from_mapper(Eigen::Vector3d(p.x, p.y, p.z));
-    glVertex3f(q.x(), q.y(), q.z());
+  const size_t step = static_cast<size_t>(std::max(1, stride));
+  for (const auto& kv : map.frames) {
+    const auto& points = kv.second;
+    for (size_t i = 0; i < points.size(); i += step) {
+      const auto& p = points[i];
+      const Eigen::Vector3d q = render_from_mapper(Eigen::Vector3d(p.x, p.y, p.z));
+      glVertex3f(q.x(), q.y(), q.z());
+    }
   }
   glEnd();
 }
 
-void draw_latest_pose_dot(const mmp_snapshot_t& snapshot) {
-  if (snapshot.trajectory_count == 0 || !snapshot.trajectory) return;
-  const auto& latest = snapshot.trajectory[snapshot.trajectory_count - 1];
+void draw_latest_pose_dot(const RenderMap& map) {
+  if (map.trajectory.empty()) return;
+  const auto& latest = map.trajectory.back();
   const Eigen::Vector3d p = render_from_mapper(Eigen::Vector3d(latest.px, latest.py, latest.pz));
 
   glColor3f(kBrandRedR, kBrandRedG, kBrandRedB);
@@ -580,6 +745,7 @@ void render_loop(SharedState* state, const Options& opts) {
                      static_cast<float>(kPreviewWidthPx) / static_cast<float>(kPreviewHeightPx));
   RenderProfileWindow profile;
   FollowCameraState follow_state;
+  RenderMap render_map;
   std::unique_ptr<pangolin::GlTexture> preview_texture;
   int preview_tex_width = 0;
   int preview_tex_height = 0;
@@ -611,15 +777,13 @@ void render_loop(SharedState* state, const Options& opts) {
     }
     if (should_exit_idle) break;
 
-    mmp_snapshot_t snapshot{};
-    const auto snapshot_start = Clock::now();
-    if (mapper) (void)mmp_snapshot(mapper, &snapshot);
-    if (opts.profile) profile.snapshot.add(elapsed_ms(snapshot_start));
-    const mmp_snapshot_t& snapshot_view = snapshot;
+    const auto map_update_start = Clock::now();
+    apply_map_update(mapper, &render_map);
+    if (opts.profile) profile.map_update.add(elapsed_ms(map_update_start));
     map_points = static_cast<int>(std::min<size_t>(
-        snapshot_view.point_count, static_cast<size_t>(std::numeric_limits<int>::max())));
+        render_map.point_count, static_cast<size_t>(std::numeric_limits<int>::max())));
     trajectory_poses = static_cast<int>(std::min<size_t>(
-        snapshot_view.trajectory_count, static_cast<size_t>(std::numeric_limits<int>::max())));
+        render_map.trajectory.size(), static_cast<size_t>(std::numeric_limits<int>::max())));
 
     if (pangolin::Pushed(reset_view)) {
       camera.SetModelViewMatrix(default_view_matrix());
@@ -627,9 +791,9 @@ void render_loop(SharedState* state, const Options& opts) {
       follow_pose = false;
     }
 
-    if (follow_pose && snapshot_view.trajectory_count > 0 && snapshot_view.trajectory) {
+    if (follow_pose && !render_map.trajectory.empty()) {
       update_follow_camera(
-          snapshot_view.trajectory[snapshot_view.trajectory_count - 1], dt_sec, &follow_state, &camera);
+          render_map.trajectory.back(), dt_sec, &follow_state, &camera);
     } else if (!follow_pose) {
       follow_state.reset();
     }
@@ -644,13 +808,13 @@ void render_loop(SharedState* state, const Options& opts) {
     if (opts.profile) profile.grid.add(elapsed_ms(grid_start));
 
     const auto points_start = Clock::now();
-    draw_points(snapshot_view, point_stride);
+    draw_points(render_map, point_stride);
     if (opts.profile) profile.points.add(elapsed_ms(points_start));
 
     const auto traj_start = Clock::now();
-    draw_trajectory(snapshot_view, kBrandRedR, kBrandRedG, kBrandRedB, 0.0f);
-    draw_trajectory(snapshot_view, kBrandRedR, kBrandRedG, kBrandRedB, -0.03f);
-    draw_latest_pose_dot(snapshot_view);
+    draw_trajectory(render_map, kBrandRedR, kBrandRedG, kBrandRedB, 0.0f);
+    draw_trajectory(render_map, kBrandRedR, kBrandRedG, kBrandRedB, -0.03f);
+    draw_latest_pose_dot(render_map);
     if (opts.profile) profile.trajectory.add(elapsed_ms(traj_start));
 
     const auto text_start = Clock::now();
@@ -685,9 +849,8 @@ void render_loop(SharedState* state, const Options& opts) {
     if (opts.profile) {
       profile.finish.add(elapsed_ms(finish_start));
       profile.total.add(elapsed_ms(render_start));
-      profile.maybe_report(snapshot_view.point_count);
+      profile.maybe_report(render_map.point_count);
     }
-    mmp_snapshot_destroy(&snapshot);
     std::this_thread::sleep_for(std::chrono::milliseconds(16));
   }
   {
@@ -731,6 +894,20 @@ int main(int argc, char** argv) {
   }
   state.mapper = mapper;
 
+  std::mutex trace_mu;
+  std::ofstream trace_out;
+  uint64_t trace_image_seq = 0;
+  uint64_t trace_pose_seq = 0;
+  if (const char* trace_path = std::getenv("MIGHTY_MAPPER_INPUT_TRACE")) {
+    if (*trace_path) {
+      trace_out.open(trace_path);
+      if (trace_out) {
+        trace_out << "event,seq,frame_id,timestamp_ns,width,height,format,channel,size,hash,"
+                  << "px,py,pz,qx,qy,qz,qw,pose_frame,confidence\n";
+      }
+    }
+  }
+
   auto image_sub = client->on_image([&](const ImageFrame& image_frame) {
     const RawImageFrame* raw = pick_render_frame(image_frame);
     if (!raw || raw->timestamp_ns == 0) return;
@@ -745,6 +922,20 @@ int main(int argc, char** argv) {
       state.latest_preview_timestamp_ns = raw->timestamp_ns;
       state.saw_stream_data = true;
       state.last_stream_at = Clock::now();
+    }
+
+    {
+      std::lock_guard<std::mutex> lock(trace_mu);
+      if (trace_out) {
+        const std::string channel =
+            raw->channel_alias.empty() ? raw->channel : raw->channel_alias;
+        trace_out << "image," << trace_image_seq++ << "," << frame_id << ","
+                  << raw->timestamp_ns << "," << raw->width << "," << raw->height << ","
+                  << static_cast<int>(raw->format) << "," << channel << ","
+                  << raw->data.size() << ","
+                  << fnv1a32(raw->data.data(), raw->data.size())
+                  << ",,,,,,,,,\n";
+      }
     }
 
     mlc_raw_image_t input{};
@@ -782,6 +973,18 @@ int main(int argc, char** argv) {
       state.last_stream_at = Clock::now();
     }
     const mlc_pose_t input = to_mlc_pose(pose);
+    {
+      std::lock_guard<std::mutex> lock(trace_mu);
+      if (trace_out) {
+        trace_out << std::setprecision(17)
+                  << "pose," << trace_pose_seq++ << ",,"
+                  << input.timestamp_ns << ",,,,,,,"
+                  << input.px << "," << input.py << "," << input.pz << ","
+                  << input.qx << "," << input.qy << "," << input.qz << ","
+                  << input.qw << "," << static_cast<int>(input.frame) << ","
+                  << input.confidence << "\n";
+      }
+    }
     mmp_push_result_t result{};
     const mmp_status_t status = mmp_push_pose(mapper, &input, &result);
     if (status != MMP_STATUS_OK && status != MMP_STATUS_NOT_READY) {
@@ -831,7 +1034,22 @@ int main(int argc, char** argv) {
     }
   });
 
-  render_loop(&state, opts);
+  int exit_code = 0;
+  if (!opts.dump_map_path.empty()) {
+    RenderMap render_map;
+    const bool reached_target = collect_headless(&state, opts, &render_map);
+    if (!opts.dump_map_path.empty() && !write_map_csv(render_map, opts.dump_map_path)) {
+      std::cerr << "failed to write map CSV: " << opts.dump_map_path << "\n";
+      exit_code = 1;
+    } else if (!opts.dump_map_path.empty()) {
+      std::cerr << "[dump-map] wrote " << render_map.point_count
+                << " points across " << render_map.frames.size()
+                << " frames to " << opts.dump_map_path
+                << " reached_target=" << (reached_target ? "yes" : "no") << "\n";
+    }
+  } else {
+    render_loop(&state, opts);
+  }
 
   {
     std::lock_guard<std::mutex> lock(state.mu);
@@ -848,5 +1066,5 @@ int main(int argc, char** argv) {
   (void)pose_sub;
   (void)status_sub;
   (void)error_sub;
-  return 0;
+  return exit_code;
 }

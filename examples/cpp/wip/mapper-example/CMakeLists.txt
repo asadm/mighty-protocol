@@ -70,11 +70,14 @@ if(NOT Pangolin_FOUND)
 endif()
 
 add_executable(mighty_mapper_live main.cpp)
+add_executable(mighty_mapper_replay replay.cpp)
 
 get_filename_component(_MIGHTY_LOOPCLOSURE_LIB_DIR
   "${_MIGHTY_LOOPCLOSURE_LIBRARY}" DIRECTORY)
 if(APPLE AND _MIGHTY_LOOPCLOSURE_LIB_DIR)
   target_link_options(mighty_mapper_live PRIVATE
+    "LINKER:-rpath,${_MIGHTY_LOOPCLOSURE_LIB_DIR}")
+  target_link_options(mighty_mapper_replay PRIVATE
     "LINKER:-rpath,${_MIGHTY_LOOPCLOSURE_LIB_DIR}")
 endif()
 
@@ -93,4 +96,12 @@ target_link_libraries(mighty_mapper_live PRIVATE
   ${OpenCV_LIBS}
   Threads::Threads
   GLEW::GLEW
+)
+
+target_include_directories(mighty_mapper_replay PRIVATE
+  "${_MIGHTY_LOOPCLOSURE_INCLUDE_DIR}"
+)
+
+target_link_libraries(mighty_mapper_replay PRIVATE
+  MightyLoopClosureDevice::mighty_loopclosure_device
 )

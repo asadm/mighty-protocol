@@ -10,12 +10,14 @@ function loopclosureWasmAsset() {
   return {
     name: "mighty-loopclosure-wasm-asset",
     configureServer(server) {
-      server.middlewares.use("/mighty_loopclosure_device.wasm", (req, res, next) => {
-        if (req.method !== "GET" || !existsSync(loopclosureWasmPath)) {
+      server.middlewares.use((req, res, next) => {
+        const url = new URL(req.url || "", "http://localhost");
+        if (req.method !== "GET" || url.pathname !== "/mighty_loopclosure_device.wasm" || !existsSync(loopclosureWasmPath)) {
           next();
           return;
         }
         res.setHeader("Content-Type", "application/wasm");
+        res.setHeader("Cache-Control", "no-store");
         createReadStream(loopclosureWasmPath).pipe(res);
       });
     },
@@ -37,11 +39,15 @@ export default defineConfig({
       input: {
         index: resolve(here, "index.html"),
         loopclosure: resolve(here, "loopclosure.html"),
+        mapper: resolve(here, "mapper.html"),
       },
     },
   },
   server: {
     port: 8090,
+    fs: {
+      allow: [resolve(here, "../..")],
+    },
     proxy: {
       "/stream": {
         target: "http://localhost:8080",

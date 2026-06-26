@@ -5,6 +5,7 @@ import {
   DEFAULT_BASE_URLS,
   DEFAULT_LOOPCLOSURE_WASM_URL,
   NativeLoopClosureWasm,
+  NativeMapperWasm,
   createLoopClosureWasmModule,
   decodeRawToRgb,
 } from "./sdk/index.js";
@@ -17,6 +18,7 @@ const sdk = {
   DEFAULT_BASE_URLS,
   DEFAULT_LOOPCLOSURE_WASM_URL,
   NativeLoopClosureWasm,
+  NativeMapperWasm,
   createLoopClosureWasmModule,
   decodeRawToRgb,
 };
@@ -35,6 +37,7 @@ export {
   DEFAULT_BASE_URLS,
   DEFAULT_LOOPCLOSURE_WASM_URL,
   NativeLoopClosureWasm,
+  NativeMapperWasm,
   createLoopClosureWasmModule,
   decodeRawToRgb,
   sdk,

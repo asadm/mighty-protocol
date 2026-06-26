@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Mighty Mapper WASM</title>
+    <link rel="stylesheet" href="./style.css" />
+    <link rel="stylesheet" href="./mapper.css" />
+  </head>
+  <body class="mapper-body">
+    <main class="mapper-app">
+      <div id="mapperScene" class="mapper-scene"></div>
+
+      <div class="mapper-toolbar">
+        <div class="mapper-title">MIGHTY MAPPER WASM</div>
+        <div class="mapper-actions">
+          <span id="connBadge" class="badge badge-off">DISCONNECTED</span>
+          <button id="connectBtn" class="btn" type="button">Connect</button>
+          <button id="followBtn" class="btn" type="button">Follow</button>
+          <button id="resetBtn" class="btn" type="button">Reset</button>
+        </div>
+      </div>
+
+      <div class="mapper-readout mono">
+        <div><span>frames</span><strong id="frameText">0</strong></div>
+        <div><span>mapped</span><strong id="mappedText">0</strong></div>
+        <div><span>points</span><strong id="pointText">0</strong></div>
+        <div><span>poses</span><strong id="poseText">0</strong></div>
+        <div><span>pending</span><strong id="pendingText">0/0</strong></div>
+        <div><span>source</span><strong id="sourceText">(none)</strong></div>
+        <div><span>status</span><strong id="statusText">starting</strong></div>
+        <div><span>error</span><strong id="errorText">none</strong></div>
+      </div>
+
+      <canvas id="previewCanvas" class="mapper-preview" width="1280" height="720"></canvas>
+    </main>
+
+    <script type="module" src="./mapper.js"></script>
+  </body>
+</html>

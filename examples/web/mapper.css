@@ -1,0 +1,178 @@
+.mapper-body {
+  background: #ffffff;
+  background-image: none;
+  overflow: hidden;
+}
+
+.mapper-app {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.mapper-scene {
+  position: absolute;
+  inset: 0;
+  background: #ffffff;
+}
+
+.mapper-scene canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  image-rendering: auto;
+}
+
+.mapper-toolbar {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  pointer-events: none;
+}
+
+.mapper-title,
+.mapper-readout,
+.mapper-preview {
+  background: rgba(255, 255, 255, 0.88);
+  border: 2px solid var(--ink);
+  box-shadow: 0 2px 0 rgba(17, 17, 17, 0.12);
+}
+
+.mapper-title {
+  padding: 7px 10px;
+  font-family: var(--font-head);
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1;
+}
+
+.mapper-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.mapper-actions .btn,
+.mapper-actions .badge {
+  height: 30px;
+}
+
+.mapper-actions .btn {
+  min-width: 72px;
+  padding: 0 10px;
+}
+
+.mapper-actions .btn.is-on {
+  background: var(--c-cyan);
+  color: var(--ink);
+}
+
+.mapper-readout {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  width: min(420px, calc(100vw - 24px));
+  padding: 9px 10px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px 10px;
+  font-size: 11px;
+  pointer-events: none;
+}
+
+.mapper-readout div {
+  min-width: 0;
+}
+
+.mapper-readout span {
+  display: block;
+  color: #555;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.mapper-readout strong {
+  display: block;
+  overflow: hidden;
+  color: #111;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mapper-readout div:nth-child(n + 5) {
+  grid-column: 1 / -1;
+}
+
+.mapper-preview {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  width: min(42vw, 560px);
+  aspect-ratio: 16 / 9;
+  height: auto;
+  max-width: calc(100vw - 24px);
+  max-height: min(34vh, 315px);
+  object-fit: contain;
+  background: #f8f8f4;
+  image-rendering: pixelated;
+}
+
+@media (max-width: 920px) {
+  .mapper-toolbar {
+    align-items: flex-start;
+  }
+
+  .mapper-title {
+    font-size: 18px;
+  }
+
+  .mapper-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .mapper-preview {
+    width: min(54vw, 420px);
+  }
+}
+
+@media (max-width: 680px) {
+  .mapper-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .mapper-title {
+    width: max-content;
+    max-width: 100%;
+  }
+
+  .mapper-actions {
+    justify-content: flex-start;
+  }
+
+  .mapper-readout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mapper-preview {
+    right: 12px;
+    bottom: 142px;
+    width: min(56vw, 320px);
+  }
+}

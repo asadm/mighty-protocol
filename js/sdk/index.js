@@ -4,5 +4,6 @@ export { decodeRawToRgb } from "./image.js";
 export {
   DEFAULT_LOOPCLOSURE_WASM_URL,
   NativeLoopClosureWasm,
+  NativeMapperWasm,
   createLoopClosureWasmModule,
 } from "./loopclosure-wasm.js";

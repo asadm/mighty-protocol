@@ -6,7 +6,7 @@ Native live mapper example using:
 - `libmighty_loopclosure_device` from the packaged native SDK for mapping
 - Pangolin for a simple viewer
 
-The viewer intentionally draws its own snapshot view so we can debug coordinate
+The viewer intentionally draws its own map-update view so we can debug coordinate
 scale/orientation before returning to the WASM/Three.js path. It uses a white
 background, blue map points, and a red trajectory.
 
