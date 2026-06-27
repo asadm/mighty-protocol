@@ -60,6 +60,104 @@ camera to range `8`:
 For three cameras, use `7`, `8`, and `9`. Continue assigning one unique range
 per camera.
 
+## Synchronizing camera shutter
+
+For stereo or any multi-camera capture where frames must represent the same
+instant, synchronize the shutter trigger.
+
+For a two-camera synced setup:
+
+1. Keep one camera on the default USB IP range, `192.168.7.1`.
+2. Change the other camera to USB IP range `8`, so it is reachable at
+   `192.168.8.1`. You can do this from the Visualizer at
+   [mightycamera.com/viz](https://mightycamera.com/viz).
+3. Wire the FSYNC pins of both cameras together.
+4. Drive that shared FSYNC line from the PWM pin of one camera. For example,
+   connect both cameras' FSYNC pins to camera 1's PWM pin.
+5. Enable SYNC mode on both cameras from the Visualizer.
+
+After this, both cameras should expose separate USB IP addresses while sharing
+the same shutter trigger. The synced stereo example aligns the device timestamp
+bases in software and then renders matched image pairs from the shared-shutter
+stream.
+
+## Stereo calibration
+
+Stereo depth needs a calibrated camera pair mounted rigidly with a fixed
+baseline. The calibration estimates each camera's intrinsics and the rigid
+transform between the two cameras. If you also record IMU topics, the
+calibration report can include the camera-to-IMU chain. For testing, you can use
+the example mount at
+`mighty-web/mighty-protocol/examples/python/synced_stereo/stereo-mount.stl`.
+
+To create a calibration bag:
+
+1. Finish the hardware setup above: unique IP addresses, shared FSYNC/PWM
+   wiring, and SYNC mode enabled on both cameras.
+2. Mount the cameras rigidly with a fixed baseline.
+3. Run the synced stereo Python example without depth enabled:
+
+   ```bash
+   python3 mighty-web/mighty-protocol/examples/python/synced_stereo/main.py \
+     --left-host http://192.168.7.1 \
+     --right-host http://192.168.8.1
+   ```
+
+4. Open the calibration grid at
+   [mightycamera.com/calib](https://mightycamera.com/calib) and put it in full
+   screen.
+5. Point both cameras at the AprilGrid.
+6. Click **Start Rec** in the synced stereo app.
+7. Move the rigid stereo rig through the calibration motions while keeping the
+   grid visible to both cameras.
+8. Click **Stop Rec** when done.
+9. On the `/calib` page, measure and enter the correct AprilGrid width first.
+10. Open **Advanced** and set **Camera topics** to
+    `/cam0/image_raw/compressed /cam1/image_raw/compressed`.
+11. Manually upload the recorded bag from the synced stereo app as a custom ROS
+   bag.
+12. Start calibration from that custom bag. It should take about 15 minutes.
+13. Download the report and find the generated `-camchain-imucam.yaml` file.
+
+Use that `-camchain-imucam.yaml` file as the calibration input for stereo depth.
+
+## Stereo depth example
+
+The synced stereo Python example can display both camera streams, IMU traces,
+matched timestamps, and rectified SGBM metric depth in one OpenCV window.
+
+Example code:
+[github.com/asadm/mighty-protocol/tree/main/examples/python/synced_stereo](https://github.com/asadm/mighty-protocol/tree/main/examples/python/synced_stereo)
+
+<video controls muted playsInline style={{ width: "100%", borderRadius: 8 }}>
+  <source src="/stereo1.mp4" type="video/mp4" />
+</video>
+
+After calibration, run the example with the downloaded
+`-camchain-imucam.yaml`:
+
+```bash
+python3 mighty-web/mighty-protocol/examples/python/synced_stereo/main.py \
+  --left-host http://192.168.7.1 \
+  --right-host http://192.168.8.1 \
+  --depth /path/to/your-camchain-imucam.yaml \
+  --depth-scale 0.5 \
+  --depth-min-m 0.2 \
+  --depth-max-m 5.0
+```
+
+The depth view uses the same rendered synced stereo pair as the raw preview. It
+rectifies the double-sphere cameras from the Kalibr YAML, computes SGBM
+disparity, and converts that disparity to metric depth using:
+
+```text
+Z = focal_px * baseline_m / disparity_px
+```
+
+Depth colors are fixed-range metric colors, not per-frame relative colors.
+`--depth-min-m` maps to the nearest/hottest color and `--depth-max-m` maps to
+the farthest/coolest color. Invalid depth is shown dark.
+
 ## Reset to the default range
 
 If you lose track of a camera's range, hold the camera button for at least 10
