@@ -79,6 +79,10 @@ const SAMPLE = {
     { timestampNs: 2000n, ax: 0.4, ay: 0.5, az: 0.6, gx: 1.4, gy: 1.5, gz: 1.6 },
   ],
   status: 'STATUS_OK',
+  event: {
+    kind: "apriltag_relocalize",
+    data: { tagId: 42, correctionM: 0.25 },
+  },
   fea3: [
     { id: 1, x: 0.1, y: 0.2, z: 0.3 },
     { id: 2, x: 1.1, y: 1.2, z: 1.3 },
@@ -127,7 +131,7 @@ const SAMPLE = {
   },
 };
 
-const EXPECTED_COUNT = 20;
+const EXPECTED_COUNT = 21;
 
 function buildPackets() {
   return [
@@ -169,6 +173,7 @@ function buildPackets() {
     proto.makePacket(proto.TYPE.VIZ, proto.buildVizPayload(SAMPLE.viz3)),
     proto.makePacket(proto.TYPE.IMU, proto.buildImuPayload(SAMPLE.imu)),
     proto.makePacket(proto.TYPE.STAT, proto.buildStatusPayload(SAMPLE.status)),
+    proto.makePacket(proto.TYPE.EVNT, proto.buildEventPayload(SAMPLE.event)),
     proto.makePacket(proto.TYPE.VSTA, proto.buildVioStatePayload(SAMPLE.vsta)),
     proto.makePacket(proto.TYPE.FEA3, proto.buildFea3Payload(SAMPLE.fea3)),
     proto.makePacket(proto.TYPE.PCLD, proto.buildPcldPayload(SAMPLE.pcld.points, SAMPLE.pcld.pointSize)),
@@ -293,6 +298,13 @@ function verifyFrame(frame, index) {
     case proto.TYPE.STAT:
       assert.strictEqual(proto.decodeStatusPayload(payload), SAMPLE.status);
       break;
+    case proto.TYPE.EVNT: {
+      const event = proto.decodeEventPayload(payload);
+      assert.strictEqual(event.kind, SAMPLE.event.kind);
+      assert.strictEqual(event.data.tagId, SAMPLE.event.data.tagId);
+      assert(almost(event.data.correctionM, SAMPLE.event.data.correctionM));
+      break;
+    }
     case proto.TYPE.VSTA: {
       const s = proto.decodeVioStatePayload(payload);
       assert.strictEqual(s.version, SAMPLE.vsta.version);

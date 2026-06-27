@@ -43,6 +43,7 @@ class MightyClient:
             "lcon": set(),
             "keyframe": set(),
             "status": set(),
+            "event": set(),
             "reset": set(),
             "loopclosure": set(),
             "any": set(),
@@ -143,6 +144,9 @@ class MightyClient:
 
     def on_status(self, cb: Callable[[dict], None]) -> Callable[[], None]:
         return self._subscribe("status", cb)
+
+    def on_event(self, cb: Callable[[dict], None]) -> Callable[[], None]:
+        return self._subscribe("event", cb)
 
     def on_reset(self, cb: Callable[[dict], None]) -> Callable[[], None]:
         return self._subscribe("reset", cb)
@@ -557,6 +561,9 @@ class MightyClient:
                     mapped = {"subtype": "detections", "detections": v.get("detections", [])}
                 elif subtype == 2:
                     mapped = {"subtype": "matches", "matches": v.get("matches", [])}
+                elif subtype == 3:
+                    tags = v.get("apriltags", v.get("tags", []))
+                    mapped = {"subtype": "apriltags", "apriltags": tags, "tags": tags}
                 else:
                     mapped = {"subtype": "unknown", "raw_subtype": subtype, "raw": to_bytes(payload)}
                 self._emit("viz", mapped)
@@ -601,6 +608,21 @@ class MightyClient:
                 self._emit("status", mapped)
                 if wants_any:
                     self._emit_any({"type": "status", "data": mapped})
+                return
+
+            if frame_type == "EVNT":
+                if not self._has_listeners("event") and not wants_any:
+                    return
+                event = mp.decode_event_payload(payload)
+                mapped = {
+                    "version": event.get("version"),
+                    "kind": event.get("kind", ""),
+                    "json": event.get("json", ""),
+                    "data": event.get("data"),
+                }
+                self._emit("event", mapped)
+                if wants_any:
+                    self._emit_any({"type": "event", "data": mapped})
                 return
 
             if frame_type == "RSET":

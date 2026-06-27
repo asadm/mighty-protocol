@@ -34,6 +34,7 @@ const EVENT_KEYS = [
   "keyframe",
   "status",
   "lua_log",
+  "event",
   "reset",
   "loopclosure",
   "any",
@@ -191,6 +192,7 @@ export class MightyClient {
   onKeyframe(cb) { return this._subscribe("keyframe", cb); }
   onStatus(cb) { return this._subscribe("status", cb); }
   onLuaLog(cb) { return this._subscribe("lua_log", cb); }
+  onEvent(cb) { return this._subscribe("event", cb); }
   onReset(cb) { return this._subscribe("reset", cb); }
   onLoopclosure(cb) { return this._subscribe("loopclosure", cb); }
   onAny(cb) { return this._subscribe("any", cb); }
@@ -838,6 +840,19 @@ export class MightyClient {
           const mapped = { seq: log.seq, text: log.text };
           this._emit("lua_log", mapped);
           if (wantsAny) this._emitAny({ type: "lua_log", data: mapped });
+          return;
+        }
+        case protocol.TYPE.EVNT: {
+          if (!this._hasListeners("event") && !wantsAny) return;
+          const event = protocol.decodeEventPayload(frame.payload);
+          const mapped = {
+            version: event.version,
+            kind: event.kind,
+            json: event.json,
+            data: event.data,
+          };
+          this._emit("event", mapped);
+          if (wantsAny) this._emitAny({ type: "event", data: mapped });
           return;
         }
         case protocol.TYPE.RSET: {

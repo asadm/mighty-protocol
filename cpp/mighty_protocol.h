@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstring>
 #include <cmath>
+#include <limits>
 #include <optional>
 #include <string>
 #include <vector>
@@ -33,6 +34,7 @@ inline constexpr char TYPE_CMD[4]  = {'C','M','D',' '};
 inline constexpr char TYPE_CRES[4] = {'C','R','E','S'};
 inline constexpr char TYPE_CFGQ[4] = {'C','F','G','Q'};
 inline constexpr char TYPE_CFGR[4] = {'C','F','G','R'};
+inline constexpr char TYPE_EVNT[4] = {'E','V','N','T'};
 
 // Raw frame formats (payload data is tightly packed)
 enum class RawFormat : uint8_t {
@@ -286,6 +288,12 @@ struct CommandResponse {
   uint8_t status = 0; // 0=ok, 1=error
   std::string message;
   std::vector<uint8_t> data;
+};
+
+struct EventPayload {
+  uint8_t version = 1;
+  std::string kind;
+  std::string json;
 };
 
 struct ResetVioPoseRequest {
@@ -705,6 +713,28 @@ inline std::vector<uint8_t> build_imu_payload(const std::vector<ImuSample>& batc
 
 inline std::vector<uint8_t> build_status_payload(const std::string& text) {
   return std::vector<uint8_t>(text.begin(), text.end());
+}
+
+inline std::vector<uint8_t> build_event_payload(const std::string& kind,
+                                                const std::string& json) {
+  const uint8_t kind_len = static_cast<uint8_t>(std::min<size_t>(255, kind.size()));
+  const uint32_t json_len = static_cast<uint32_t>(
+      std::min<size_t>(std::numeric_limits<uint32_t>::max(), json.size()));
+  std::vector<uint8_t> payload;
+  payload.resize(1 + 1 + kind_len + 4 + json_len);
+  size_t off = 0;
+  payload[off++] = 1;
+  payload[off++] = kind_len;
+  if (kind_len > 0) {
+    std::memcpy(payload.data() + off, kind.data(), kind_len);
+    off += kind_len;
+  }
+  write_u32_be(payload.data() + off, json_len);
+  off += 4;
+  if (json_len > 0) {
+    std::memcpy(payload.data() + off, json.data(), json_len);
+  }
+  return payload;
 }
 
 inline std::vector<uint8_t> build_lua_log_payload(uint32_t seq, const std::string& text) {
@@ -1298,6 +1328,21 @@ inline bool decode_imu_payload(const std::vector<uint8_t>& payload,
 
 inline bool decode_status_payload(const std::vector<uint8_t>& payload, std::string& text) {
   text.assign(payload.begin(), payload.end());
+  return true;
+}
+
+inline bool decode_event_payload(const std::vector<uint8_t>& payload, EventPayload& out) {
+  if (payload.size() < 1 + 1 + 4) return false;
+  size_t off = 0;
+  out.version = payload[off++];
+  const uint8_t kind_len = payload[off++];
+  if (payload.size() < off + kind_len + 4) return false;
+  out.kind.assign(reinterpret_cast<const char*>(payload.data() + off), kind_len);
+  off += kind_len;
+  const uint32_t json_len = read_u32_be(payload.data() + off);
+  off += 4;
+  if (payload.size() < off + json_len) return false;
+  out.json.assign(reinterpret_cast<const char*>(payload.data() + off), json_len);
   return true;
 }
 

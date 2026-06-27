@@ -26,6 +26,7 @@ const TYPE = {
   CFGQ: "CFGQ",
   CFGR: "CFGR",
   LLOG: "LLOG",
+  EVNT: "EVNT",
 };
 
 const RAW_FORMAT = {
@@ -534,6 +535,23 @@ function buildImuPayload(samples = []) {
 const buildStatusPayload = (text = "") =>
   fromU8((textEncoder || new TextEncoder()).encode(text));
 
+function buildEventPayload({ kind = "", json = "", data = undefined } = {}) {
+  const encoder = textEncoder || new TextEncoder();
+  const kindBytes = encoder.encode(String(kind || ""));
+  const jsonText = data !== undefined ? JSON.stringify(data) : String(json || "");
+  const jsonBytes = encoder.encode(jsonText);
+  const kindLen = Math.min(255, kindBytes.length);
+  const buf = new Uint8Array(1 + 1 + kindLen + 4 + jsonBytes.length);
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  let off = 0;
+  dv.setUint8(off, 1); off += 1;
+  dv.setUint8(off, kindLen); off += 1;
+  buf.set(kindBytes.subarray(0, kindLen), off); off += kindLen;
+  dv.setUint32(off, jsonBytes.length >>> 0, false); off += 4;
+  buf.set(jsonBytes, off);
+  return fromU8(buf);
+}
+
 function buildKeyframePayload({
   timestampNs = 0n,
   descriptor = [],
@@ -1015,6 +1033,29 @@ function decodeImuPayload(payload) {
 const decodeStatusPayload = (payload) =>
   (textDecoder || new TextDecoder()).decode(toU8(payload));
 
+function decodeEventPayload(payload) {
+  const u8 = toU8(payload);
+  if (u8.length < 1 + 1 + 4) throw new Error("EVNT payload too short");
+  const decoder = textDecoder || new TextDecoder();
+  let off = 0;
+  const version = readU8(u8, off); off += 1;
+  const kindLen = readU8(u8, off); off += 1;
+  if (u8.length < off + kindLen + 4) throw new Error("EVNT payload truncated");
+  const kind = decoder.decode(u8.subarray(off, off + kindLen)); off += kindLen;
+  const jsonLen = readU32BE(u8, off); off += 4;
+  if (u8.length < off + jsonLen) throw new Error("EVNT json truncated");
+  const json = decoder.decode(u8.subarray(off, off + jsonLen));
+  let data = null;
+  if (json) {
+    try {
+      data = JSON.parse(json);
+    } catch (_) {
+      data = null;
+    }
+  }
+  return { version, kind, json, data };
+}
+
 function decodeKeyframePayload(payload) {
   const u8 = toU8(payload);
   if (u8.length < 16) throw new Error("KEYF payload too short");
@@ -1275,6 +1316,7 @@ const api = {
   buildVizPayload,
   buildImuPayload,
   buildStatusPayload,
+  buildEventPayload,
   buildKeyframePayload,
   buildVioStatePayload,
   buildFea3Payload,
@@ -1293,6 +1335,7 @@ const api = {
   decodeVizPayload,
   decodeImuPayload,
   decodeStatusPayload,
+  decodeEventPayload,
   decodeKeyframePayload,
   decodeVioStatePayload,
   decodeFea3Payload,
@@ -1324,6 +1367,7 @@ export {
   buildVizPayload,
   buildImuPayload,
   buildStatusPayload,
+  buildEventPayload,
   buildKeyframePayload,
   buildVioStatePayload,
   buildFea3Payload,
@@ -1342,6 +1386,7 @@ export {
   decodeVizPayload,
   decodeImuPayload,
   decodeStatusPayload,
+  decodeEventPayload,
   decodeKeyframePayload,
   decodeVioStatePayload,
   decodeFea3Payload,

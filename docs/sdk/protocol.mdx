@@ -46,6 +46,7 @@ Raw-frame CRC compatibility rule:
 - `CRES`: command response
 - `CFGQ`: config request payload
 - `CFGR`: config response payload
+- `EVNT`: structured device event
 
 ## 3. Payload Layouts (High-Level)
 
@@ -222,6 +223,12 @@ Recommended init reason mapping:
 #### `RSET`
 - no payload
 
+#### `EVNT`
+- `version` (u8)
+- event kind length (u8) + UTF-8 kind
+- JSON length (u32) + UTF-8 JSON payload
+- Known kind: `apriltag_relocalize`, emitted after device-side AprilTag relocalization applies a VIO reset. JSON includes `tagId`, `timestampNs`, `targetPositionM`, `cameraToTagM`, `correctionM`, and `elapsedMs`.
+
 ### 3.6 Viz / Constraints / Point Cloud
 
 #### `VIZ `
@@ -229,6 +236,7 @@ Recommended init reason mapping:
   - `0`: features
   - `1`: detections
   - `2`: matches
+  - `3`: AprilTags (`id`, `hamming`, center, four corners)
 
 #### `LCON`
 - constraint segments (type + start/end 3D points)
@@ -273,6 +281,20 @@ Standard command names:
 Config-over-command convention used by SDK:
 - send `CMD(name="config", data=<CFGQ payload>)`
 - receive `CRES(data=<CFGR payload>)`
+
+Standard config keys:
+- `calib`: camera/IMU calibration YAML persisted as `calib.yaml`.
+- `apriltags`: AprilTag relocalization YAML persisted as `apriltags.yaml`. Empty `SET` clears the file and disables relocalization. The expected value is:
+
+```yaml
+%YAML:1.0
+---
+apriltags:
+   -
+      tag_id: "*"
+      size_cm: 16.2
+      position: [ 0, 0, 0 ]
+```
 
 ## 4. Low-Level API Surface by Language
 

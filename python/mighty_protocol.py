@@ -1,5 +1,6 @@
 import struct
 import math
+import json
 from typing import List, Tuple, Dict, Any, Optional
 
 HEADER_MAGIC = bytes([0xDE, 0xAD, 0xBE, 0xEF])
@@ -25,6 +26,7 @@ TYPE = {
     "CRES": b"CRES",
     "CFGQ": b"CFGQ",
     "CFGR": b"CFGR",
+    "EVNT": b"EVNT",
 }
 
 CONFIG_OP = {
@@ -366,6 +368,18 @@ def decode_viz_payload(payload: bytes):
             x1, y1, x2, y2, conf = struct.unpack(">HHHHB", payload[off:off+9]); off += 9
             matches.append({"x1": x1, "y1": y1, "x2": x2, "y2": y2, "confidence": conf})
         return {"subtype": subtype, "matches": matches}
+    if subtype == 3:
+        tags = []
+        for _ in range(count):
+            tag_id = struct.unpack(">I", payload[off:off+4])[0]; off += 4
+            hamming = payload[off]; off += 1
+            center = struct.unpack(">ff", payload[off:off+8]); off += 8
+            corners = []
+            for _corner in range(4):
+                corners.append(struct.unpack(">ff", payload[off:off+8]))
+                off += 8
+            tags.append({"id": tag_id, "hamming": hamming, "center": center, "corners": corners})
+        return {"subtype": subtype, "apriltags": tags, "tags": tags}
     raise ValueError("unknown viz subtype")
 
 def decode_imu_payload(payload: bytes):
@@ -385,6 +399,40 @@ def decode_imu_payload(payload: bytes):
 
 def decode_status_payload(payload: bytes):
     return payload.decode("utf-8")
+
+def build_event_payload(kind: str, json_text: str = "", data: Any = None) -> bytes:
+    kind_bytes = (kind or "").encode("utf-8")
+    kind_len = min(255, len(kind_bytes))
+    if data is not None:
+        json_text = json.dumps(data, separators=(",", ":"))
+    json_bytes = (json_text or "").encode("utf-8")
+    return b"".join([
+        struct.pack("BB", 1, kind_len),
+        kind_bytes[:kind_len],
+        struct.pack(">I", len(json_bytes)),
+        json_bytes,
+    ])
+
+def decode_event_payload(payload: bytes):
+    if len(payload) < 1 + 1 + 4:
+        raise ValueError("payload too short")
+    off = 0
+    version = payload[off]; off += 1
+    kind_len = payload[off]; off += 1
+    if len(payload) < off + kind_len + 4:
+        raise ValueError("payload truncated")
+    kind = payload[off:off+kind_len].decode("utf-8"); off += kind_len
+    json_len = struct.unpack(">I", payload[off:off+4])[0]; off += 4
+    if len(payload) < off + json_len:
+        raise ValueError("event json truncated")
+    json_text = payload[off:off+json_len].decode("utf-8")
+    data = None
+    if json_text:
+        try:
+            data = json.loads(json_text)
+        except json.JSONDecodeError:
+            data = None
+    return {"version": version, "kind": kind, "json": json_text, "data": data}
 
 def build_keyframe_payload(timestamp_ns: int,
                            descriptor,

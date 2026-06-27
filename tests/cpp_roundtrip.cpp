@@ -22,7 +22,7 @@ using namespace mighty_protocol;
 
 namespace {
 
-constexpr int kExpectedFrames = 20; // + AprilTag VIZ + KEYF + CFGQ + CFGR
+constexpr int kExpectedFrames = 21; // + AprilTag VIZ + EVNT + KEYF + CFGQ + CFGR
 
 struct SampleData {
   uint64_t jpg_ts = 111;
@@ -112,6 +112,7 @@ struct SampleData {
   };
 
   std::string status = "STATUS_OK";
+  EventPayload event{};
   VioState vsta{};
 
   std::vector<Feature3D> fea3 = {
@@ -148,6 +149,9 @@ struct SampleData {
 
     keyframe.timestamp_ns = 123456789;
     keyframe.descriptor = {0.125f, -0.25f, 0.5f, 1.0f};
+
+    event.kind = "apriltag_relocalize";
+    event.json = "{\"tagId\":42,\"correctionM\":0.25}";
 
     cfgq.version = 1;
     cfgq.op = static_cast<uint8_t>(ConfigOp::kSet);
@@ -283,6 +287,11 @@ bool verify_frame(const Frame& f, int index, const SampleData& s) {
     if (!decode_status_payload(f.payload, text)) return false;
     return text == s.status;
   }
+  if (type_str == "EVNT") {
+    EventPayload event{};
+    if (!decode_event_payload(f.payload, event)) return false;
+    return event.kind == s.event.kind && event.json == s.event.json;
+  }
   if (type_str == "VSTA") {
     VioState out{};
     if (!decode_vio_state_payload(f.payload, out)) return false;
@@ -384,6 +393,7 @@ std::vector<std::vector<uint8_t>> build_sample_packets(const SampleData& s) {
   packets.push_back(make_packet(build_viz_payload(s.viz3), TYPE_VIZ));
   packets.push_back(make_packet(build_imu_payload(s.imu), TYPE_IMU));
   packets.push_back(make_packet(build_status_payload(s.status), TYPE_STAT));
+  packets.push_back(make_packet(build_event_payload(s.event.kind, s.event.json), TYPE_EVNT));
   packets.push_back(make_packet(build_vio_state_payload(s.vsta), TYPE_VSTA));
   packets.push_back(make_packet(build_fea3_payload(s.fea3), TYPE_FEA3));
   packets.push_back(make_packet(build_pcld_payload(s.pcld, s.pcld_size), TYPE_PCLD));

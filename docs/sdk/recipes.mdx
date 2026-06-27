@@ -270,6 +270,21 @@ console.log(await client.configGet("example.key", { as: "text" }));
 console.log(await client.configSet("example.key", "value"));
 ```
 
+AprilTag relocalization uses the standard `apriltags` config key:
+
+```python
+yaml_text = """%YAML:1.0
+---
+apriltags:
+   -
+      tag_id: "*"
+      size_cm: 16.2
+      position: [ 0, 0, 0 ]
+"""
+client.config_set("apriltags", yaml_text)
+client.config_set("apriltags", "")  # clear/disable
+```
+
 Why use it: config requests are safer than inventing new ad-hoc commands for
 settings. They also give you a consistent success/found/message shape.
 
