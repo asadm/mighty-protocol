@@ -770,6 +770,12 @@ export class MightyClient {
           if (v.subtype === 0) mapped = { subtype: "features", features: v.features, rawPayload: toU8(frame.payload) };
           else if (v.subtype === 1) mapped = { subtype: "detections", detections: v.detections, rawPayload: toU8(frame.payload) };
           else if (v.subtype === 2) mapped = { subtype: "matches", matches: v.matches, rawPayload: toU8(frame.payload) };
+          else if (v.subtype === 3) mapped = {
+            subtype: "apriltags",
+            apriltags: v.apriltags || [],
+            tags: v.tags || v.apriltags || [],
+            rawPayload: toU8(frame.payload)
+          };
           else mapped = { subtype: "unknown", rawSubtype: v.subtype, rawPayload: toU8(frame.payload) };
           this._emit("viz", mapped);
           if (wantsAny) this._emitAny({ type: "viz", data: mapped });

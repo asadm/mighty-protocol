@@ -65,6 +65,15 @@ const SAMPLE = {
   viz0: { subtype: 0, features: [{ x: 10, y: 20, status: 1, id: 7 }, { x: 30, y: 40, status: 4, id: 8 }] },
   viz1: { subtype: 1, detections: [{ x1: 5, y1: 6, x2: 25, y2: 26, label: 'car' }] },
   viz2: { subtype: 2, matches: [{ x1: 100, y1: 110, x2: 120, y2: 130, confidence: 200 }] },
+  viz3: {
+    subtype: 3,
+    apriltags: [{
+      id: 42,
+      hamming: 1,
+      center: [320.5, 240.25],
+      corners: [[300, 220], [340, 221], [339, 260], [301, 259]],
+    }],
+  },
   imu: [
     { timestampNs: 1000n, ax: 0.1, ay: 0.2, az: 0.3, gx: 1.1, gy: 1.2, gz: 1.3 },
     { timestampNs: 2000n, ax: 0.4, ay: 0.5, az: 0.6, gx: 1.4, gy: 1.5, gz: 1.6 },
@@ -118,7 +127,7 @@ const SAMPLE = {
   },
 };
 
-const EXPECTED_COUNT = 19;
+const EXPECTED_COUNT = 20;
 
 function buildPackets() {
   return [
@@ -157,6 +166,7 @@ function buildPackets() {
     proto.makePacket(proto.TYPE.VIZ, proto.buildVizPayload(SAMPLE.viz0)),
     proto.makePacket(proto.TYPE.VIZ, proto.buildVizPayload(SAMPLE.viz1)),
     proto.makePacket(proto.TYPE.VIZ, proto.buildVizPayload(SAMPLE.viz2)),
+    proto.makePacket(proto.TYPE.VIZ, proto.buildVizPayload(SAMPLE.viz3)),
     proto.makePacket(proto.TYPE.IMU, proto.buildImuPayload(SAMPLE.imu)),
     proto.makePacket(proto.TYPE.STAT, proto.buildStatusPayload(SAMPLE.status)),
     proto.makePacket(proto.TYPE.VSTA, proto.buildVioStatePayload(SAMPLE.vsta)),
@@ -267,6 +277,11 @@ function verifyFrame(frame, index) {
       if (res.subtype === 0) assert.strictEqual(res.features.length, SAMPLE.viz0.features.length);
       if (res.subtype === 1) assert.strictEqual(res.detections[0].label, 'car');
       if (res.subtype === 2) assert.strictEqual(res.matches[0].confidence, 200);
+      if (res.subtype === 3) {
+        assert.strictEqual(res.apriltags[0].id, SAMPLE.viz3.apriltags[0].id);
+        assert(almost(res.apriltags[0].center[0], SAMPLE.viz3.apriltags[0].center[0], 1e-4));
+        assert(almost(res.apriltags[0].corners[2][1], SAMPLE.viz3.apriltags[0].corners[2][1], 1e-4));
+      }
       break;
     }
     case proto.TYPE.IMU: {

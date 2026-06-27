@@ -475,6 +475,24 @@ function buildVizPayload(viz) {
       dv.setUint16(off, m.y2, false); off += 2;
       dv.setUint8(off, m.confidence || 0); off += 1;
     }
+  } else if (subtype === 3) {
+    const tags = viz.apriltags || viz.tags || [];
+    body = new Uint8Array(tags.length * (4 + 1 + 2 * 4 + 8 * 4));
+    const dv = new DataView(body.buffer, body.byteOffset, body.byteLength);
+    let off = 0;
+    for (const tag of tags) {
+      dv.setUint32(off, tag.id >>> 0, false); off += 4;
+      dv.setUint8(off, tag.hamming || 0); off += 1;
+      const center = tag.center || [tag.centerX || tag.center_x || 0, tag.centerY || tag.center_y || 0];
+      dv.setFloat32(off, center[0] || 0, false); off += 4;
+      dv.setFloat32(off, center[1] || 0, false); off += 4;
+      const corners = tag.corners || [];
+      for (let i = 0; i < 4; i += 1) {
+        const p = corners[i] || [];
+        dv.setFloat32(off, p[0] || 0, false); off += 4;
+        dv.setFloat32(off, p[1] || 0, false); off += 4;
+      }
+    }
   } else {
     throw new Error("unknown viz subtype");
   }
@@ -483,7 +501,9 @@ function buildVizPayload(viz) {
   hdv.setUint8(0, subtype);
   hdv.setUint16(
     1,
-    subtype === 0 ? viz.features.length : subtype === 1 ? viz.detections.length : viz.matches.length,
+    subtype === 0 ? viz.features.length :
+      subtype === 1 ? viz.detections.length :
+        subtype === 2 ? viz.matches.length : (viz.apriltags || viz.tags || []).length,
     false,
   );
   const out = new Uint8Array(header.length + body.length);
@@ -946,6 +966,21 @@ function decodeVizPayload(payload) {
       matches.push({ x1, y1, x2, y2, confidence });
     }
     return { subtype, matches };
+  }
+  if (subtype === 3) {
+    const apriltags = [];
+    for (let i = 0; i < count; ++i) {
+      const id = readU32BE(u8, off); off += 4;
+      const hamming = readU8(u8, off); off += 1;
+      const center = [readF32BE(u8, off), readF32BE(u8, off + 4)]; off += 8;
+      const corners = [];
+      for (let c = 0; c < 4; c += 1) {
+        corners.push([readF32BE(u8, off), readF32BE(u8, off + 4)]);
+        off += 8;
+      }
+      apriltags.push({ id, hamming, center, corners });
+    }
+    return { subtype, apriltags, tags: apriltags };
   }
   throw new Error("Unknown viz subtype");
 }

@@ -22,7 +22,7 @@ using namespace mighty_protocol;
 
 namespace {
 
-constexpr int kExpectedFrames = 19; // + KEYF + CFGQ + CFGR
+constexpr int kExpectedFrames = 20; // + AprilTag VIZ + KEYF + CFGQ + CFGR
 
 struct SampleData {
   uint64_t jpg_ts = 111;
@@ -96,6 +96,13 @@ struct SampleData {
     .subtype = 2,
     .matches = {
       VizMatch{100, 110, 120, 130, 200},
+    }
+  };
+
+  VizPayload viz3 {
+    .subtype = 3,
+    .apriltags = {
+      VizAprilTag{42, 1, 320.5f, 240.25f, {300.f, 220.f, 340.f, 221.f, 339.f, 260.f, 301.f, 259.f}},
     }
   };
 
@@ -258,6 +265,12 @@ bool verify_frame(const Frame& f, int index, const SampleData& s) {
     if (vp.subtype == 0) return vp.features.size() == s.viz0.features.size();
     if (vp.subtype == 1) return !vp.detections.empty() && vp.detections[0].label == "car";
     if (vp.subtype == 2) return !vp.matches.empty() && vp.matches[0].confidence == 200;
+    if (vp.subtype == 3) {
+      return !vp.apriltags.empty() &&
+             vp.apriltags[0].id == s.viz3.apriltags[0].id &&
+             approx(vp.apriltags[0].center_x, s.viz3.apriltags[0].center_x, 1e-4) &&
+             approx(vp.apriltags[0].corners[5], s.viz3.apriltags[0].corners[5], 1e-4);
+    }
     return false;
   }
   if (type_str == "IMU ") {
@@ -368,6 +381,7 @@ std::vector<std::vector<uint8_t>> build_sample_packets(const SampleData& s) {
   packets.push_back(make_packet(build_viz_payload(s.viz0), TYPE_VIZ));
   packets.push_back(make_packet(build_viz_payload(s.viz1), TYPE_VIZ));
   packets.push_back(make_packet(build_viz_payload(s.viz2), TYPE_VIZ));
+  packets.push_back(make_packet(build_viz_payload(s.viz3), TYPE_VIZ));
   packets.push_back(make_packet(build_imu_payload(s.imu), TYPE_IMU));
   packets.push_back(make_packet(build_status_payload(s.status), TYPE_STAT));
   packets.push_back(make_packet(build_vio_state_payload(s.vsta), TYPE_VSTA));

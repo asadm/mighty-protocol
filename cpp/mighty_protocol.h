@@ -74,6 +74,23 @@ inline void write_f64_be(uint8_t* dst, double value) {
   std::memcpy(&raw, &value, sizeof(double));
   write_u64_be(dst, raw);
 }
+inline uint16_t read_u16_be(const uint8_t* src) {
+  return static_cast<uint16_t>((static_cast<uint16_t>(src[0]) << 8) |
+                               static_cast<uint16_t>(src[1]));
+}
+inline uint32_t read_u32_be(const uint8_t* src) {
+  return (static_cast<uint32_t>(src[0]) << 24) |
+         (static_cast<uint32_t>(src[1]) << 16) |
+         (static_cast<uint32_t>(src[2]) << 8) |
+         static_cast<uint32_t>(src[3]);
+}
+inline float read_f32_be(const uint8_t* src) {
+  const uint32_t raw = read_u32_be(src);
+  float value = 0.0f;
+  static_assert(sizeof(float) == sizeof(uint32_t), "float must be 4 bytes");
+  std::memcpy(&value, &raw, sizeof(float));
+  return value;
+}
 
 inline uint32_t crc32_be(const uint8_t* data, size_t len) {
   uint32_t crc = 0xFFFFFFFF;
@@ -242,11 +259,20 @@ struct VizMatch {
   uint8_t confidence;
 };
 
+struct VizAprilTag {
+  uint32_t id = 0;
+  uint8_t hamming = 0;
+  float center_x = 0.0f;
+  float center_y = 0.0f;
+  std::array<float, 8> corners{};
+};
+
 struct VizPayload {
-  uint8_t subtype = 0; // 0=features,1=detections,2=matches
+  uint8_t subtype = 0; // 0=features,1=detections,2=matches,3=apriltags
   std::vector<VizFeature> features;
   std::vector<VizDetection> detections;
   std::vector<VizMatch> matches;
+  std::vector<VizAprilTag> apriltags;
 };
 
 struct CommandRequest {
@@ -581,12 +607,14 @@ inline std::vector<uint8_t> build_constraints_payload(const std::vector<PoseCons
 
 inline std::vector<uint8_t> build_viz_payload(const VizPayload& in) {
   std::vector<uint8_t> payload;
-  payload.reserve(3 + 8 * (in.features.size() + in.detections.size() + in.matches.size()));
+  payload.reserve(3 + 8 * (in.features.size() + in.detections.size() + in.matches.size()) +
+                  45 * in.apriltags.size());
   payload.push_back(in.subtype);
   uint8_t buf[8];
   const uint16_t count = (in.subtype == 0) ? static_cast<uint16_t>(in.features.size()) :
                         (in.subtype == 1) ? static_cast<uint16_t>(in.detections.size()) :
-                                            static_cast<uint16_t>(in.matches.size());
+                        (in.subtype == 2) ? static_cast<uint16_t>(in.matches.size()) :
+                                            static_cast<uint16_t>(in.apriltags.size());
   payload.push_back(static_cast<uint8_t>((count >> 8) & 0xFF));
   payload.push_back(static_cast<uint8_t>(count & 0xFF));
 
@@ -625,6 +653,20 @@ inline std::vector<uint8_t> build_viz_payload(const VizPayload& in) {
       payload.push_back(static_cast<uint8_t>((m.y2 >> 8) & 0xFF));
       payload.push_back(static_cast<uint8_t>(m.y2 & 0xFF));
       payload.push_back(m.confidence);
+    }
+  } else if (in.subtype == 3) {
+    for (const auto& tag : in.apriltags) {
+      write_u32_be(buf, tag.id);
+      payload.insert(payload.end(), buf, buf + 4);
+      payload.push_back(tag.hamming);
+      write_f32_be(buf, tag.center_x);
+      payload.insert(payload.end(), buf, buf + 4);
+      write_f32_be(buf, tag.center_y);
+      payload.insert(payload.end(), buf, buf + 4);
+      for (float coord : tag.corners) {
+        write_f32_be(buf, coord);
+        payload.insert(payload.end(), buf, buf + 4);
+      }
     }
   }
   return payload;
@@ -1142,7 +1184,7 @@ inline bool decode_viz_payload(const std::vector<uint8_t>& payload, VizPayload& 
   if (payload.size() < 3) return false;
   size_t off = 0;
   out.subtype = payload[off++];
-  uint16_t count = (payload[off] << 8) | payload[off + 1]; off += 2;
+  uint16_t count = read_u16_be(payload.data() + off); off += 2;
   if (out.subtype == 0) {
     const size_t bytes_per = 2 + 2 + 1 + 2;
     if (payload.size() < off + bytes_per * count) return false;
@@ -1150,10 +1192,10 @@ inline bool decode_viz_payload(const std::vector<uint8_t>& payload, VizPayload& 
     out.features.reserve(count);
     for (uint16_t i = 0; i < count; ++i) {
       VizFeature vf{};
-      vf.x = (payload[off] << 8) | payload[off + 1]; off += 2;
-      vf.y = (payload[off] << 8) | payload[off + 1]; off += 2;
+      vf.x = read_u16_be(payload.data() + off); off += 2;
+      vf.y = read_u16_be(payload.data() + off); off += 2;
       vf.status = payload[off++]; 
-      vf.id = (payload[off] << 8) | payload[off + 1]; off += 2;
+      vf.id = read_u16_be(payload.data() + off); off += 2;
       out.features.push_back(vf);
     }
   } else if (out.subtype == 1) {
@@ -1161,10 +1203,10 @@ inline bool decode_viz_payload(const std::vector<uint8_t>& payload, VizPayload& 
     for (uint16_t i = 0; i < count; ++i) {
       if (off + 9 > payload.size()) return false;
       VizDetection det{};
-      det.x1 = (payload[off] << 8) | payload[off + 1]; off += 2;
-      det.y1 = (payload[off] << 8) | payload[off + 1]; off += 2;
-      det.x2 = (payload[off] << 8) | payload[off + 1]; off += 2;
-      det.y2 = (payload[off] << 8) | payload[off + 1]; off += 2;
+      det.x1 = read_u16_be(payload.data() + off); off += 2;
+      det.y1 = read_u16_be(payload.data() + off); off += 2;
+      det.x2 = read_u16_be(payload.data() + off); off += 2;
+      det.y2 = read_u16_be(payload.data() + off); off += 2;
       uint8_t ll = payload[off++];
       if (off + ll > payload.size()) return false;
       det.label.assign(reinterpret_cast<const char*>(payload.data() + off), ll);
@@ -1178,12 +1220,29 @@ inline bool decode_viz_payload(const std::vector<uint8_t>& payload, VizPayload& 
     out.matches.reserve(count);
     for (uint16_t i = 0; i < count; ++i) {
       VizMatch m{};
-      m.x1 = (payload[off] << 8) | payload[off + 1]; off += 2;
-      m.y1 = (payload[off] << 8) | payload[off + 1]; off += 2;
-      m.x2 = (payload[off] << 8) | payload[off + 1]; off += 2;
-      m.y2 = (payload[off] << 8) | payload[off + 1]; off += 2;
+      m.x1 = read_u16_be(payload.data() + off); off += 2;
+      m.y1 = read_u16_be(payload.data() + off); off += 2;
+      m.x2 = read_u16_be(payload.data() + off); off += 2;
+      m.y2 = read_u16_be(payload.data() + off); off += 2;
       m.confidence = payload[off++];
       out.matches.push_back(m);
+    }
+  } else if (out.subtype == 3) {
+    const size_t bytes_per = 4 + 1 + 2 * 4 + 8 * 4;
+    if (payload.size() < off + bytes_per * count) return false;
+    out.apriltags.clear();
+    out.apriltags.reserve(count);
+    for (uint16_t i = 0; i < count; ++i) {
+      VizAprilTag tag{};
+      tag.id = read_u32_be(payload.data() + off); off += 4;
+      tag.hamming = payload[off++];
+      tag.center_x = read_f32_be(payload.data() + off); off += 4;
+      tag.center_y = read_f32_be(payload.data() + off); off += 4;
+      for (float& coord : tag.corners) {
+        coord = read_f32_be(payload.data() + off);
+        off += 4;
+      }
+      out.apriltags.push_back(tag);
     }
   } else {
     return false;
