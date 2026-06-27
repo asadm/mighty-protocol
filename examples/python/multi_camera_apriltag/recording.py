@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import datetime as _dt
+import binascii
 import json
+import struct
 import threading
 import time
+import zlib
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence, Tuple
 
@@ -20,14 +23,88 @@ def default_bag_path(base_dir: Path = Path.home()) -> Path:
     return Path(base_dir).expanduser() / f"multi_camera_apriltag_{stamp}.bag"
 
 
+def positive_stamp_ns(value: Any) -> int:
+    try:
+        stamp_ns = int(value)
+    except Exception:
+        return 0
+    return stamp_ns if stamp_ns > 0 else 0
+
+
+def stamp_ns_or_now(value: Any, fallback_ns: int = 0) -> int:
+    stamp_ns = positive_stamp_ns(value)
+    if stamp_ns > 0:
+        return stamp_ns
+    if fallback_ns > 0:
+        return int(fallback_ns)
+    return time.time_ns()
+
+
 def event_stamp_ns(event: Dict[str, Any]) -> int:
     data = event.get("data")
     if isinstance(data, dict):
         for key in ("timestampNs", "timestamp_ns"):
-            value = data.get(key)
-            if isinstance(value, int) and value > 0:
-                return int(value)
-    return time.time_ns()
+            stamp_ns = positive_stamp_ns(data.get(key))
+            if stamp_ns > 0:
+                return stamp_ns
+    return 0
+
+
+def json_safe(value: Any) -> Any:
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, dict):
+        return {str(key): json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def png_chunk(kind: bytes, data: bytes) -> bytes:
+    return (
+        struct.pack(">I", len(data)) +
+        kind +
+        data +
+        struct.pack(">I", binascii.crc32(kind + data) & 0xFFFFFFFF)
+    )
+
+
+def encode_png_u8(image: np.ndarray) -> bytes:
+    arr = np.asarray(image)
+    if arr.ndim not in (2, 3):
+        raise ValueError(f"unsupported image rank {arr.ndim}")
+    if arr.dtype != np.uint8:
+        arr = np.clip(arr, 0, 255).astype(np.uint8)
+    if arr.ndim == 3:
+        if arr.shape[2] < 3:
+            raise ValueError("RGB image must have at least 3 channels")
+        arr = arr[:, :, :3]
+        color_type = 2
+    else:
+        color_type = 0
+    arr = np.ascontiguousarray(arr)
+    height, width = arr.shape[:2]
+    if width <= 0 or height <= 0:
+        raise ValueError("empty image")
+    row_bytes = width * (3 if color_type == 2 else 1)
+    scanlines = bytearray((row_bytes + 1) * height)
+    dst = 0
+    for row in arr.reshape(height, row_bytes):
+        scanlines[dst] = 0
+        dst += 1
+        scanlines[dst:dst + row_bytes] = row.tobytes()
+        dst += row_bytes
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, color_type, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n" +
+        png_chunk(b"IHDR", ihdr) +
+        png_chunk(b"IDAT", zlib.compress(bytes(scanlines), level=1)) +
+        png_chunk(b"IEND", b"")
+    )
 
 
 class MultiCameraRosbagRecorder:
@@ -74,6 +151,10 @@ class MultiCameraRosbagRecorder:
         self.pose_messages = {"red": 0, "blue": 0}
         self.tag_messages = {"red": 0, "blue": 0}
         self.event_messages = {"red": 0, "blue": 0}
+
+    def _set_error(self, message: str) -> None:
+        with self.lock:
+            self.last_error = str(message)
 
     def start(self) -> None:
         try:
@@ -135,48 +216,47 @@ class MultiCameraRosbagRecorder:
         sec, nanosec = stamp_parts(stamp_ns)
         return self.types["Header"](self._next_seq(seq_key), self.types["Time"](sec, nanosec), frame_id)
 
-    def _write(self, connection_key: str, stamp_ns: int, typename: str, msg: Any) -> None:
+    def _write(self, connection_key: str, stamp_ns: int, typename: str, msg: Any) -> bool:
         typestore = self.typestore
         with self.lock:
             writer = self.writer
             conn = self.connections.get(connection_key)
             if writer is None or conn is None or typestore is None:
-                return
-            raw = typestore.serialize_ros1(msg, typename)
-            writer.write(conn, int(stamp_ns), raw)
+                return False
+            try:
+                raw = typestore.serialize_ros1(msg, typename)
+                writer.write(conn, int(stamp_ns), raw)
+                return True
+            except Exception as exc:
+                self.last_error = f"{connection_key}: {exc}"
+                return False
 
-    def _encode_jpeg(self, rgb: np.ndarray) -> Optional[np.ndarray]:
+    def _encode_png(self, rgb: np.ndarray) -> Optional[np.ndarray]:
+        # Keep recording independent of cv2; importing OpenCV from a live GUI
+        # callback can abort some Matplotlib backends.
         try:
-            import cv2
+            encoded = encode_png_u8(rgb)
         except Exception as exc:
-            self.last_error = f"cv2 unavailable: {exc}"
+            self.last_error = f"PNG encode failed: {exc}"
             return None
-        if rgb.ndim == 2:
-            bgr = rgb
-        else:
-            bgr = rgb[:, :, ::-1]
-        ok, encoded = cv2.imencode(".jpg", bgr, [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality])
-        if not ok:
-            self.last_error = "JPEG encode failed"
-            return None
-        return encoded.reshape(-1).astype(np.uint8, copy=False)
+        return np.frombuffer(encoded, dtype=np.uint8)
 
     def record_image(self, role: str, rgb: np.ndarray, timestamp_ns: int) -> None:
         if not self.active() or rgb is None:
             return
-        stamp_ns = time.time_ns()
+        stamp_ns = stamp_ns_or_now(timestamp_ns)
         role_key = "red" if role == "red" else "blue"
-        jpeg = self._encode_jpeg(rgb)
-        if jpeg is None:
+        png = self._encode_png(rgb)
+        if png is None:
             return
         msg = self.types["CompressedImage"](
             self._header(stamp_ns, f"{role_key}_cam", f"{role_key}_image"),
-            "jpeg",
-            jpeg,
+            "png",
+            png,
         )
-        self._write(f"{role_key}_image", stamp_ns, "sensor_msgs/msg/CompressedImage", msg)
-        with self.lock:
-            self.image_messages += 1
+        if self._write(f"{role_key}_image", stamp_ns, "sensor_msgs/msg/CompressedImage", msg):
+            with self.lock:
+                self.image_messages += 1
 
     def record_imu_samples(self, role: str, samples: Sequence[Dict[str, Any]]) -> None:
         if not self.active() or not samples:
@@ -191,8 +271,13 @@ class MultiCameraRosbagRecorder:
         zero_cov = np.zeros(9, dtype=np.float64)
         count = 0
         base_stamp_ns = time.time_ns()
+        last_stamp_ns = 0
         for index, sample in enumerate(samples):
-            stamp_ns = base_stamp_ns + int(index)
+            sample_stamp = sample.get("timestamp_ns", sample.get("timestampNs"))
+            stamp_ns = stamp_ns_or_now(sample_stamp, base_stamp_ns + int(index))
+            if last_stamp_ns > 0 and stamp_ns <= last_stamp_ns:
+                stamp_ns = last_stamp_ns + 1
+            last_stamp_ns = stamp_ns
             angular_velocity = self.types["Vector3"](
                 float(sample.get("gx", 0.0)),
                 float(sample.get("gy", 0.0)),
@@ -212,8 +297,8 @@ class MultiCameraRosbagRecorder:
                 linear_acceleration,
                 zero_cov,
             )
-            self._write(conn_key, stamp_ns, imu_type, msg)
-            count += 1
+            if self._write(conn_key, stamp_ns, imu_type, msg):
+                count += 1
         if count:
             with self.lock:
                 self.imu_messages[role_key] += count
@@ -228,7 +313,7 @@ class MultiCameraRosbagRecorder:
         if not self.active() or position_viz is None:
             return
         role_key = "red" if role == "red" else "blue"
-        stamp_ns = time.time_ns()
+        stamp_ns = stamp_ns_or_now(timestamp_ns)
         q = quat_viz if quat_viz is not None and len(quat_viz) == 4 else (0.0, 0.0, 0.0, 1.0)
         pose = self.types["Pose"](
             self.types["Point"](float(position_viz[0]), float(position_viz[1]), float(position_viz[2])),
@@ -238,37 +323,37 @@ class MultiCameraRosbagRecorder:
             self._header(stamp_ns, f"{role_key}_base_link", f"{role_key}_pose"),
             pose,
         )
-        self._write(f"{role_key}_pose", stamp_ns, "geometry_msgs/msg/PoseStamped", msg)
-        with self.lock:
-            self.pose_messages[role_key] += 1
+        if self._write(f"{role_key}_pose", stamp_ns, "geometry_msgs/msg/PoseStamped", msg):
+            with self.lock:
+                self.pose_messages[role_key] += 1
 
     def record_tags(self, role: str, tags: Sequence[Dict[str, Any]], timestamp_ns: int) -> None:
         if not self.active():
             return
         role_key = "red" if role == "red" else "blue"
-        device_timestamp_ns = int(timestamp_ns or 0)
-        stamp_ns = time.time_ns()
+        device_timestamp_ns = positive_stamp_ns(timestamp_ns)
+        stamp_ns = stamp_ns_or_now(device_timestamp_ns)
         payload = json.dumps(
-            {"timestamp_ns": stamp_ns, "device_timestamp_ns": device_timestamp_ns, "tags": list(tags)},
+            {"timestamp_ns": stamp_ns, "device_timestamp_ns": device_timestamp_ns, "tags": json_safe(list(tags))},
             separators=(",", ":"),
         )
         msg = self.types["String"](payload)
-        self._write(f"{role_key}_tags", stamp_ns, "std_msgs/msg/String", msg)
-        with self.lock:
-            self.tag_messages[role_key] += 1
+        if self._write(f"{role_key}_tags", stamp_ns, "std_msgs/msg/String", msg):
+            with self.lock:
+                self.tag_messages[role_key] += 1
 
     def record_event(self, role: str, event: Dict[str, Any]) -> None:
         if not self.active():
             return
         role_key = "red" if role == "red" else "blue"
         device_event_timestamp_ns = event_stamp_ns(event)
-        stamp_ns = time.time_ns()
-        event = {**event, "device_event_timestamp_ns": device_event_timestamp_ns}
-        payload = json.dumps(event, separators=(",", ":"), default=str)
+        stamp_ns = stamp_ns_or_now(device_event_timestamp_ns)
+        event = json_safe({**event, "device_event_timestamp_ns": device_event_timestamp_ns})
+        payload = json.dumps(event, separators=(",", ":"))
         msg = self.types["String"](payload)
-        self._write(f"{role_key}_events", stamp_ns, "std_msgs/msg/String", msg)
-        with self.lock:
-            self.event_messages[role_key] += 1
+        if self._write(f"{role_key}_events", stamp_ns, "std_msgs/msg/String", msg):
+            with self.lock:
+                self.event_messages[role_key] += 1
 
     def snapshot(self) -> Dict[str, Any]:
         with self.lock:
@@ -326,6 +411,17 @@ class RecorderController:
         self.last_path = ""
         self.last_error = ""
         self.last_stats: Dict[str, Any] = {"active": False, "path": "", "last_error": ""}
+
+    def _set_error(self, message: str) -> None:
+        with self.lock:
+            self.last_error = str(message)
+            self.last_stats = {**self.last_stats, "last_error": self.last_error}
+
+    def _safe_record(self, label: str, callback: Any) -> None:
+        try:
+            callback()
+        except Exception as exc:
+            self._set_error(f"{label}: {exc}")
 
     def _next_path(self) -> Path:
         if self.record_out:
@@ -402,13 +498,13 @@ class RecorderController:
         with self.lock:
             recorder = self.current
         if recorder is not None:
-            recorder.record_image(role, rgb, timestamp_ns)
+            self._safe_record("record_image", lambda: recorder.record_image(role, rgb, timestamp_ns))
 
     def record_imu_samples(self, role: str, samples: Sequence[Dict[str, Any]]) -> None:
         with self.lock:
             recorder = self.current
         if recorder is not None:
-            recorder.record_imu_samples(role, samples)
+            self._safe_record("record_imu_samples", lambda: recorder.record_imu_samples(role, samples))
 
     def record_pose(
         self,
@@ -420,16 +516,16 @@ class RecorderController:
         with self.lock:
             recorder = self.current
         if recorder is not None:
-            recorder.record_pose(role, position_viz, quat_viz, timestamp_ns)
+            self._safe_record("record_pose", lambda: recorder.record_pose(role, position_viz, quat_viz, timestamp_ns))
 
     def record_tags(self, role: str, tags: Sequence[Dict[str, Any]], timestamp_ns: int) -> None:
         with self.lock:
             recorder = self.current
         if recorder is not None:
-            recorder.record_tags(role, tags, timestamp_ns)
+            self._safe_record("record_tags", lambda: recorder.record_tags(role, tags, timestamp_ns))
 
     def record_event(self, role: str, event: Dict[str, Any]) -> None:
         with self.lock:
             recorder = self.current
         if recorder is not None:
-            recorder.record_event(role, event)
+            self._safe_record("record_event", lambda: recorder.record_event(role, event))

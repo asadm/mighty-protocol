@@ -227,7 +227,7 @@ Recommended init reason mapping:
 - `version` (u8)
 - event kind length (u8) + UTF-8 kind
 - JSON length (u32) + UTF-8 JSON payload
-- Known kind: `apriltag_relocalize`, emitted after device-side AprilTag relocalization applies a VIO reset. JSON includes `tagId`, `timestampNs`, `targetPositionM`, `cameraToTagM`, `correctionM`, and `elapsedMs`.
+- Known kind: `apriltag_relocalize`, emitted after device-side AprilTag relocalization updates the output pose alignment. JSON includes `tagId`, `outputAlignment`, `timestampNs`, `targetPositionM`, `cameraToTagM`, `correctionM`, and `elapsedMs`.
 
 ### 3.6 Viz / Constraints / Point Cloud
 
@@ -260,7 +260,7 @@ Recommended init reason mapping:
 
 Standard command names:
 - `device_id` / `device-id`: returns the device's stable permanent identifier as UTF-8 text in both the `CRES` message and data fields.
-- `reset_vio_pose`: rebases the running VIO pose to a requested public body pose. Data uses the same binary layout as `POSE`: `poseType=0`, `positionM` is required, and `orientationXyzw` is optional through `poseFlags` bit 0. If orientation is omitted, firmware keeps the current VIO orientation and only jumps position.
+- `reset_vio_pose`: rebases the public `POSE` output stream to a requested body pose by applying an output alignment transform on top of VIO. It does not mutate the internal VIO estimator state. Data uses the same binary layout as `POSE`: `poseType=0`, `positionM` is required, and `orientationXyzw` is optional through `poseFlags` bit 0. If orientation is omitted, firmware keeps the current output orientation and only jumps output position.
 - `keyframes` / `keyframe`: controls device-side `KEYF` descriptor generation. Data is UTF-8 text: `on`/`enable`/`1`/`true`, `off`/`disable`/`0`/`false`, `toggle`, or `status`/`get`. Devices should default this off and only schedule keyframe descriptor work while enabled.
 
 #### `CFGQ`
@@ -293,6 +293,7 @@ apriltags:
    -
       tag_id: "*"
       size_cm: 16.2
+      orientation: upright
       position: [ 0, 0, 0 ]
 ```
 

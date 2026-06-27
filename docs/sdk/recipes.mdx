@@ -87,10 +87,11 @@ Always print the response message when `ok` is false.
 
 ## Reset VIO Pose
 
-Use `reset_vio_pose` / `resetVioPose` to rebase a running VIO pose. The payload
-uses the same pose fields as the public `POSE` stream: `positionM` is required;
-`orientationXyzw` is optional. If orientation is omitted, firmware keeps the
-current orientation and only jumps position.
+Use `reset_vio_pose` / `resetVioPose` to rebase the public `POSE` output stream
+without mutating the internal VIO estimator. The payload uses the same pose
+fields as the public `POSE` stream: `positionM` is required; `orientationXyzw`
+is optional. If orientation is omitted, firmware keeps the current output
+orientation and only jumps output position.
 
 ```python
 res = client.reset_vio_pose((0.0, 0.0, 0.0))
@@ -279,6 +280,7 @@ apriltags:
    -
       tag_id: "*"
       size_cm: 16.2
+      orientation: upright
       position: [ 0, 0, 0 ]
 """
 client.config_set("apriltags", yaml_text)

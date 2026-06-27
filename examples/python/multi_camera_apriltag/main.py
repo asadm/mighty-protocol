@@ -47,7 +47,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--record", action="store_true", help="Start ROS bag recording on launch")
     parser.add_argument("--record-dir", default="~", help="Directory for button-created bags")
     parser.add_argument("--record-out", default="", help="Exact .bag path for next recording")
-    parser.add_argument("--record-jpeg-quality", type=int, default=90, help="JPEG quality for recorded preview images")
+    parser.add_argument("--record-jpeg-quality", type=int, default=90, help="Legacy option; recorded preview images use PNG")
 
     parser.add_argument("--red-image-topic", default="/mighty/red/image_raw/compressed")
     parser.add_argument("--blue-image-topic", default="/mighty/blue/image_raw/compressed")
