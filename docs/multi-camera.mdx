@@ -146,6 +146,22 @@ python3 mighty-web/mighty-protocol/examples/python/synced_stereo/main.py \
   --depth-max-m 5.0
 ```
 
+You can also replay a previously recorded stereo bag through the same viewer and
+depth pipeline:
+
+```bash
+python3 mighty-web/mighty-protocol/examples/python/synced_stereo/main.py \
+  --bag /path/to/synced_stereo.bag \
+  --depth /path/to/your-camchain-imucam.yaml \
+  --depth-scale 0.5 \
+  --depth-min-m 0.2 \
+  --depth-max-m 5.0
+```
+
+Bag playback expects the image topics
+`/cam0/image_raw/compressed /cam1/image_raw/compressed` and IMU topics
+`/imu0 /imu1`, matching bags recorded by the synced stereo example.
+
 The depth view uses the same rendered synced stereo pair as the raw preview. It
 rectifies the double-sphere cameras from the Kalibr YAML, computes SGBM
 disparity, and converts that disparity to metric depth using:

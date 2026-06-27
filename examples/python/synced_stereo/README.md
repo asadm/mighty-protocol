@@ -48,6 +48,29 @@ python3 mighty-web/mighty-protocol/examples/python/synced_stereo/main.py \
   --depth-max-m 5.0
 ```
 
+Replay a previously recorded bag:
+
+```bash
+python3 mighty-web/mighty-protocol/examples/python/synced_stereo/main.py \
+  --bag /Users/asad/synced_stereo_20260626-184153.bag
+```
+
+Replay a bag with metric depth:
+
+```bash
+python3 mighty-web/mighty-protocol/examples/python/synced_stereo/main.py \
+  --bag /Users/asad/synced_stereo_20260626-184153.bag \
+  --depth ~/path/to/stereo-calibration-camchain-imucam.yaml \
+  --depth-scale 0.5 \
+  --depth-min-m 0.2 \
+  --depth-max-m 5.0
+```
+
+Bag playback reads the same default topics written by this example:
+`/cam0/image_raw/compressed`, `/cam1/image_raw/compressed`, `/imu0`, and
+`/imu1`. Use `--bag-rate` to change playback speed, or `--bag-rate 0` to replay
+as fast as possible. Use `--bag-loop` to loop playback.
+
 Depth mode adds an SGBM disparity band to the main OpenCV window. It updates on
 each newly rendered synced stereo pair. The depth colors are metric, not
 per-frame relative: `--depth-min-m` maps to the hottest color and
@@ -59,6 +82,7 @@ File layout:
 - `depth.py`: Kalibr double-sphere rectification plus SGBM disparity
 - `viewer.py`: OpenCV window, paired preview, IMU plots, record button
 - `recording.py`: ROS1 bag writer and recording controller
+- `bag_playback.py`: ROS1 bag reader for replaying recorded stereo sessions
 - `state.py`: camera state, clock offsets, and synced image-pair selection
 - `stream.py`: Mighty SDK callbacks and clock sync lifecycle
 - `utils.py`: small timestamp, median, and raw-frame helpers

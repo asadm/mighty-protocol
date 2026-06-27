@@ -21,6 +21,7 @@ if str(SDK_PY_DIR) not in sys.path:
 
 from mighty_sdk import MightyClient, MightyWebDevice  # noqa: E402
 
+from bag_playback import run_bag_playback  # noqa: E402
 from depth import StereoDepthProcessor  # noqa: E402
 from recording import RecorderController  # noqa: E402
 from state import CameraState, ImagePairRefiner  # noqa: E402
@@ -59,6 +60,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--depth-scale", type=float, default=0.5, help="Depth compute scale relative to camera frame size")
     parser.add_argument("--depth-min-m", type=float, default=0.2, help="Nearest metric depth mapped to the hottest color")
     parser.add_argument("--depth-max-m", type=float, default=5.0, help="Farthest metric depth mapped to the coolest color")
+    parser.add_argument("--bag", default="", help="Replay a previously recorded synced stereo ROS1 bag instead of connecting to cameras")
+    parser.add_argument("--bag-rate", type=float, default=1.0, help="Bag replay speed; use 0 for as-fast-as-possible")
+    parser.add_argument("--bag-loop", action="store_true", help="Loop bag playback")
 
     # ROS bag recording. The button in the OpenCV window starts/stops recording;
     # --record just starts immediately for scripted runs.
@@ -79,14 +83,16 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    bag_path = Path(str(args.bag)).expanduser() if str(args.bag or "").strip() else None
+    bag_mode = bag_path is not None
 
     # Shared state owns the latest images, IMU samples, and timestamp offsets.
-    left_state = CameraState(name=str(args.left_name), base_url=str(args.left_host))
-    right_state = CameraState(name=str(args.right_name), base_url=str(args.right_host))
+    left_state = CameraState(name=str(args.left_name), base_url=str(args.left_host if not bag_mode else args.left_image_topic))
+    right_state = CameraState(name=str(args.right_name), base_url=str(args.right_host if not bag_mode else args.right_image_topic))
     refiner = ImagePairRefiner(
         left_state,
         right_state,
-        enabled=not bool(args.no_image_refine),
+        enabled=(not bool(args.no_image_refine)) and not bag_mode,
         min_pairs=int(args.image_refine_min_pairs),
         arrival_window_ms=float(args.pair_arrival_window_ms),
     )
@@ -113,71 +119,101 @@ def main() -> None:
         pair_max_delta_ms=float(args.record_pair_max_delta_ms),
         require_refined_pairs=not bool(args.record_before_refine),
     )
-    if bool(args.record):
+    if bool(args.record) and bag_mode:
+        print("--record is ignored during --bag playback")
+    elif bool(args.record):
         ok, message = recorder.start()
         if not ok:
             raise RuntimeError(f"Failed to start ROS bag recording: {message}")
         print(f"Recording ROS bag to {message}")
 
-    # Each camera gets its own SDK client and lifecycle thread. The lifecycle
-    # thread performs clock sync, connects the streaming client, and resyncs.
-    left_device = MightyWebDevice(base_url=str(args.left_host), connect_timeout_s=3.0, read_timeout_s=1.0)
-    right_device = MightyWebDevice(base_url=str(args.right_host), connect_timeout_s=3.0, read_timeout_s=1.0)
-    left_client = MightyClient(left_device, auto_reconnect=True, reconnect_delay_s=float(args.reconnect_delay))
-    right_client = MightyClient(right_device, auto_reconnect=True, reconnect_delay_s=float(args.reconnect_delay))
-
-    wire_client_callbacks(
-        left_client,
-        left_state,
-        refiner,
-        role="left",
-        recorder=recorder,
-        left_state=left_state,
-        right_state=right_state,
-    )
-    wire_client_callbacks(
-        right_client,
-        right_state,
-        refiner,
-        role="right",
-        recorder=recorder,
-        left_state=left_state,
-        right_state=right_state,
-    )
-
     stop_event = threading.Event()
-    workers = [
-        threading.Thread(
-            target=run_camera_lifecycle,
-            args=(
-                left_state,
-                left_client,
-                left_device,
-                stop_event,
-                int(args.clock_samples),
-                float(args.clock_sample_delay),
-                float(args.resync_interval),
-                bool(args.start_vio),
+    clients = []
+    workers = []
+
+    if bag_mode:
+        workers.append(
+            threading.Thread(
+                target=run_bag_playback,
+                kwargs={
+                    "bag_path": bag_path,
+                    "left_state": left_state,
+                    "right_state": right_state,
+                    "stop_event": stop_event,
+                    "left_image_topic": str(args.left_image_topic),
+                    "right_image_topic": str(args.right_image_topic),
+                    "left_imu_topic": str(args.left_imu_topic),
+                    "right_imu_topic": str(args.right_imu_topic),
+                    "playback_rate": float(args.bag_rate),
+                    "loop": bool(args.bag_loop),
+                },
+                name="MightyBagPlayback",
+                daemon=True,
             ),
-            name="MightyLeftLifecycle",
-            daemon=True,
-        ),
-        threading.Thread(
-            target=run_camera_lifecycle,
-            args=(
-                right_state,
-                right_client,
-                right_device,
-                stop_event,
-                int(args.clock_samples),
-                float(args.clock_sample_delay),
-                float(args.resync_interval),
-                bool(args.start_vio),
-            ),
-            name="MightyRightLifecycle",
-            daemon=True,
-        ),
-    ]
+        )
+    else:
+        # Each camera gets its own SDK client and lifecycle thread. The lifecycle
+        # thread performs clock sync, connects the streaming client, and resyncs.
+        left_device = MightyWebDevice(base_url=str(args.left_host), connect_timeout_s=3.0, read_timeout_s=1.0)
+        right_device = MightyWebDevice(base_url=str(args.right_host), connect_timeout_s=3.0, read_timeout_s=1.0)
+        left_client = MightyClient(left_device, auto_reconnect=True, reconnect_delay_s=float(args.reconnect_delay))
+        right_client = MightyClient(right_device, auto_reconnect=True, reconnect_delay_s=float(args.reconnect_delay))
+        clients = [left_client, right_client]
+
+        wire_client_callbacks(
+            left_client,
+            left_state,
+            refiner,
+            role="left",
+            recorder=recorder,
+            left_state=left_state,
+            right_state=right_state,
+        )
+        wire_client_callbacks(
+            right_client,
+            right_state,
+            refiner,
+            role="right",
+            recorder=recorder,
+            left_state=left_state,
+            right_state=right_state,
+        )
+
+        workers.extend(
+            [
+                threading.Thread(
+                    target=run_camera_lifecycle,
+                    args=(
+                        left_state,
+                        left_client,
+                        left_device,
+                        stop_event,
+                        int(args.clock_samples),
+                        float(args.clock_sample_delay),
+                        float(args.resync_interval),
+                        bool(args.start_vio),
+                    ),
+                    name="MightyLeftLifecycle",
+                    daemon=True,
+                ),
+                threading.Thread(
+                    target=run_camera_lifecycle,
+                    args=(
+                        right_state,
+                        right_client,
+                        right_device,
+                        stop_event,
+                        int(args.clock_samples),
+                        float(args.clock_sample_delay),
+                        float(args.resync_interval),
+                        bool(args.start_vio),
+                    ),
+                    name="MightyRightLifecycle",
+                    daemon=True,
+                ),
+            ]
+        )
+
     for worker in workers:
         worker.start()
 
@@ -200,7 +236,7 @@ def main() -> None:
         # Always close SDK streams and the bag writer, even if the window is
         # closed or the user hits Ctrl-C.
         stop_event.set()
-        for client in (left_client, right_client):
+        for client in clients:
             try:
                 client.disconnect()
             except Exception:

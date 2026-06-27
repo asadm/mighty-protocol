@@ -26,6 +26,7 @@ Features:
 - Connects to two cameras at `http://192.168.7.1` and `http://192.168.8.1` by default.
 - Aligns raw device timestamps into a shared synced timestamp base.
 - Shows both camera previews and IMU accel/gyro traces side by side in an OpenCV window.
+- Replays previously recorded synced stereo ROS1 bags with `--bag`.
 - Button-controlled ROS1 bag recording to `~/synced_stereo_<timestamp>.bag`; install `opencv-python` and `rosbags` from `synced_stereo/requirements.txt`.
 
 ## Dependencies
