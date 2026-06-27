@@ -81,6 +81,7 @@ Command/config:
 - `configSet(key: string, value: Uint8Array | string): Promise<{ ok: boolean; key: string; value: Uint8Array; message: string }>`
 - `startVio(): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
 - `stopVio(): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
+- `resetVioPose(pose?: { positionM?: [number, number, number]; orientationXyzw?: [number, number, number, number] | null } | [number, number, number]): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
 - `setKeyframesEnabled(enabled: boolean): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
 - `keyframesStatus(): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
 
@@ -322,6 +323,7 @@ Command/config:
   - keys: `ok: bool`, `key: str`, `value: bytes`, `message: str`
 - `start_vio() -> dict[str, Any]`
 - `stop_vio() -> dict[str, Any]`
+- `reset_vio_pose(position_m=(0.0, 0.0, 0.0), orientation_xyzw=None) -> dict[str, Any]`
 - `set_keyframes_enabled(enabled: bool) -> dict[str, Any]`
 - `keyframes_status() -> dict[str, Any]`
 
@@ -608,6 +610,7 @@ Command/config:
 - `ConfigSetResult config_set_text(const std::string& key, const std::string& value)`
 - `CommandResult start_vio()`
 - `CommandResult stop_vio()`
+- `CommandResult reset_vio_pose(const std::array<double, 3>& position_m, const std::optional<std::array<double, 4>>& orientation_xyzw = std::nullopt)`
 - `CommandResult set_keyframes_enabled(bool enabled)`
 - `CommandResult keyframes_status()`
 

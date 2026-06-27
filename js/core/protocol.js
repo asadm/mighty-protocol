@@ -710,6 +710,15 @@ function buildCommandPayload({ reqId = 0, name = "", data = new Uint8Array() } =
   return fromU8(buf);
 }
 
+function buildResetVioPosePayload({ positionM = [0, 0, 0], orientationXyzw = null } = {}) {
+  return buildPosePayload({
+    poseType: 0,
+    positionM,
+    orientationXyzw,
+    confidence: 1.0,
+  });
+}
+
 function buildCommandResponsePayload({ reqId = 0, status = 0, message = "", data = new Uint8Array() } = {}) {
   const msgBytes = (textEncoder || new TextEncoder()).encode(message || "");
   const msgLen = Math.min(65535, msgBytes.length);
@@ -1198,6 +1207,35 @@ function decodeConfigRequestPayload(payload) {
   return { version, op, key, value };
 }
 
+function decodeResetVioPosePayload(payload) {
+  const pose = decodePosePayload(payload);
+  if (pose.poseType !== 0) throw new Error("reset_vio_pose requires body pose type");
+  const positionM = pose.positionM || [];
+  if (
+    positionM.length !== 3 ||
+    !positionM.every((v) => Number.isFinite(Number(v)))
+  ) {
+    throw new Error("reset_vio_pose position invalid");
+  }
+  if (
+    pose.orientationXyzw !== null &&
+    pose.orientationXyzw !== undefined &&
+    (
+      !Array.isArray(pose.orientationXyzw) ||
+      pose.orientationXyzw.length !== 4 ||
+      !pose.orientationXyzw.every((v) => Number.isFinite(Number(v)))
+    )
+  ) {
+    throw new Error("reset_vio_pose orientation invalid");
+  }
+  return {
+    poseType: pose.poseType,
+    poseFlags: pose.poseFlags,
+    positionM,
+    orientationXyzw: pose.orientationXyzw || null,
+  };
+}
+
 function decodeConfigResponsePayload(payload) {
   const u8 = toU8(payload);
   if (u8.length < 1 + 1 + 1 + 1 + 1 + 2 + 4) throw new Error("CFGR payload too short");
@@ -1242,6 +1280,7 @@ const api = {
   buildFea3Payload,
   buildPcldPayload,
   buildCommandPayload,
+  buildResetVioPosePayload,
   buildCommandResponsePayload,
   buildLuaLogPayload,
   buildConfigRequestPayload,
@@ -1259,6 +1298,7 @@ const api = {
   decodeFea3Payload,
   decodePcldPayload,
   decodeCommandPayload,
+  decodeResetVioPosePayload,
   decodeCommandResponsePayload,
   decodeLuaLogPayload,
   decodeConfigRequestPayload,
@@ -1289,6 +1329,7 @@ export {
   buildFea3Payload,
   buildPcldPayload,
   buildCommandPayload,
+  buildResetVioPosePayload,
   buildCommandResponsePayload,
   buildLuaLogPayload,
   buildConfigRequestPayload,
@@ -1306,6 +1347,7 @@ export {
   decodeFea3Payload,
   decodePcldPayload,
   decodeCommandPayload,
+  decodeResetVioPosePayload,
   decodeCommandResponsePayload,
   decodeLuaLogPayload,
   decodeConfigRequestPayload,

@@ -15,6 +15,7 @@ class MockDevice {
     this._resolve = null;
     this._connected = false;
     this._calib = "%YAML:1.0\ncam0:\n  intrinsics: [1,2,3,4]\n";
+    this.lastResetPose = null;
   }
 
   getInfo() {
@@ -60,6 +61,16 @@ class MockDevice {
         reqId: cmd.reqId,
         status: 0,
         message: "ok",
+        data: new Uint8Array(),
+      });
+    }
+
+    if (cmd.name === "reset_vio_pose") {
+      this.lastResetPose = proto.decodeResetVioPosePayload(cmd.data);
+      return proto.buildCommandResponsePayload({
+        reqId: cmd.reqId,
+        status: 0,
+        message: "pose reset",
         data: new Uint8Array(),
       });
     }
@@ -350,6 +361,19 @@ async function main() {
 
   const cmdRes = await client.startVio();
   assert.strictEqual(cmdRes.ok, true);
+
+  const resetPoseRes = await client.resetVioPose({ positionM: [0, 0, 0] });
+  assert.strictEqual(resetPoseRes.ok, true);
+  assert.deepStrictEqual(device.lastResetPose.positionM, [0, 0, 0]);
+  assert.strictEqual(device.lastResetPose.orientationXyzw, null);
+
+  const resetPoseQuatRes = await client.resetVioPose({
+    positionM: [1, 2, 3],
+    orientationXyzw: [0, 0, 0, 1],
+  });
+  assert.strictEqual(resetPoseQuatRes.ok, true);
+  assert.deepStrictEqual(device.lastResetPose.positionM, [1, 2, 3]);
+  assert.deepStrictEqual(device.lastResetPose.orientationXyzw, [0, 0, 0, 1]);
 
   const keyframesOn = await client.setKeyframesEnabled(true);
   assert.strictEqual(keyframesOn.ok, true);

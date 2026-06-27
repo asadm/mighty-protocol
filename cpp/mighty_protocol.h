@@ -288,6 +288,13 @@ struct CommandResponse {
   std::vector<uint8_t> data;
 };
 
+struct ResetVioPoseRequest {
+  uint32_t pose_type = 0;
+  uint32_t pose_flags = 0;
+  std::array<double, 3> position_m{};
+  std::optional<std::array<double, 4>> orientation_xyzw;
+};
+
 enum class ConfigOp : uint8_t {
   kGet = 0,
   kSet = 1,
@@ -860,6 +867,19 @@ inline std::vector<uint8_t> build_command_payload(uint32_t req_id,
                                                   const std::vector<uint8_t>& data) {
   const uint8_t* ptr = data.empty() ? nullptr : data.data();
   return build_command_payload(req_id, name, ptr, data.size());
+}
+
+inline std::vector<uint8_t> build_reset_vio_pose_payload(
+    const std::array<double, 3>& position_m,
+    const std::optional<std::array<double, 4>>& orientation_xyzw = std::nullopt) {
+  const double* orientation_ptr =
+      orientation_xyzw.has_value() ? orientation_xyzw->data() : nullptr;
+  return build_pose_payload(/*pose_type=*/0,
+                            /*has_quat=*/orientation_ptr != nullptr,
+                            /*is_keyframe=*/false,
+                            position_m[0], position_m[1], position_m[2],
+                            orientation_ptr,
+                            /*confidence01=*/1.0f);
 }
 
 inline std::vector<uint8_t> build_command_response_payload(const CommandResponse& res) {
@@ -1449,6 +1469,35 @@ inline bool decode_pcld_payload(const std::vector<uint8_t>& payload,
     p.r = payload[off++]; p.g = payload[off++]; p.b = payload[off++];
     out.push_back(p);
   }
+  return true;
+}
+
+inline bool decode_reset_vio_pose_payload(const std::vector<uint8_t>& payload,
+                                          ResetVioPoseRequest& out) {
+  double x = 0.0;
+  double y = 0.0;
+  double z = 0.0;
+  float confidence = 0.0f;
+  std::optional<std::array<double, 4>> orientation;
+  if (!decode_pose_payload(payload, out.pose_type, out.pose_flags,
+                           x, y, z, orientation, &confidence)) {
+    return false;
+  }
+  if (out.pose_type != 0) {
+    return false;
+  }
+  if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) {
+    return false;
+  }
+  out.position_m = {x, y, z};
+  if (orientation.has_value()) {
+    for (double v : *orientation) {
+      if (!std::isfinite(v)) {
+        return false;
+      }
+    }
+  }
+  out.orientation_xyzw = orientation;
   return true;
 }
 

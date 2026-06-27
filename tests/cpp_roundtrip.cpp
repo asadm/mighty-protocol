@@ -432,6 +432,30 @@ int main(int argc, char** argv) {
   }
   uint16_t port = static_cast<uint16_t>(std::atoi(argv[2]));
   SampleData sample;
+  {
+    const std::array<double, 3> reset_position{1.0, 2.0, 3.0};
+    const std::array<double, 4> reset_quat{0.0, 0.0, 0.0, 1.0};
+    ResetVioPoseRequest reset_req{};
+    if (!decode_reset_vio_pose_payload(
+            build_reset_vio_pose_payload(reset_position, reset_quat), reset_req)) {
+      std::cerr << "reset_vio_pose payload decode failed\n";
+      return 7;
+    }
+    if (reset_req.pose_type != 0 ||
+        !approx(reset_req.position_m[0], 1.0) ||
+        !reset_req.orientation_xyzw.has_value() ||
+        !approx(reset_req.orientation_xyzw.value()[3], 1.0)) {
+      std::cerr << "reset_vio_pose payload mismatch\n";
+      return 8;
+    }
+    ResetVioPoseRequest reset_position_only{};
+    if (!decode_reset_vio_pose_payload(
+            build_reset_vio_pose_payload(reset_position), reset_position_only) ||
+        reset_position_only.orientation_xyzw.has_value()) {
+      std::cerr << "reset_vio_pose position-only payload mismatch\n";
+      return 9;
+    }
+  }
   const auto outbound = build_sample_packets(sample);
 
   int server_fd = create_server(port);

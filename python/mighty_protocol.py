@@ -282,6 +282,48 @@ def decode_pose_payload(payload: bytes):
         "timestamp_ns": timestamp_ns,
     }
 
+def build_reset_vio_pose_payload(position_m=(0.0, 0.0, 0.0), orientation_xyzw=None) -> bytes:
+    if position_m is None or len(position_m) != 3:
+        raise ValueError("position_m must contain 3 values")
+    flags = 0
+    payload = [
+        struct.pack(">II", 0, flags),
+        struct.pack(">ddd", float(position_m[0]), float(position_m[1]), float(position_m[2])),
+    ]
+    if orientation_xyzw is not None:
+        if len(orientation_xyzw) != 4:
+            raise ValueError("orientation_xyzw must contain 4 values")
+        flags |= 0x1
+        payload[0] = struct.pack(">II", 0, flags)
+        payload.append(struct.pack(
+            ">dddd",
+            float(orientation_xyzw[0]),
+            float(orientation_xyzw[1]),
+            float(orientation_xyzw[2]),
+            float(orientation_xyzw[3]),
+        ))
+    payload.append(struct.pack(">f", 1.0))
+    return b"".join(payload)
+
+def decode_reset_vio_pose_payload(payload: bytes):
+    pose = decode_pose_payload(payload)
+    if int(pose.get("pose_type", -1)) != 0:
+        raise ValueError("reset_vio_pose requires body pose type")
+    position = pose.get("position_m")
+    if position is None or len(position) != 3 or not all(math.isfinite(float(v)) for v in position):
+        raise ValueError("reset_vio_pose position invalid")
+    orientation = pose.get("orientation_xyzw")
+    if orientation is not None and (
+        len(orientation) != 4 or not all(math.isfinite(float(v)) for v in orientation)
+    ):
+        raise ValueError("reset_vio_pose orientation invalid")
+    return {
+        "pose_type": pose["pose_type"],
+        "pose_flags": pose["pose_flags"],
+        "position_m": position,
+        "orientation_xyzw": orientation,
+    }
+
 def decode_constraints_payload(payload: bytes):
     if len(payload) < 4:
         raise ValueError("payload too short")

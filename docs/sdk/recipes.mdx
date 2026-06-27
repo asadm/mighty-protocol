@@ -85,6 +85,25 @@ if (!res.ok) {
 Why use it: command results distinguish transport failure from device refusal.
 Always print the response message when `ok` is false.
 
+## Reset VIO Pose
+
+Use `reset_vio_pose` / `resetVioPose` to rebase a running VIO pose. The payload
+uses the same pose fields as the public `POSE` stream: `positionM` is required;
+`orientationXyzw` is optional. If orientation is omitted, firmware keeps the
+current orientation and only jumps position.
+
+```python
+res = client.reset_vio_pose((0.0, 0.0, 0.0))
+```
+
+```js
+const res = await client.resetVioPose({ positionM: [0, 0, 0] });
+```
+
+```cpp
+auto res = client.reset_vio_pose({0.0, 0.0, 0.0});
+```
+
 ## Enable Device Keyframes
 
 `KEYF` descriptor generation is off by default. Enable it only while a client is

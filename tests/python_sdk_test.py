@@ -100,6 +100,7 @@ class MockDevice:
         self._connected = False
         self._stop = threading.Event()
         self._calib = b"%YAML:1.0\ncam0:\n  intrinsics: [1,2,3,4]\n"
+        self.last_reset_pose = None
 
     def get_info(self):
         return {"transport": "mock"}
@@ -127,6 +128,10 @@ class MockDevice:
 
         if name in ("start_vio", "stop_vio"):
             return mp.build_command_response_payload(cmd["req_id"], 0, "ok", b"")
+
+        if name == "reset_vio_pose":
+            self.last_reset_pose = mp.decode_reset_vio_pose_payload(cmd["data"])
+            return mp.build_command_response_payload(cmd["req_id"], 0, "pose reset", b"")
 
         if name == "keyframes":
             action = bytes(cmd["data"]).decode("utf-8")
@@ -343,6 +348,16 @@ def main():
 
     start_res = client.start_vio()
     assert start_res["ok"]
+
+    reset_pose = client.reset_vio_pose((0.0, 0.0, 0.0))
+    assert reset_pose["ok"]
+    assert device.last_reset_pose["position_m"] == (0.0, 0.0, 0.0)
+    assert device.last_reset_pose["orientation_xyzw"] is None
+
+    reset_pose_quat = client.reset_vio_pose((1.0, 2.0, 3.0), (0.0, 0.0, 0.0, 1.0))
+    assert reset_pose_quat["ok"]
+    assert device.last_reset_pose["position_m"] == (1.0, 2.0, 3.0)
+    assert device.last_reset_pose["orientation_xyzw"] == (0.0, 0.0, 0.0, 1.0)
 
     keyframes_on = client.set_keyframes_enabled(True)
     assert keyframes_on["ok"]

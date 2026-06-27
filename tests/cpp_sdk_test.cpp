@@ -74,6 +74,21 @@ class MockDevice : public MightyDeviceIO {
       return true;
     }
 
+    if (cmd.name == "reset_vio_pose") {
+      ResetVioPoseRequest reset_pose{};
+      if (!decode_reset_vio_pose_payload(cmd.data, reset_pose)) {
+        if (error) *error = "bad reset pose payload";
+        return false;
+      }
+      last_reset_pose = reset_pose;
+      CommandResponse ok;
+      ok.req_id = cmd.req_id;
+      ok.status = 0;
+      ok.message = "pose reset";
+      if (response_payload) *response_payload = build_command_response_payload(ok);
+      return true;
+    }
+
     if (cmd.name == "keyframes") {
       const std::string action(cmd.data.begin(), cmd.data.end());
       CommandResponse ok;
@@ -166,6 +181,8 @@ class MockDevice : public MightyDeviceIO {
     }
     if (cb) cb(pkt.data(), pkt.size());
   }
+
+  std::optional<ResetVioPoseRequest> last_reset_pose;
 
  private:
   mutable std::mutex mu_;
@@ -360,6 +377,20 @@ int main() {
 
   CommandResult cmd = client.start_vio();
   assert(cmd.ok);
+
+  CommandResult reset_pose = client.reset_vio_pose({0.0, 0.0, 0.0});
+  assert(reset_pose.ok);
+  assert(device->last_reset_pose.has_value());
+  assert(approx(device->last_reset_pose->position_m[0], 0.0));
+  assert(!device->last_reset_pose->orientation_xyzw.has_value());
+
+  CommandResult reset_pose_quat =
+      client.reset_vio_pose({1.0, 2.0, 3.0}, std::array<double, 4>{0.0, 0.0, 0.0, 1.0});
+  assert(reset_pose_quat.ok);
+  assert(device->last_reset_pose.has_value());
+  assert(approx(device->last_reset_pose->position_m[2], 3.0));
+  assert(device->last_reset_pose->orientation_xyzw.has_value());
+  assert(approx(device->last_reset_pose->orientation_xyzw->at(3), 1.0));
 
   CommandResult keyframes_on = client.set_keyframes_enabled(true);
   assert(keyframes_on.ok);

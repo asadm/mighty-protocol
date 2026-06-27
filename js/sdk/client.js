@@ -342,6 +342,13 @@ export class MightyClient {
     return this.command("stop_vio");
   }
 
+  async resetVioPose(pose = {}) {
+    const payload = protocol.buildResetVioPosePayload(
+      Array.isArray(pose) ? { positionM: pose } : pose
+    );
+    return this.command("reset_vio_pose", payload);
+  }
+
   async setKeyframesEnabled(enabled) {
     return this.command("keyframes", encodeText(enabled ? "on" : "off"));
   }

@@ -276,6 +276,10 @@ class MightyClient:
     def stop_vio(self) -> Dict[str, Any]:
         return self.command("stop_vio")
 
+    def reset_vio_pose(self, position_m=(0.0, 0.0, 0.0), orientation_xyzw=None) -> Dict[str, Any]:
+        payload = mp.build_reset_vio_pose_payload(position_m, orientation_xyzw)
+        return self.command("reset_vio_pose", payload)
+
     def set_keyframes_enabled(self, enabled: bool) -> Dict[str, Any]:
         return self.command("keyframes", b"on" if enabled else b"off")
 

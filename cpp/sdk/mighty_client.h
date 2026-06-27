@@ -457,6 +457,13 @@ class MightyClient {
     return command("stop_vio");
   }
 
+  CommandResult reset_vio_pose(
+      const std::array<double, 3>& position_m,
+      const std::optional<std::array<double, 4>>& orientation_xyzw = std::nullopt) {
+    return command("reset_vio_pose",
+                   build_reset_vio_pose_payload(position_m, orientation_xyzw));
+  }
+
   CommandResult set_keyframes_enabled(bool enabled) {
     const std::string action = enabled ? "on" : "off";
     return command("keyframes", std::vector<uint8_t>(action.begin(), action.end()));

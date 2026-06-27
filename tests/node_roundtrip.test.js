@@ -359,6 +359,19 @@ function randomPort() {
 }
 
 async function main() {
+  const resetPayload = proto.buildResetVioPosePayload({ positionM: [0, 0, 0] });
+  const resetPose = proto.decodeResetVioPosePayload(resetPayload);
+  assert.deepStrictEqual(resetPose.positionM, [0, 0, 0]);
+  assert.strictEqual(resetPose.orientationXyzw, null);
+
+  const resetQuatPayload = proto.buildResetVioPosePayload({
+    positionM: [1, 2, 3],
+    orientationXyzw: [0, 0, 0, 1],
+  });
+  const resetQuatPose = proto.decodeResetVioPosePayload(resetQuatPayload);
+  assert.deepStrictEqual(resetQuatPose.positionM, [1, 2, 3]);
+  assert.deepStrictEqual(resetQuatPose.orientationXyzw, [0, 0, 0, 1]);
+
   const packets = buildPackets();
   const port = randomPort();
   const bin = path.join(__dirname, 'bin', 'cpp_roundtrip');
