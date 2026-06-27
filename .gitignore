@@ -2,7 +2,8 @@ tests/bin/cpp_sdk_test
 tests/bin/cpp_sdk_integration_test
 tests/bin/cpp_pose_contract_test
 tests/bin/cpp_pose_viz_map
-__pycache__
+__pycache__/
+*.py[cod]
 *.egg-info
 .DS_Store
 tmp/

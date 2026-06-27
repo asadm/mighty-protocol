@@ -29,6 +29,18 @@ Features:
 - Replays previously recorded synced stereo ROS1 bags with `--bag`.
 - Button-controlled ROS1 bag recording to `~/synced_stereo_<timestamp>.bag`; install `opencv-python` and `rosbags` from `synced_stereo/requirements.txt`.
 
+## Multi-Camera AprilTag Relocalization
+
+Main script: `multi_camera_apriltag/main.py`
+
+Features:
+- Connects to two Mighty cameras at `http://192.168.7.1` and `http://192.168.8.1` by default.
+- Starts and stops VIO on both cameras from one UI.
+- Shows both camera previews with AprilTag overlays from `VIZ` packets.
+- Shows AprilTag relocalization `EVNT` messages.
+- Plots both relocalized VIO trajectories in one 3D view, using red and blue camera colors.
+- Records and replays ROS1 bags with preview images, IMU, pose, AprilTag VIZ, and EVNT streams.
+
 ## Dependencies
 
 Required:
