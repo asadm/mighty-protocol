@@ -99,7 +99,7 @@ const SAMPLE = {
     descriptor: [0.125, -0.25, 0.5, 1.0],
   },
   vsta: {
-    version: 4,
+    version: 8,
     state: 2,
     flags: 0x1234,
     timestampNs: 999n,
@@ -113,6 +113,18 @@ const SAMPLE = {
     loopClosures: 7,
     buildVersion: "Mighty v.20260208-deadbeef",
     initReasonCode: proto.VIO_INIT_REASON.NONE,
+    staticInitReasonCode: proto.VIO_INIT_REASON.NONE,
+    dynamicInitReasonCode: proto.VIO_INIT_REASON.NONE,
+    memoryTotalBytes: 1024n,
+    memoryUsedBytes: 512n,
+    memoryFreeBytes: 256n,
+    lightLevel01: 0.8,
+    lightRequired01: 0.3,
+    translationConfidence01: 0.34,
+    translationObservability01: 0.21,
+    degradedReasonFlags:
+      proto.VIO_DEGRADED_REASON.LOW_TRANSLATION_OBSERVABILITY |
+      proto.VIO_DEGRADED_REASON.LOW_PARALLAX_POSE_HOLD,
   },
   cfgq: {
     version: 1,
@@ -321,6 +333,16 @@ function verifyFrame(frame, index) {
       assert.strictEqual(s.loopClosures, SAMPLE.vsta.loopClosures);
       assert.strictEqual(s.buildVersion, SAMPLE.vsta.buildVersion);
       assert.strictEqual(s.initReasonCode, SAMPLE.vsta.initReasonCode);
+      assert.strictEqual(s.staticInitReasonCode, SAMPLE.vsta.staticInitReasonCode);
+      assert.strictEqual(s.dynamicInitReasonCode, SAMPLE.vsta.dynamicInitReasonCode);
+      assert.strictEqual(s.memoryTotalBytes, SAMPLE.vsta.memoryTotalBytes);
+      assert.strictEqual(s.memoryUsedBytes, SAMPLE.vsta.memoryUsedBytes);
+      assert.strictEqual(s.memoryFreeBytes, SAMPLE.vsta.memoryFreeBytes);
+      assert(almost(s.lightLevel01, SAMPLE.vsta.lightLevel01, 1e-3));
+      assert(almost(s.lightRequired01, SAMPLE.vsta.lightRequired01, 1e-3));
+      assert(almost(s.translationConfidence01, SAMPLE.vsta.translationConfidence01, 1e-3));
+      assert(almost(s.translationObservability01, SAMPLE.vsta.translationObservability01, 1e-3));
+      assert.strictEqual(s.degradedReasonFlags, SAMPLE.vsta.degradedReasonFlags);
       break;
     }
     case proto.TYPE.FEA3: {
@@ -514,8 +536,9 @@ async function runFuzzTests() {
 	  }
 
   function randomVstaPayload() {
+      const version = Math.random() > 0.5 ? 8 : 4;
 	    return proto.buildVioStatePayload({
-	      version: 4,
+	      version,
 	      state: 2,
 	      flags: 0,
 	      timestampNs: BigInt(Math.floor(Math.random() * 1e6)),
@@ -528,6 +551,11 @@ async function runFuzzTests() {
 	      trackingRate: Math.random(),
 	      numFeatures: Math.floor(Math.random() * 1000),
 	      loopClosures: Math.floor(Math.random() * 100),
+        ...(version >= 8 ? {
+          translationConfidence01: Math.random(),
+          translationObservability01: Math.random(),
+          degradedReasonFlags: proto.VIO_DEGRADED_REASON.LOW_TRANSLATION_OBSERVABILITY,
+        } : {}),
 	    });
 	  }
 

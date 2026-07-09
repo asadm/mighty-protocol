@@ -22,6 +22,7 @@ DEFAULT_OPTS = {
 }
 
 VIO_STATE = mp.VIO_STATE
+VIO_DEGRADED_REASON = mp.VIO_DEGRADED_REASON
 VIO_INIT_REASON = mp.VIO_INIT_REASON
 
 
@@ -544,6 +545,9 @@ class MightyClient:
                     "memory_free_bytes": s.get("memory_free_bytes"),
                     "light_level01": s.get("light_level01"),
                     "light_required01": s.get("light_required01"),
+                    "translation_confidence01": s.get("translation_confidence01"),
+                    "translation_observability01": s.get("translation_observability01"),
+                    "degraded_reason_flags": s.get("degraded_reason_flags"),
                 }
                 self._emit("vio_state", mapped)
                 if wants_any:

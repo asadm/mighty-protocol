@@ -236,7 +236,7 @@ async function main() {
   ])));
 
   device.emitPacket(proto.makePacket(proto.TYPE.VSTA, proto.buildVioStatePayload({
-    version: 4,
+    version: 8,
     state: 2,
     flags: 3,
     timestampNs: 13n,
@@ -250,6 +250,11 @@ async function main() {
     imuHzCurrent: 200,
     imuHzAverage5s: 199,
     initReasonCode: proto.VIO_INIT_REASON.NONE,
+    translationConfidence01: 0.34,
+    translationObservability01: 0.21,
+    degradedReasonFlags:
+      proto.VIO_DEGRADED_REASON.LOW_TRANSLATION_OBSERVABILITY |
+      proto.VIO_DEGRADED_REASON.LOW_PARALLAX_POSE_HOLD,
   })));
 
   device.emitPacket(proto.makePacket(proto.TYPE.LCON, proto.buildConstraintsPayload([
@@ -347,6 +352,13 @@ async function main() {
   assert.strictEqual(seen.imu, 1);
   assert.strictEqual(seen.vsta, 1);
   assert.strictEqual(lastVsta.initReasonCode, proto.VIO_INIT_REASON.NONE);
+  assert.ok(almost(lastVsta.translationConfidence01, 0.34));
+  assert.ok(almost(lastVsta.translationObservability01, 0.21));
+  assert.strictEqual(
+    lastVsta.degradedReasonFlags,
+    proto.VIO_DEGRADED_REASON.LOW_TRANSLATION_OBSERVABILITY |
+      proto.VIO_DEGRADED_REASON.LOW_PARALLAX_POSE_HOLD,
+  );
   assert.strictEqual(seen.pcld, 1);
   assert.ok(Array.isArray(lastPointCloud.points));
   assert.strictEqual(lastPointCloud.points.length, 1);

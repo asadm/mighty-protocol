@@ -84,7 +84,7 @@ SAMPLE = {
         "descriptor": [0.125, -0.25, 0.5, 1.0],
     },
     "vsta": {
-        "version": 4,
+        "version": 8,
         "state": 2,
         "flags": 0x1234,
         "timestamp_ns": 999,
@@ -98,6 +98,19 @@ SAMPLE = {
         "loop_closures": 7,
         "build_version": "Mighty v.20260208-deadbeef",
         "init_reason_code": mp.VIO_INIT_REASON["NONE"],
+        "static_init_reason_code": mp.VIO_INIT_REASON["NONE"],
+        "dynamic_init_reason_code": mp.VIO_INIT_REASON["NONE"],
+        "memory_total_bytes": 1024,
+        "memory_used_bytes": 512,
+        "memory_free_bytes": 256,
+        "light_level01": 0.8,
+        "light_required01": 0.3,
+        "translation_confidence01": 0.34,
+        "translation_observability01": 0.21,
+        "degraded_reason_flags": (
+            mp.VIO_DEGRADED_REASON["LOW_TRANSLATION_OBSERVABILITY"] |
+            mp.VIO_DEGRADED_REASON["LOW_PARALLAX_POSE_HOLD"]
+        ),
     },
 }
 
@@ -151,6 +164,24 @@ def struct_vsta():
                             float(s.get("imu_hz_average_5s", 0.0)))
     if int(s["version"]) >= 4:
         base += struct.pack(">B", int(s.get("init_reason_code", mp.VIO_INIT_REASON["NONE"])) & 0xff)
+    if int(s["version"]) >= 5:
+        base += struct.pack(">BB",
+                            int(s.get("static_init_reason_code", mp.VIO_INIT_REASON["NONE"])) & 0xff,
+                            int(s.get("dynamic_init_reason_code", mp.VIO_INIT_REASON["NONE"])) & 0xff)
+    if int(s["version"]) >= 6:
+        base += struct.pack(">QQQ",
+                            int(s.get("memory_total_bytes", 0)) & 0xffffffffffffffff,
+                            int(s.get("memory_used_bytes", 0)) & 0xffffffffffffffff,
+                            int(s.get("memory_free_bytes", 0)) & 0xffffffffffffffff)
+    if int(s["version"]) >= 7:
+        base += struct.pack(">ff",
+                            float(s.get("light_level01", 1.0)),
+                            float(s.get("light_required01", 1.0)))
+    if int(s["version"]) >= 8:
+        base += struct.pack(">ffI",
+                            float(s.get("translation_confidence01", 1.0)),
+                            float(s.get("translation_observability01", 1.0)),
+                            int(s.get("degraded_reason_flags", 0)) & 0xffffffff)
     return base
 
 def struct_jpg(is_ref):
@@ -331,6 +362,16 @@ def main():
     assert vsta["loop_closures"] == SAMPLE["vsta"]["loop_closures"]
     assert vsta.get("build_version", "") == SAMPLE["vsta"]["build_version"]
     assert vsta["init_reason_code"] == SAMPLE["vsta"]["init_reason_code"]
+    assert vsta["static_init_reason_code"] == SAMPLE["vsta"]["static_init_reason_code"]
+    assert vsta["dynamic_init_reason_code"] == SAMPLE["vsta"]["dynamic_init_reason_code"]
+    assert vsta["memory_total_bytes"] == SAMPLE["vsta"]["memory_total_bytes"]
+    assert vsta["memory_used_bytes"] == SAMPLE["vsta"]["memory_used_bytes"]
+    assert vsta["memory_free_bytes"] == SAMPLE["vsta"]["memory_free_bytes"]
+    assert almost(vsta["light_level01"], SAMPLE["vsta"]["light_level01"], 1e-3)
+    assert almost(vsta["light_required01"], SAMPLE["vsta"]["light_required01"], 1e-3)
+    assert almost(vsta["translation_confidence01"], SAMPLE["vsta"]["translation_confidence01"], 1e-3)
+    assert almost(vsta["translation_observability01"], SAMPLE["vsta"]["translation_observability01"], 1e-3)
+    assert vsta["degraded_reason_flags"] == SAMPLE["vsta"]["degraded_reason_flags"]
     fea3 = mp.decode_fea3_payload(frames[idx]["payload"]); idx += 1
     assert fea3[1]["id"] == 2
     pcld = mp.decode_pcld_payload(frames[idx]["payload"]); idx += 1

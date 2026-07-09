@@ -54,6 +54,15 @@ const VIO_STATE = {
   LOW_LIGHT: 5,
 };
 
+const VIO_DEGRADED_REASON = {
+  LOW_TRACKING: 1 << 0,
+  LOW_TRANSLATION_OBSERVABILITY: 1 << 1,
+  LOW_PARALLAX_POSE_HOLD: 1 << 2,
+  STATIONARY_POSE_HOLD: 1 << 3,
+  HIGH_VELOCITY_LOW_PARALLAX: 1 << 4,
+  INIT_UNCERTAIN: 1 << 5,
+};
+
 const VIO_INIT_REASON = {
   NONE: 0,
   WAITING_FOR_FIRST_IMU: 1,
@@ -598,6 +607,9 @@ function buildVioStatePayload({
   memoryFreeBytes = undefined,
   lightLevel01 = undefined,
   lightRequired01 = undefined,
+  translationConfidence01 = undefined,
+  translationObservability01 = undefined,
+  degradedReasonFlags = undefined,
   buildVersion = "",
 } = {}) {
   const enc = textEncoder || new TextEncoder();
@@ -621,6 +633,12 @@ function buildVioStatePayload({
     (typeof memoryFreeBytes === "number" && Number.isFinite(memoryFreeBytes) && memoryFreeBytes >= 0);
   const hasLightLevel = typeof lightLevel01 === "number" && Number.isFinite(lightLevel01);
   const hasLightRequired = typeof lightRequired01 === "number" && Number.isFinite(lightRequired01);
+  const hasTranslationConfidence =
+    typeof translationConfidence01 === "number" && Number.isFinite(translationConfidence01);
+  const hasTranslationObservability =
+    typeof translationObservability01 === "number" && Number.isFinite(translationObservability01);
+  const hasDegradedReasonFlags =
+    typeof degradedReasonFlags === "number" && Number.isFinite(degradedReasonFlags);
   const toBigUint64 = (value) =>
     typeof value === "bigint" ? value : BigInt(Math.floor(Number(value) || 0));
   let ver = version & 0xff;
@@ -630,13 +648,15 @@ function buildVioStatePayload({
   if ((hasStaticInitReasonCode || hasDynamicInitReasonCode) && ver < 5) ver = 5;
   if ((hasMemoryTotalBytes || hasMemoryUsedBytes || hasMemoryFreeBytes) && ver < 6) ver = 6;
   if ((hasLightLevel || hasLightRequired) && ver < 7) ver = 7;
+  if ((hasTranslationConfidence || hasTranslationObservability || hasDegradedReasonFlags) && ver < 8) ver = 8;
   const buf = new Uint8Array((1 + 1 + 2 + 8 + 4 + 4 + 4 + 4 + 4 + 4) +
     (ver >= 2 ? (1 + buildLen) : 0) +
     (ver >= 3 ? (4 + 4) : 0) +
     (ver >= 4 ? 1 : 0) +
     (ver >= 5 ? 2 : 0) +
     (ver >= 6 ? (8 + 8 + 8) : 0) +
-    (ver >= 7 ? (4 + 4) : 0));
+    (ver >= 7 ? (4 + 4) : 0) +
+    (ver >= 8 ? (4 + 4 + 4) : 0));
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   let off = 0;
   dv.setUint8(off, ver); off += 1;
@@ -675,6 +695,11 @@ function buildVioStatePayload({
   if (ver >= 7) {
     dv.setFloat32(off, hasLightLevel ? Number(lightLevel01) : 1.0, false); off += 4;
     dv.setFloat32(off, hasLightRequired ? Number(lightRequired01) : 1.0, false); off += 4;
+  }
+  if (ver >= 8) {
+    dv.setFloat32(off, hasTranslationConfidence ? Number(translationConfidence01) : 1.0, false); off += 4;
+    dv.setFloat32(off, hasTranslationObservability ? Number(translationObservability01) : 1.0, false); off += 4;
+    dv.setUint32(off, hasDegradedReasonFlags ? (Number(degradedReasonFlags) >>> 0) : 0, false); off += 4;
   }
   return fromU8(buf);
 }
@@ -1133,6 +1158,14 @@ function decodeVioStatePayload(payload) {
     lightLevel01 = dv.getFloat32(off, false); off += 4;
     lightRequired01 = dv.getFloat32(off, false); off += 4;
   }
+  let translationConfidence01 = 1.0;
+  let translationObservability01 = 1.0;
+  let degradedReasonFlags = 0;
+  if (version >= 8 && off + 12 <= u8.length) {
+    translationConfidence01 = dv.getFloat32(off, false); off += 4;
+    translationObservability01 = dv.getFloat32(off, false); off += 4;
+    degradedReasonFlags = dv.getUint32(off, false); off += 4;
+  }
   return {
     version,
     state,
@@ -1155,6 +1188,9 @@ function decodeVioStatePayload(payload) {
     memoryFreeBytes,
     lightLevel01,
     lightRequired01,
+    translationConfidence01,
+    translationObservability01,
+    degradedReasonFlags,
   };
 }
 
@@ -1302,6 +1338,7 @@ const api = {
   RAW_FORMAT,
   CONFIG_OP,
   VIO_STATE,
+  VIO_DEGRADED_REASON,
   VIO_INIT_REASON,
   HEADER_MAGIC,
   FOOTER_MAGIC,
@@ -1353,6 +1390,7 @@ export {
   RAW_FORMAT,
   CONFIG_OP,
   VIO_STATE,
+  VIO_DEGRADED_REASON,
   VIO_INIT_REASON,
   HEADER_MAGIC,
   FOOTER_MAGIC,

@@ -1,4 +1,4 @@
-from .client import MightyClient, VIO_STATE, VIO_INIT_REASON
+from .client import MightyClient, VIO_STATE, VIO_DEGRADED_REASON, VIO_INIT_REASON
 from .loopclosure import LoopClosureError, NativeLoopClosure
 from .web_device import MightyWebDevice
 
@@ -8,5 +8,6 @@ __all__ = [
     "MightyWebDevice",
     "NativeLoopClosure",
     "VIO_STATE",
+    "VIO_DEGRADED_REASON",
     "VIO_INIT_REASON",
 ]

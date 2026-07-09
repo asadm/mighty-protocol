@@ -68,8 +68,12 @@ def build_imu_payload(samples):
 
 
 def build_vsta_payload():
+    degraded_reason_flags = (
+        mp.VIO_DEGRADED_REASON["LOW_TRANSLATION_OBSERVABILITY"] |
+        mp.VIO_DEGRADED_REASON["LOW_PARALLAX_POSE_HOLD"]
+    )
     return b"".join([
-        struct.pack(">B", 4),
+        struct.pack(">B", 8),
         struct.pack(">B", 2),
         struct.pack(">H", 1),
         struct.pack(">Q", 123),
@@ -83,6 +87,16 @@ def build_vsta_payload():
         struct.pack(">f", 200.0),
         struct.pack(">f", 199.0),
         struct.pack(">B", mp.VIO_INIT_REASON["NONE"]),
+        struct.pack(">B", mp.VIO_INIT_REASON["NONE"]),
+        struct.pack(">B", mp.VIO_INIT_REASON["NONE"]),
+        struct.pack(">Q", 1024),
+        struct.pack(">Q", 512),
+        struct.pack(">Q", 256),
+        struct.pack(">f", 0.8),
+        struct.pack(">f", 0.3),
+        struct.pack(">f", 0.34),
+        struct.pack(">f", 0.21),
+        struct.pack(">I", degraded_reason_flags),
     ])
 
 
@@ -264,11 +278,12 @@ def main():
             "any": 0,
         }
         last_pose = {"value": None}
+        last_vsta = {"value": None}
 
         client.on_image(lambda _: seen.__setitem__("image", seen["image"] + 1))
         client.on_pose(lambda p: (seen.__setitem__("pose", seen["pose"] + 1), last_pose.__setitem__("value", p)))
         client.on_imu(lambda _: seen.__setitem__("imu", seen["imu"] + 1))
-        client.on_vio_state(lambda _: seen.__setitem__("vsta", seen["vsta"] + 1))
+        client.on_vio_state(lambda v: (seen.__setitem__("vsta", seen["vsta"] + 1), last_vsta.__setitem__("value", v)))
         client.on_status(lambda _: seen.__setitem__("status", seen["status"] + 1))
         client.on_reset(lambda _: seen.__setitem__("reset", seen["reset"] + 1))
         client.on_any(lambda _: seen.__setitem__("any", seen["any"] + 1))
@@ -280,6 +295,13 @@ def main():
         assert seen["pose"] >= 1
         assert seen["imu"] >= 1
         assert seen["vsta"] >= 1
+        assert last_vsta["value"] is not None
+        assert abs(float(last_vsta["value"]["translation_confidence01"]) - 0.34) < 1e-3
+        assert abs(float(last_vsta["value"]["translation_observability01"]) - 0.21) < 1e-3
+        assert int(last_vsta["value"]["degraded_reason_flags"]) == (
+            mp.VIO_DEGRADED_REASON["LOW_TRANSLATION_OBSERVABILITY"] |
+            mp.VIO_DEGRADED_REASON["LOW_PARALLAX_POSE_HOLD"]
+        )
         assert seen["status"] >= 1
         assert seen["reset"] >= 1
         assert last_pose["value"] is not None

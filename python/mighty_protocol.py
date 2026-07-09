@@ -43,6 +43,15 @@ VIO_STATE = {
     "LOW_LIGHT": 5,
 }
 
+VIO_DEGRADED_REASON = {
+    "LOW_TRACKING": 1 << 0,
+    "LOW_TRANSLATION_OBSERVABILITY": 1 << 1,
+    "LOW_PARALLAX_POSE_HOLD": 1 << 2,
+    "STATIONARY_POSE_HOLD": 1 << 3,
+    "HIGH_VELOCITY_LOW_PARALLAX": 1 << 4,
+    "INIT_UNCERTAIN": 1 << 5,
+}
+
 VIO_INIT_REASON = {
     "NONE": 0,
     "WAITING_FOR_FIRST_IMU": 1,
@@ -498,6 +507,9 @@ def decode_vio_state_payload(payload: bytes):
     memory_free_bytes = 0
     light_level01 = 1.0
     light_required01 = 1.0
+    translation_confidence01 = 1.0
+    translation_observability01 = 1.0
+    degraded_reason_flags = 0
     if version >= 2 and off < len(payload):
         ll = payload[off]; off += 1
         if ll > 0:
@@ -520,6 +532,10 @@ def decode_vio_state_payload(payload: bytes):
     if version >= 7 and off + 8 <= len(payload):
         light_level01 = struct.unpack(">f", payload[off:off+4])[0]; off += 4
         light_required01 = struct.unpack(">f", payload[off:off+4])[0]; off += 4
+    if version >= 8 and off + 12 <= len(payload):
+        translation_confidence01 = struct.unpack(">f", payload[off:off+4])[0]; off += 4
+        translation_observability01 = struct.unpack(">f", payload[off:off+4])[0]; off += 4
+        degraded_reason_flags = struct.unpack(">I", payload[off:off+4])[0]; off += 4
     return {
         "version": version,
         "state": state,
@@ -542,6 +558,9 @@ def decode_vio_state_payload(payload: bytes):
         "memory_free_bytes": memory_free_bytes,
         "light_level01": light_level01,
         "light_required01": light_required01,
+        "translation_confidence01": translation_confidence01,
+        "translation_observability01": translation_observability01,
+        "degraded_reason_flags": degraded_reason_flags,
     }
 
 def decode_fea3_payload(payload: bytes):

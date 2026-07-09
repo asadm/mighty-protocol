@@ -7,6 +7,7 @@ import {
 import { toU8, encodeText, decodeText, sleep, isAbortError } from "./utils.js";
 
 export const VIO_STATE = protocol.VIO_STATE;
+export const VIO_DEGRADED_REASON = protocol.VIO_DEGRADED_REASON;
 export const VIO_INIT_REASON = protocol.VIO_INIT_REASON;
 
 const DEFAULT_OPTS = {
@@ -379,10 +380,10 @@ export class MightyClient {
         wasmOptions.wasmUrl = this.opts.loopclosureWasmUrl;
       }
 
-      const module = options.module
+      const wasmModule = options.module
         || this.opts.loopclosureWasmModule
         || await createLoopClosureWasmModule(wasmOptions);
-      const loopclosure = new NativeLoopClosureWasm(module, {
+      const loopclosure = new NativeLoopClosureWasm(wasmModule, {
         onEvent: (event) => this._handleLoopclosureEvent(event),
       });
       const calibration = options.calibrationYaml ?? this.opts.loopclosureCalibrationYaml;
@@ -767,6 +768,9 @@ export class MightyClient {
             memoryFreeBytes: s.version >= 6 ? s.memoryFreeBytes : undefined,
             lightLevel01: s.version >= 7 ? s.lightLevel01 : undefined,
             lightRequired01: s.version >= 7 ? s.lightRequired01 : undefined,
+            translationConfidence01: s.version >= 8 ? s.translationConfidence01 : undefined,
+            translationObservability01: s.version >= 8 ? s.translationObservability01 : undefined,
+            degradedReasonFlags: s.version >= 8 ? s.degradedReasonFlags : undefined,
           };
           this._emit("vio_state", mapped);
           if (wantsAny) this._emitAny({ type: "vio_state", data: mapped });

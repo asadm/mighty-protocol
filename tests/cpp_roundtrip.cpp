@@ -132,7 +132,7 @@ struct SampleData {
   ConfigResponse cfgr{};
 
   SampleData() {
-    vsta.version = 4;
+    vsta.version = 8;
     vsta.state = 2;
     vsta.flags = 0x1234;
     vsta.timestamp_ns = 999;
@@ -146,6 +146,17 @@ struct SampleData {
     vsta.loop_closures = 7;
     vsta.build_version = "Mighty v.20260208-deadbeef";
     vsta.init_reason_code = static_cast<uint8_t>(VioInitReasonCode::kNone);
+    vsta.static_init_reason_code = static_cast<uint8_t>(VioInitReasonCode::kNone);
+    vsta.dynamic_init_reason_code = static_cast<uint8_t>(VioInitReasonCode::kNone);
+    vsta.memory_total_bytes = 1024;
+    vsta.memory_used_bytes = 512;
+    vsta.memory_free_bytes = 256;
+    vsta.light_level01 = 0.8f;
+    vsta.light_required01 = 0.3f;
+    vsta.translation_confidence01 = 0.34f;
+    vsta.translation_observability01 = 0.21f;
+    vsta.degraded_reason_flags =
+        kDegradedLowTranslationObservability | kDegradedLowParallaxPoseHold;
 
     keyframe.timestamp_ns = 123456789;
     keyframe.descriptor = {0.125f, -0.25f, 0.5f, 1.0f};
@@ -308,7 +319,17 @@ bool verify_frame(const Frame& f, int index, const SampleData& s) {
            out.num_features == s.vsta.num_features &&
            out.loop_closures == s.vsta.loop_closures &&
            out.build_version == s.vsta.build_version &&
-           out.init_reason_code == s.vsta.init_reason_code;
+           out.init_reason_code == s.vsta.init_reason_code &&
+           out.static_init_reason_code == s.vsta.static_init_reason_code &&
+           out.dynamic_init_reason_code == s.vsta.dynamic_init_reason_code &&
+           out.memory_total_bytes == s.vsta.memory_total_bytes &&
+           out.memory_used_bytes == s.vsta.memory_used_bytes &&
+           out.memory_free_bytes == s.vsta.memory_free_bytes &&
+           approx(out.light_level01, s.vsta.light_level01, 1e-3) &&
+           approx(out.light_required01, s.vsta.light_required01, 1e-3) &&
+           approx(out.translation_confidence01, s.vsta.translation_confidence01, 1e-3) &&
+           approx(out.translation_observability01, s.vsta.translation_observability01, 1e-3) &&
+           out.degraded_reason_flags == s.vsta.degraded_reason_flags;
   }
   if (type_str == "FEA3") {
     std::vector<Feature3D> out;

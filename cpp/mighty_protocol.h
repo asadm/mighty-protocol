@@ -317,6 +317,15 @@ enum class VioStateCode : uint8_t {
   kLowLight = 5,
 };
 
+enum VioDegradedReason : uint32_t {
+  kDegradedLowTracking = 1u << 0,
+  kDegradedLowTranslationObservability = 1u << 1,
+  kDegradedLowParallaxPoseHold = 1u << 2,
+  kDegradedStationaryPoseHold = 1u << 3,
+  kDegradedHighVelocityLowParallax = 1u << 4,
+  kDegradedInitUncertain = 1u << 5,
+};
+
 enum class VioInitReasonCode : uint8_t {
   kNone = 0,
   kWaitingForFirstImu = 1,
@@ -389,6 +398,11 @@ struct VioState {
   // Version 7+ appends:
   //   f32 light_level01     (producer-defined raw image-quality actual value)
   //   f32 light_required01  (producer-defined raw requirement/limit value)
+  //
+  // Version 8+ appends:
+  //   f32 translation_confidence01
+  //   f32 translation_observability01
+  //   u32 degraded_reason_flags
   uint8_t version = 1;
   uint8_t state = 0;
   uint16_t flags = 0;
@@ -410,6 +424,9 @@ struct VioState {
   uint64_t memory_free_bytes = 0;
   float light_level01 = 1.0f;
   float light_required01 = 1.0f;
+  float translation_confidence01 = 1.0f;
+  float translation_observability01 = 1.0f;
+  uint32_t degraded_reason_flags = 0;
 };
 
 // --------------------------------------------------------------------------
@@ -778,6 +795,7 @@ inline std::vector<uint8_t> build_vio_state_payload(const VioState& s) {
   const bool include_split_init_reasons = (s.version >= 5);
   const bool include_memory = (s.version >= 6);
   const bool include_light = (s.version >= 7);
+  const bool include_translation_confidence = (s.version >= 8);
   const uint8_t build_len = static_cast<uint8_t>(std::min<size_t>(255, s.build_version.size()));
   std::vector<uint8_t> payload;
   payload.resize(1 + 1 + 2 + 8 + 4 + 4 + 4 + 4 + 4 + 4 +
@@ -786,7 +804,8 @@ inline std::vector<uint8_t> build_vio_state_payload(const VioState& s) {
                  (include_init_reason ? 1 : 0) +
                  (include_split_init_reasons ? 2 : 0) +
                  (include_memory ? (8 + 8 + 8) : 0) +
-                 (include_light ? (4 + 4) : 0));
+                 (include_light ? (4 + 4) : 0) +
+                 (include_translation_confidence ? (4 + 4 + 4) : 0));
   size_t off = 0;
   payload[off++] = s.version;
   payload[off++] = s.state;
@@ -825,6 +844,11 @@ inline std::vector<uint8_t> build_vio_state_payload(const VioState& s) {
   if (include_light) {
     write_f32_be(payload.data() + off, s.light_level01); off += 4;
     write_f32_be(payload.data() + off, s.light_required01); off += 4;
+  }
+  if (include_translation_confidence) {
+    write_f32_be(payload.data() + off, s.translation_confidence01); off += 4;
+    write_f32_be(payload.data() + off, s.translation_observability01); off += 4;
+    write_u32_be(payload.data() + off, s.degraded_reason_flags); off += 4;
   }
   return payload;
 }
@@ -1458,6 +1482,13 @@ inline bool decode_vio_state_payload(const std::vector<uint8_t>& payload, VioSta
   if (out.version >= 7 && payload.size() >= off + 8) {
     rd_f32(out.light_level01);
     rd_f32(out.light_required01);
+  }
+  if (out.version >= 8 && payload.size() >= off + 12) {
+    rd_f32(out.translation_confidence01);
+    rd_f32(out.translation_observability01);
+    out.degraded_reason_flags = 0;
+    for (int i = 0; i < 4; ++i) out.degraded_reason_flags = (out.degraded_reason_flags << 8) | payload[off + i];
+    off += 4;
   }
   return true;
 }

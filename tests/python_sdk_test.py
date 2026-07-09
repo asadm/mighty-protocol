@@ -67,8 +67,12 @@ def build_imu_payload(samples):
 
 
 def build_vsta_payload():
+    degraded_reason_flags = (
+        mp.VIO_DEGRADED_REASON["LOW_TRANSLATION_OBSERVABILITY"] |
+        mp.VIO_DEGRADED_REASON["LOW_PARALLAX_POSE_HOLD"]
+    )
     return b"".join([
-        struct.pack(">B", 4),              # version
+        struct.pack(">B", 8),              # version
         struct.pack(">B", 2),              # state
         struct.pack(">H", 3),              # flags
         struct.pack(">Q", 13),             # timestamp_ns
@@ -82,6 +86,16 @@ def build_vsta_payload():
         struct.pack(">f", 200.0),          # imu_hz_current
         struct.pack(">f", 199.0),          # imu_hz_average_5s
         struct.pack(">B", mp.VIO_INIT_REASON["NONE"]),  # init_reason_code
+        struct.pack(">B", mp.VIO_INIT_REASON["NONE"]),  # static_init_reason_code
+        struct.pack(">B", mp.VIO_INIT_REASON["NONE"]),  # dynamic_init_reason_code
+        struct.pack(">Q", 1024),           # memory_total_bytes
+        struct.pack(">Q", 512),            # memory_used_bytes
+        struct.pack(">Q", 256),            # memory_free_bytes
+        struct.pack(">f", 0.8),            # light_level01
+        struct.pack(">f", 0.3),            # light_required01
+        struct.pack(">f", 0.34),           # translation_confidence01
+        struct.pack(">f", 0.21),           # translation_observability01
+        struct.pack(">I", degraded_reason_flags),
     ])
 
 
@@ -265,6 +279,12 @@ def main():
     assert seen["imu"] == 1
     assert seen["vsta"] == 1
     assert int(last["vsta"]["init_reason_code"]) == mp.VIO_INIT_REASON["NONE"]
+    assert abs(float(last["vsta"]["translation_confidence01"]) - 0.34) < 1e-3
+    assert abs(float(last["vsta"]["translation_observability01"]) - 0.21) < 1e-3
+    assert int(last["vsta"]["degraded_reason_flags"]) == (
+        mp.VIO_DEGRADED_REASON["LOW_TRANSLATION_OBSERVABILITY"] |
+        mp.VIO_DEGRADED_REASON["LOW_PARALLAX_POSE_HOLD"]
+    )
     assert seen["lcon"] == 1
     assert seen["keyframe"] == 1
     assert last["keyframe"]["timestamp_ns"] == 14

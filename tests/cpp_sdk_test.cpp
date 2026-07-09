@@ -295,7 +295,7 @@ int main() {
   device->emit_packet(make_packet(build_imu_payload(imu), TYPE_IMU));
 
   VioState vsta;
-  vsta.version = 4;
+  vsta.version = 8;
   vsta.state = 2;
   vsta.flags = 3;
   vsta.timestamp_ns = 13;
@@ -309,6 +309,17 @@ int main() {
   vsta.imu_hz_current = 200.0f;
   vsta.imu_hz_average_5s = 199.0f;
   vsta.init_reason_code = static_cast<uint8_t>(VioInitReasonCode::kNone);
+  vsta.static_init_reason_code = static_cast<uint8_t>(VioInitReasonCode::kNone);
+  vsta.dynamic_init_reason_code = static_cast<uint8_t>(VioInitReasonCode::kNone);
+  vsta.memory_total_bytes = 1024;
+  vsta.memory_used_bytes = 512;
+  vsta.memory_free_bytes = 256;
+  vsta.light_level01 = 0.8f;
+  vsta.light_required01 = 0.3f;
+  vsta.translation_confidence01 = 0.34f;
+  vsta.translation_observability01 = 0.21f;
+  vsta.degraded_reason_flags =
+      kDegradedLowTranslationObservability | kDegradedLowParallaxPoseHold;
   device->emit_packet(make_packet(build_vio_state_payload(vsta), TYPE_VSTA));
 
   PoseConstraintSegment seg;
@@ -366,6 +377,13 @@ int main() {
   assert(last_vsta.has_value());
   assert(last_vsta->init_reason_code == static_cast<uint8_t>(VioInitReasonCode::kNone));
   assert(last_vsta->init_reason == VioInitReasonCode::kNone);
+  assert(last_vsta->translation_confidence01.has_value());
+  assert(last_vsta->translation_observability01.has_value());
+  assert(last_vsta->degraded_reason_flags.has_value());
+  assert(approx(last_vsta->translation_confidence01.value(), 0.34f, 1e-3));
+  assert(approx(last_vsta->translation_observability01.value(), 0.21f, 1e-3));
+  assert(last_vsta->degraded_reason_flags.value() ==
+         (kDegradedLowTranslationObservability | kDegradedLowParallaxPoseHold));
   assert(seen.lcon.load() == 1);
   assert(seen.keyframe.load() == 1);
   assert(last_keyframe.has_value());

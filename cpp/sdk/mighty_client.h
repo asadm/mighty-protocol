@@ -113,6 +113,9 @@ struct VioStateFrame {
   std::optional<uint64_t> memory_free_bytes;
   std::optional<float> light_level01;
   std::optional<float> light_required01;
+  std::optional<float> translation_confidence01;
+  std::optional<float> translation_observability01;
+  std::optional<uint32_t> degraded_reason_flags;
   VioInitReasonCode init_reason = VioInitReasonCode::kNone;
 };
 
@@ -918,6 +921,15 @@ class MightyClient {
           if (std::isfinite(raw.light_required01)) {
             evt.light_required01 = raw.light_required01;
           }
+        }
+        if (raw.version >= 8) {
+          if (std::isfinite(raw.translation_confidence01)) {
+            evt.translation_confidence01 = raw.translation_confidence01;
+          }
+          if (std::isfinite(raw.translation_observability01)) {
+            evt.translation_observability01 = raw.translation_observability01;
+          }
+          evt.degraded_reason_flags = raw.degraded_reason_flags;
         }
         evt.init_reason = static_cast<VioInitReasonCode>(raw.init_reason_code);
         emit(vio_state_handlers_, evt);
