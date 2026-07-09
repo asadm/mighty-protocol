@@ -99,7 +99,7 @@ int main() {
   vsta.translation_observability01 = 0.21f;
   vsta.degraded_reason_flags =
       kDegradedLowTranslationObservability | kDegradedLowParallaxPoseHold |
-      kStaticTranslationConstrained;
+      kStaticTranslationConstrained | kRotationOnly3Dof;
 
   std::vector<std::vector<uint8_t>> packets;
   packets.push_back(make_packet(nullptr, 0, TYPE_RSET));
@@ -319,7 +319,7 @@ int main() {
     assert(approx(last_vsta->translation_observability01.value(), 0.21f, 1e-3));
     assert(last_vsta->degraded_reason_flags.value() ==
            (kDegradedLowTranslationObservability | kDegradedLowParallaxPoseHold |
-            kStaticTranslationConstrained));
+            kStaticTranslationConstrained | kRotationOnly3Dof));
     assert(seen.status.load() >= 1);
     assert(seen.reset.load() >= 1);
     assert(last_pose.has_value());

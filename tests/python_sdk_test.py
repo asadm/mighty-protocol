@@ -70,7 +70,8 @@ def build_vsta_payload():
     degraded_reason_flags = (
         mp.VIO_DEGRADED_REASON["LOW_TRANSLATION_OBSERVABILITY"] |
         mp.VIO_DEGRADED_REASON["LOW_PARALLAX_POSE_HOLD"] |
-        mp.VIO_DEGRADED_REASON["STATIC_TRANSLATION_CONSTRAINED"]
+        mp.VIO_DEGRADED_REASON["STATIC_TRANSLATION_CONSTRAINED"] |
+        mp.VIO_DEGRADED_REASON["ROTATION_ONLY_3DOF"]
     )
     return b"".join([
         struct.pack(">B", 8),              # version
@@ -285,7 +286,8 @@ def main():
     assert int(last["vsta"]["degraded_reason_flags"]) == (
         mp.VIO_DEGRADED_REASON["LOW_TRANSLATION_OBSERVABILITY"] |
         mp.VIO_DEGRADED_REASON["LOW_PARALLAX_POSE_HOLD"] |
-        mp.VIO_DEGRADED_REASON["STATIC_TRANSLATION_CONSTRAINED"]
+        mp.VIO_DEGRADED_REASON["STATIC_TRANSLATION_CONSTRAINED"] |
+        mp.VIO_DEGRADED_REASON["ROTATION_ONLY_3DOF"]
     )
     assert seen["lcon"] == 1
     assert seen["keyframe"] == 1

@@ -325,6 +325,7 @@ enum VioDegradedReason : uint32_t {
   kDegradedHighVelocityLowParallax = 1u << 4,
   kDegradedInitUncertain = 1u << 5,
   kStaticTranslationConstrained = 1u << 6,
+  kRotationOnly3Dof = 1u << 7,
 };
 
 enum class VioInitReasonCode : uint8_t {
