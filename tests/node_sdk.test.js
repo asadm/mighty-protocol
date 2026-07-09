@@ -254,7 +254,8 @@ async function main() {
     translationObservability01: 0.21,
     degradedReasonFlags:
       proto.VIO_DEGRADED_REASON.LOW_TRANSLATION_OBSERVABILITY |
-      proto.VIO_DEGRADED_REASON.LOW_PARALLAX_POSE_HOLD,
+      proto.VIO_DEGRADED_REASON.LOW_PARALLAX_POSE_HOLD |
+      proto.VIO_DEGRADED_REASON.STATIC_TRANSLATION_CONSTRAINED,
   })));
 
   device.emitPacket(proto.makePacket(proto.TYPE.LCON, proto.buildConstraintsPayload([
@@ -357,7 +358,8 @@ async function main() {
   assert.strictEqual(
     lastVsta.degradedReasonFlags,
     proto.VIO_DEGRADED_REASON.LOW_TRANSLATION_OBSERVABILITY |
-      proto.VIO_DEGRADED_REASON.LOW_PARALLAX_POSE_HOLD,
+      proto.VIO_DEGRADED_REASON.LOW_PARALLAX_POSE_HOLD |
+      proto.VIO_DEGRADED_REASON.STATIC_TRANSLATION_CONSTRAINED,
   );
   assert.strictEqual(seen.pcld, 1);
   assert.ok(Array.isArray(lastPointCloud.points));

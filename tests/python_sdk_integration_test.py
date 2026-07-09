@@ -70,7 +70,8 @@ def build_imu_payload(samples):
 def build_vsta_payload():
     degraded_reason_flags = (
         mp.VIO_DEGRADED_REASON["LOW_TRANSLATION_OBSERVABILITY"] |
-        mp.VIO_DEGRADED_REASON["LOW_PARALLAX_POSE_HOLD"]
+        mp.VIO_DEGRADED_REASON["LOW_PARALLAX_POSE_HOLD"] |
+        mp.VIO_DEGRADED_REASON["STATIC_TRANSLATION_CONSTRAINED"]
     )
     return b"".join([
         struct.pack(">B", 8),
@@ -300,7 +301,8 @@ def main():
         assert abs(float(last_vsta["value"]["translation_observability01"]) - 0.21) < 1e-3
         assert int(last_vsta["value"]["degraded_reason_flags"]) == (
             mp.VIO_DEGRADED_REASON["LOW_TRANSLATION_OBSERVABILITY"] |
-            mp.VIO_DEGRADED_REASON["LOW_PARALLAX_POSE_HOLD"]
+            mp.VIO_DEGRADED_REASON["LOW_PARALLAX_POSE_HOLD"] |
+            mp.VIO_DEGRADED_REASON["STATIC_TRANSLATION_CONSTRAINED"]
         )
         assert seen["status"] >= 1
         assert seen["reset"] >= 1

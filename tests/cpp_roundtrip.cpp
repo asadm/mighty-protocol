@@ -156,7 +156,8 @@ struct SampleData {
     vsta.translation_confidence01 = 0.34f;
     vsta.translation_observability01 = 0.21f;
     vsta.degraded_reason_flags =
-        kDegradedLowTranslationObservability | kDegradedLowParallaxPoseHold;
+        kDegradedLowTranslationObservability | kDegradedLowParallaxPoseHold |
+        kStaticTranslationConstrained;
 
     keyframe.timestamp_ns = 123456789;
     keyframe.descriptor = {0.125f, -0.25f, 0.5f, 1.0f};

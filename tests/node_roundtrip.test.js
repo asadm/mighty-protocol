@@ -124,7 +124,8 @@ const SAMPLE = {
     translationObservability01: 0.21,
     degradedReasonFlags:
       proto.VIO_DEGRADED_REASON.LOW_TRANSLATION_OBSERVABILITY |
-      proto.VIO_DEGRADED_REASON.LOW_PARALLAX_POSE_HOLD,
+      proto.VIO_DEGRADED_REASON.LOW_PARALLAX_POSE_HOLD |
+      proto.VIO_DEGRADED_REASON.STATIC_TRANSLATION_CONSTRAINED,
   },
   cfgq: {
     version: 1,
@@ -554,7 +555,7 @@ async function runFuzzTests() {
         ...(version >= 8 ? {
           translationConfidence01: Math.random(),
           translationObservability01: Math.random(),
-          degradedReasonFlags: proto.VIO_DEGRADED_REASON.LOW_TRANSLATION_OBSERVABILITY,
+          degradedReasonFlags: proto.VIO_DEGRADED_REASON.STATIC_TRANSLATION_CONSTRAINED,
         } : {}),
 	    });
 	  }

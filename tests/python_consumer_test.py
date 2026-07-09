@@ -109,7 +109,8 @@ SAMPLE = {
         "translation_observability01": 0.21,
         "degraded_reason_flags": (
             mp.VIO_DEGRADED_REASON["LOW_TRANSLATION_OBSERVABILITY"] |
-            mp.VIO_DEGRADED_REASON["LOW_PARALLAX_POSE_HOLD"]
+            mp.VIO_DEGRADED_REASON["LOW_PARALLAX_POSE_HOLD"] |
+            mp.VIO_DEGRADED_REASON["STATIC_TRANSLATION_CONSTRAINED"]
         ),
     },
 }

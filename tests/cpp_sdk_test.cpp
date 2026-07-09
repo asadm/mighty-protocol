@@ -319,7 +319,8 @@ int main() {
   vsta.translation_confidence01 = 0.34f;
   vsta.translation_observability01 = 0.21f;
   vsta.degraded_reason_flags =
-      kDegradedLowTranslationObservability | kDegradedLowParallaxPoseHold;
+      kDegradedLowTranslationObservability | kDegradedLowParallaxPoseHold |
+      kStaticTranslationConstrained;
   device->emit_packet(make_packet(build_vio_state_payload(vsta), TYPE_VSTA));
 
   PoseConstraintSegment seg;
@@ -383,7 +384,8 @@ int main() {
   assert(approx(last_vsta->translation_confidence01.value(), 0.34f, 1e-3));
   assert(approx(last_vsta->translation_observability01.value(), 0.21f, 1e-3));
   assert(last_vsta->degraded_reason_flags.value() ==
-         (kDegradedLowTranslationObservability | kDegradedLowParallaxPoseHold));
+         (kDegradedLowTranslationObservability | kDegradedLowParallaxPoseHold |
+          kStaticTranslationConstrained));
   assert(seen.lcon.load() == 1);
   assert(seen.keyframe.load() == 1);
   assert(last_keyframe.has_value());
