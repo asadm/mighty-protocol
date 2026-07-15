@@ -22,6 +22,7 @@ const DEFAULT_OPTS = {
   loopclosureCalibrationYaml: "",
   loopclosureWasmModule: null,
   loopclosureWasmOptions: null,
+  loopclosureFailOpen: false,
 };
 
 const EVENT_KEYS = [
@@ -124,7 +125,13 @@ export class MightyClient {
 
   async connect() {
     if (this._running) return;
-    if (this.opts.loopclosure && !this._loopclosure) await this.enableLoopclosureWasm();
+    if (this.opts.loopclosure && !this._loopclosure) {
+      try {
+        await this.enableLoopclosureWasm();
+      } catch (err) {
+        if (!this.opts.loopclosureFailOpen) throw err;
+      }
+    }
     this._running = true;
     this._loopTask = this._runTransportLoop();
     if (this._loopclosure) {
@@ -414,12 +421,20 @@ export class MightyClient {
     if (err) err._mightyLoopclosureLogged = true;
     const wasmUrl = err?.wasmUrl || this.opts.loopclosureWasmUrl || DEFAULT_LOOPCLOSURE_WASM_URL;
     if (typeof console !== "undefined" && typeof console.error === "function") {
-      console.error(
-        `Mighty SDK loop closure could not load ${wasmUrl}. ` +
-        `Put mighty_loopclosure_device.wasm at ${DEFAULT_LOOPCLOSURE_WASM_URL}, ` +
-        "or pass loopclosureWasmUrl with the URL where your app serves it.",
-        err
-      );
+      if (err?.code === "loopclosure_wasm_not_found" || err?.code === "loopclosure_module_not_found") {
+        console.error(
+          `Mighty SDK loop closure could not load ${wasmUrl}. ` +
+          `Put mighty_loopclosure_device.wasm at ${DEFAULT_LOOPCLOSURE_WASM_URL}, ` +
+          "or pass loopclosureWasmUrl with the URL where your app serves it.",
+          err
+        );
+      } else {
+        console.error(
+          `Mighty SDK loop closure could not initialize ${wasmUrl}. ` +
+          "The JavaScript loader and WASM binary may be incompatible, or the module is missing required exports.",
+          err
+        );
+      }
     }
   }
 

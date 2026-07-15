@@ -152,6 +152,67 @@ class MockDevice {
   }
 }
 
+async function testLoopclosureConnectFailurePolicy() {
+  const originalConsoleError = console.error;
+  console.error = () => {};
+
+  try {
+    const strictDevice = new MockDevice();
+    const strictErrors = [];
+    const strictClient = new proto.MightyClient(strictDevice, {
+      autoReconnect: false,
+      loopclosure: true,
+      loopclosureWasmModule: {},
+    });
+    strictClient.onError((error) => strictErrors.push(error));
+
+    await assert.rejects(strictClient.connect(), /_malloc/);
+    assert.strictEqual(strictDevice._connected, false);
+    assert.strictEqual(strictClient.isConnected(), false);
+    assert.strictEqual(strictErrors.length, 1);
+    assert.strictEqual(strictErrors[0].scope, "loopclosure");
+    assert.strictEqual(strictErrors[0].code, "initialize_failed");
+    await strictClient.disconnect();
+
+    const failOpenDevice = new MockDevice();
+    const failOpenErrors = [];
+    let statuses = 0;
+    const failOpenClient = new proto.MightyClient(failOpenDevice, {
+      autoReconnect: false,
+      loopclosure: true,
+      loopclosureWasmModule: {},
+      loopclosureFailOpen: true,
+    });
+    failOpenClient.onError((error) => failOpenErrors.push(error));
+    failOpenClient.onStatus(() => { statuses += 1; });
+
+    await failOpenClient.connect();
+    assert.strictEqual(failOpenDevice._connected, true);
+    assert.strictEqual(failOpenClient.isConnected(), true);
+    assert.strictEqual(failOpenErrors.length, 1);
+    assert.strictEqual(failOpenErrors[0].scope, "loopclosure");
+    assert.strictEqual(failOpenErrors[0].code, "initialize_failed");
+    assert.ok(failOpenErrors[0].cause instanceof TypeError);
+    assert.match(failOpenErrors[0].cause.message, /_malloc/);
+    assert.strictEqual(failOpenClient._loopclosure, null);
+
+    failOpenDevice.emitPacket(proto.makePacket(
+      proto.TYPE.STAT,
+      proto.buildStatusPayload("still connected"),
+    ));
+    await sleep(5);
+    assert.strictEqual(statuses, 1);
+
+    const result = await failOpenClient.startVio();
+    assert.strictEqual(result.ok, true);
+
+    await failOpenClient.disconnect();
+    assert.strictEqual(failOpenClient.isConnected(), false);
+  } finally {
+    console.error = originalConsoleError;
+  }
+}
+
 async function main() {
   assert.strictEqual(typeof proto.MightyClient, "function");
   assert.strictEqual(typeof proto.MightyWebDevice, "function");
@@ -418,6 +479,8 @@ async function main() {
 
   await client.disconnect();
   assert.strictEqual(client.isConnected(), false);
+
+  await testLoopclosureConnectFailurePolicy();
 
   console.log("Node SDK client test passed");
 }
