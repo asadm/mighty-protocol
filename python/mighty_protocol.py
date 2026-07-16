@@ -54,6 +54,8 @@ VIO_DEGRADED_REASON = {
     "ROTATION_ONLY_3DOF": 1 << 7,
 }
 
+KEYFRAME_FLAG_LOCAL_FEATURES = 1 << 0
+
 VIO_INIT_REASON = {
     "NONE": 0,
     "WAITING_FOR_FIRST_IMU": 1,
@@ -449,8 +451,14 @@ def build_keyframe_payload(timestamp_ns: int,
                            descriptor,
                            flags: int = 0,
                            version: int = 1,
-                           descriptor_type: int = 1) -> bytes:
+                           descriptor_type: int = 1,
+                           image_width: int = 0,
+                           image_height: int = 0,
+                           features=None,
+                           feature_descriptor_dim: int = 0,
+                           feature_descriptor_type: int = 1) -> bytes:
     values = list(descriptor or [])
+    feature_values = list(features or [])
     header = struct.pack(
         ">BBHQI",
         int(version) & 0xFF,
@@ -459,15 +467,66 @@ def build_keyframe_payload(timestamp_ns: int,
         int(timestamp_ns) & 0xFFFFFFFFFFFFFFFF,
         len(values) & 0xFFFFFFFF,
     )
-    if not values:
-        return header
-    return header + struct.pack(">" + "f" * len(values), *[float(v) for v in values])
+    global_bytes = (
+        struct.pack(">" + "f" * len(values), *[float(v) for v in values])
+        if values else b""
+    )
+    if int(version) == 1:
+        return header + global_bytes
+    if int(version) != 2:
+        raise ValueError(f"unsupported KEYF version {version}")
+    if int(descriptor_type) != 1:
+        raise ValueError(f"unsupported KEYF descriptor type {descriptor_type}")
+    if int(feature_descriptor_type) != 1:
+        raise ValueError(
+            f"unsupported KEYF feature descriptor type {feature_descriptor_type}")
+
+    def feature_field(feature, name, default=None):
+        if isinstance(feature, dict):
+            return feature.get(name, default)
+        return getattr(feature, name, default)
+
+    local_dim = int(feature_descriptor_dim or 0)
+    if local_dim == 0 and feature_values:
+        local_dim = len(list(feature_field(feature_values[0], "descriptor", []) or []))
+    if local_dim < 0 or local_dim > 0xFFFF:
+        raise ValueError("KEYF feature descriptor dimension exceeds u16")
+    if len(feature_values) > 0xFFFFFFFF:
+        raise ValueError("KEYF feature count exceeds u32")
+
+    extension = struct.pack(
+        ">IIIHBB",
+        int(image_width) & 0xFFFFFFFF,
+        int(image_height) & 0xFFFFFFFF,
+        len(feature_values),
+        local_dim,
+        int(feature_descriptor_type) & 0xFF,
+        0,
+    )
+    records = bytearray()
+    for feature in feature_values:
+        local_descriptor = list(feature_field(feature, "descriptor", []) or [])
+        local_descriptor = local_descriptor[:local_dim]
+        if len(local_descriptor) < local_dim:
+            local_descriptor.extend([0.0] * (local_dim - len(local_descriptor)))
+        records.extend(struct.pack(
+            ">fff",
+            float(feature_field(feature, "x", 0.0)),
+            float(feature_field(feature, "y", 0.0)),
+            float(feature_field(feature, "score", 0.0)),
+        ))
+        if local_descriptor:
+            records.extend(struct.pack(
+                ">" + "f" * local_dim,
+                *[float(value) for value in local_descriptor],
+            ))
+    return header + global_bytes + extension + bytes(records)
 
 def decode_keyframe_payload(payload: bytes):
     if len(payload) < 16:
         raise ValueError("payload too short")
     version, descriptor_type, flags, timestamp_ns, dim = struct.unpack(">BBHQI", payload[:16])
-    if version != 1:
+    if version not in (1, 2):
         raise ValueError(f"unsupported KEYF version {version}")
     if descriptor_type != 1:
         raise ValueError(f"unsupported KEYF descriptor type {descriptor_type}")
@@ -475,14 +534,58 @@ def decode_keyframe_payload(payload: bytes):
     if len(payload) < need:
         raise ValueError("KEYF descriptor truncated")
     descriptor = list(struct.unpack(">" + "f" * dim, payload[16:need])) if dim else []
-    return {
+    decoded = {
         "version": version,
         "descriptor_type": descriptor_type,
         "flags": flags,
         "timestamp_ns": timestamp_ns,
         "descriptor_dim": dim,
         "descriptor": descriptor,
+        "image_width": 0,
+        "image_height": 0,
+        "feature_count": 0,
+        "feature_descriptor_dim": 0,
+        "feature_descriptor_type": 1,
+        "features": [],
     }
+    if version == 1:
+        return decoded
+
+    extension_size = struct.calcsize(">IIIHBB")
+    if len(payload) < need + extension_size:
+        raise ValueError("KEYF v2 extension truncated")
+    image_width, image_height, feature_count, local_dim, local_type, _reserved = \
+        struct.unpack_from(">IIIHBB", payload, need)
+    if local_type != 1:
+        raise ValueError(f"unsupported KEYF feature descriptor type {local_type}")
+    off = need + extension_size
+    stride = 12 + local_dim * 4
+    if feature_count > (len(payload) - off) // stride:
+        raise ValueError("KEYF feature records truncated")
+    features = []
+    for _ in range(feature_count):
+        x, y, score = struct.unpack_from(">fff", payload, off)
+        off += 12
+        local_descriptor = (
+            list(struct.unpack_from(">" + "f" * local_dim, payload, off))
+            if local_dim else []
+        )
+        off += local_dim * 4
+        features.append({
+            "x": x,
+            "y": y,
+            "score": score,
+            "descriptor": local_descriptor,
+        })
+    decoded.update({
+        "image_width": image_width,
+        "image_height": image_height,
+        "feature_count": feature_count,
+        "feature_descriptor_dim": local_dim,
+        "feature_descriptor_type": local_type,
+        "features": features,
+    })
+    return decoded
 
 def decode_vio_state_payload(payload: bytes):
     if len(payload) < 1+1+2+8+4+4+4+4+4+4:

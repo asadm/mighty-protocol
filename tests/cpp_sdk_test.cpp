@@ -330,7 +330,16 @@ int main() {
   std::vector<PoseConstraintSegment> segs = {seg};
   device->emit_packet(make_packet(build_constraints_payload(segs), TYPE_LCON));
 
-  device->emit_packet(make_packet(build_keyframe_payload(14, std::vector<float>{0.25f, -0.5f, 1.0f}), TYPE_KEYF));
+  KeyframeDescriptor keyframe;
+  keyframe.version = 2;
+  keyframe.flags = KEYFRAME_FLAG_LOCAL_FEATURES;
+  keyframe.timestamp_ns = 14;
+  keyframe.descriptor = {0.25f, -0.5f, 1.0f};
+  keyframe.image_width = 640;
+  keyframe.image_height = 400;
+  keyframe.feature_descriptor_dim = 2;
+  keyframe.features = {{22.5f, 380.0f, 0.8f, {0.1f, -0.2f}}};
+  device->emit_packet(make_packet(build_keyframe_payload(keyframe), TYPE_KEYF));
 
   device->emit_packet(make_packet(build_status_payload("hello"), TYPE_STAT));
   device->emit_packet(make_packet(nullptr, 0, TYPE_RSET));
@@ -392,6 +401,13 @@ int main() {
   assert(last_keyframe->timestamp_ns == 14);
   assert(last_keyframe->descriptor.size() == 3);
   assert(approx(last_keyframe->descriptor[1], -0.5));
+  assert(last_keyframe->version == 2);
+  assert(last_keyframe->image_width == 640);
+  assert(last_keyframe->image_height == 400);
+  assert(last_keyframe->feature_descriptor_dim == 2);
+  assert(last_keyframe->features.size() == 1);
+  assert(approx(last_keyframe->features[0].y, 380.0));
+  assert(approx(last_keyframe->features[0].score, 0.8));
   assert(seen.status.load() == 1);
   assert(seen.reset.load() == 1);
 

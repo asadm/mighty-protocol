@@ -80,8 +80,17 @@ SAMPLE = {
         "point_size": 1.5,
     },
     "keyframe": {
+        "version": 2,
+        "flags": 1,
         "timestamp_ns": 123456789,
         "descriptor": [0.125, -0.25, 0.5, 1.0],
+        "image_width": 640,
+        "image_height": 400,
+        "feature_descriptor_dim": 3,
+        "features": [
+            {"x": 12.5, "y": 34.25, "score": 0.9, "descriptor": [0.1, 0.2, 0.3]},
+            {"x": 620.0, "y": 390.0, "score": 0.75, "descriptor": [-0.4, 0.5, 0.6]},
+        ],
     },
     "vsta": {
         "version": 8,
@@ -140,6 +149,12 @@ def build_packets():
     pkts.append(mp.make_packet(mp.TYPE["KEYF"], mp.build_keyframe_payload(
         SAMPLE["keyframe"]["timestamp_ns"],
         SAMPLE["keyframe"]["descriptor"],
+        flags=SAMPLE["keyframe"]["flags"],
+        version=SAMPLE["keyframe"]["version"],
+        image_width=SAMPLE["keyframe"]["image_width"],
+        image_height=SAMPLE["keyframe"]["image_height"],
+        features=SAMPLE["keyframe"]["features"],
+        feature_descriptor_dim=SAMPLE["keyframe"]["feature_descriptor_dim"],
     )))
     return pkts
 
@@ -382,6 +397,13 @@ def main():
     assert keyf["timestamp_ns"] == SAMPLE["keyframe"]["timestamp_ns"]
     assert keyf["descriptor_dim"] == len(SAMPLE["keyframe"]["descriptor"])
     assert almost(keyf["descriptor"][2], SAMPLE["keyframe"]["descriptor"][2], 1e-6)
+    assert keyf["version"] == 2
+    assert keyf["image_width"] == SAMPLE["keyframe"]["image_width"]
+    assert keyf["image_height"] == SAMPLE["keyframe"]["image_height"]
+    assert keyf["feature_descriptor_dim"] == SAMPLE["keyframe"]["feature_descriptor_dim"]
+    assert keyf["feature_count"] == len(SAMPLE["keyframe"]["features"])
+    assert almost(keyf["features"][1]["x"], SAMPLE["keyframe"]["features"][1]["x"], 1e-6)
+    assert almost(keyf["features"][0]["score"], SAMPLE["keyframe"]["features"][0]["score"], 1e-6)
 
     # Dispatcher sanity
     from dispatcher import FrameDispatcher

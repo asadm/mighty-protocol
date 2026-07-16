@@ -138,6 +138,11 @@ struct KeyframeEvent {
   uint16_t flags = 0;
   uint64_t timestamp_ns = 0;
   std::vector<float> descriptor;
+  uint32_t image_width = 0;
+  uint32_t image_height = 0;
+  uint16_t feature_descriptor_dim = 0;
+  uint8_t feature_descriptor_type = 1;
+  std::vector<KeyframeFeature> features;
 };
 
 struct LoopClosureEvent {
@@ -989,6 +994,11 @@ class MightyClient {
         evt.flags = decoded.flags;
         evt.timestamp_ns = decoded.timestamp_ns;
         evt.descriptor = std::move(decoded.descriptor);
+        evt.image_width = decoded.image_width;
+        evt.image_height = decoded.image_height;
+        evt.feature_descriptor_dim = decoded.feature_descriptor_dim;
+        evt.feature_descriptor_type = decoded.feature_descriptor_type;
+        evt.features = std::move(decoded.features);
         push_loopclosure_keyframe(evt);
         emit(keyframe_handlers_, evt);
         if (wants_any) emit_any(AnyEvent{"keyframe", "", {}});

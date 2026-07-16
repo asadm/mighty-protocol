@@ -596,6 +596,12 @@ class MightyClient:
                     "descriptor_type": k.get("descriptor_type", 0),
                     "flags": k.get("flags", 0),
                     "version": k.get("version", 0),
+                    "image_width": k.get("image_width", 0),
+                    "image_height": k.get("image_height", 0),
+                    "feature_count": k.get("feature_count", 0),
+                    "feature_descriptor_dim": k.get("feature_descriptor_dim", 0),
+                    "feature_descriptor_type": k.get("feature_descriptor_type", 1),
+                    "features": k.get("features", []),
                 }
                 self._push_loopclosure_keyframe(mapped)
                 self._emit("keyframe", mapped)

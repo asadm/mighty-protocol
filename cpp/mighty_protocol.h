@@ -9,6 +9,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace mighty_protocol {
@@ -230,12 +231,28 @@ struct Point3DColor {
   uint8_t r, g, b;
 };
 
+inline constexpr uint16_t KEYFRAME_FLAG_LOCAL_FEATURES = 1u << 0;
+
+struct KeyframeFeature {
+  float x = 0.0f;
+  float y = 0.0f;
+  float score = 0.0f;
+  std::vector<float> descriptor;
+};
+
 struct KeyframeDescriptor {
   uint8_t version = 1;
   uint8_t descriptor_type = 1; // 1 = float32 descriptor
   uint16_t flags = 0;
   uint64_t timestamp_ns = 0;
   std::vector<float> descriptor;
+  // Version 2 fields. Coordinates are pixels in the original image, not the
+  // model's resized input image.
+  uint32_t image_width = 0;
+  uint32_t image_height = 0;
+  uint16_t feature_descriptor_dim = 0;
+  uint8_t feature_descriptor_type = 1; // 1 = float32 descriptor
+  std::vector<KeyframeFeature> features;
 };
 
 struct VizFeature {
@@ -787,7 +804,81 @@ inline std::vector<uint8_t> build_keyframe_payload(uint64_t timestamp_ns,
 }
 
 inline std::vector<uint8_t> build_keyframe_payload(const KeyframeDescriptor& keyframe) {
-  return build_keyframe_payload(keyframe.timestamp_ns, keyframe.descriptor, keyframe.flags);
+  if (keyframe.version == 1) {
+    return build_keyframe_payload(
+        keyframe.timestamp_ns, keyframe.descriptor, keyframe.flags);
+  }
+  if (keyframe.version != 2 || keyframe.descriptor_type != 1 ||
+      keyframe.feature_descriptor_type != 1 ||
+      keyframe.descriptor.size() > std::numeric_limits<uint32_t>::max() ||
+      keyframe.features.size() > std::numeric_limits<uint32_t>::max()) {
+    return {};
+  }
+
+  uint16_t feature_dim = keyframe.feature_descriptor_dim;
+  if (feature_dim == 0 && !keyframe.features.empty()) {
+    feature_dim = static_cast<uint16_t>(std::min<size_t>(
+        std::numeric_limits<uint16_t>::max(),
+        keyframe.features.front().descriptor.size()));
+  }
+
+  if (keyframe.descriptor.size() >
+      std::numeric_limits<size_t>::max() / sizeof(float)) {
+    return {};
+  }
+  const size_t descriptor_bytes = keyframe.descriptor.size() * sizeof(float);
+  const size_t feature_stride = 3 * sizeof(float) +
+                                static_cast<size_t>(feature_dim) * sizeof(float);
+  constexpr size_t kV1HeaderBytes = 1 + 1 + 2 + 8 + 4;
+  constexpr size_t kV2ExtensionHeaderBytes = 4 + 4 + 4 + 2 + 1 + 1;
+  if (descriptor_bytes > std::numeric_limits<size_t>::max() -
+                             kV1HeaderBytes - kV2ExtensionHeaderBytes) {
+    return {};
+  }
+  if (keyframe.features.size() >
+      (std::numeric_limits<size_t>::max() - kV1HeaderBytes -
+       kV2ExtensionHeaderBytes - descriptor_bytes) / feature_stride) {
+    return {};
+  }
+
+  std::vector<uint8_t> payload;
+  payload.resize(kV1HeaderBytes + descriptor_bytes + kV2ExtensionHeaderBytes +
+                 keyframe.features.size() * feature_stride);
+  size_t off = 0;
+  payload[off++] = 2;
+  payload[off++] = keyframe.descriptor_type;
+  payload[off++] = static_cast<uint8_t>((keyframe.flags >> 8) & 0xFF);
+  payload[off++] = static_cast<uint8_t>(keyframe.flags & 0xFF);
+  write_u64_be(payload.data() + off, keyframe.timestamp_ns); off += 8;
+  write_u32_be(payload.data() + off,
+               static_cast<uint32_t>(keyframe.descriptor.size()));
+  off += 4;
+  for (float value : keyframe.descriptor) {
+    write_f32_be(payload.data() + off, value);
+    off += 4;
+  }
+  write_u32_be(payload.data() + off, keyframe.image_width); off += 4;
+  write_u32_be(payload.data() + off, keyframe.image_height); off += 4;
+  write_u32_be(payload.data() + off,
+               static_cast<uint32_t>(keyframe.features.size()));
+  off += 4;
+  payload[off++] = static_cast<uint8_t>((feature_dim >> 8) & 0xFF);
+  payload[off++] = static_cast<uint8_t>(feature_dim & 0xFF);
+  payload[off++] = keyframe.feature_descriptor_type;
+  payload[off++] = 0; // reserved
+  for (const KeyframeFeature& feature : keyframe.features) {
+    write_f32_be(payload.data() + off, feature.x); off += 4;
+    write_f32_be(payload.data() + off, feature.y); off += 4;
+    write_f32_be(payload.data() + off, feature.score); off += 4;
+    for (size_t i = 0; i < feature_dim; ++i) {
+      const float value = i < feature.descriptor.size()
+                              ? feature.descriptor[i]
+                              : 0.0f;
+      write_f32_be(payload.data() + off, value);
+      off += 4;
+    }
+  }
+  return payload;
 }
 
 inline std::vector<uint8_t> build_vio_state_payload(const VioState& s) {
@@ -1376,31 +1467,66 @@ inline bool decode_keyframe_payload(const std::vector<uint8_t>& payload,
                                     KeyframeDescriptor& out) {
   if (payload.size() < 16) return false;
   size_t off = 0;
-  out.version = payload[off++];
-  out.descriptor_type = payload[off++];
-  out.flags = (static_cast<uint16_t>(payload[off]) << 8) | payload[off + 1];
+  KeyframeDescriptor decoded;
+  decoded.version = payload[off++];
+  decoded.descriptor_type = payload[off++];
+  decoded.flags = (static_cast<uint16_t>(payload[off]) << 8) | payload[off + 1];
   off += 2;
-  out.timestamp_ns = 0;
-  for (int k = 0; k < 8; ++k) out.timestamp_ns = (out.timestamp_ns << 8) | payload[off++];
-  uint32_t dim = (static_cast<uint32_t>(payload[off]) << 24) |
-                 (static_cast<uint32_t>(payload[off + 1]) << 16) |
-                 (static_cast<uint32_t>(payload[off + 2]) << 8) |
-                 static_cast<uint32_t>(payload[off + 3]);
+  decoded.timestamp_ns = 0;
+  for (int k = 0; k < 8; ++k) {
+    decoded.timestamp_ns = (decoded.timestamp_ns << 8) | payload[off++];
+  }
+  const uint32_t dim = read_u32_be(payload.data() + off);
   off += 4;
-  if (out.version != 1 || out.descriptor_type != 1) return false;
-  if (payload.size() < off + static_cast<size_t>(dim) * 4) return false;
-  out.descriptor.clear();
-  out.descriptor.reserve(dim);
+  if ((decoded.version != 1 && decoded.version != 2) ||
+      decoded.descriptor_type != 1) {
+    return false;
+  }
+  if (static_cast<size_t>(dim) > (payload.size() - off) / sizeof(float)) {
+    return false;
+  }
+  decoded.descriptor.reserve(dim);
   for (uint32_t i = 0; i < dim; ++i) {
-    uint32_t raw = (static_cast<uint32_t>(payload[off]) << 24) |
-                   (static_cast<uint32_t>(payload[off + 1]) << 16) |
-                   (static_cast<uint32_t>(payload[off + 2]) << 8) |
-                   static_cast<uint32_t>(payload[off + 3]);
-    float value = 0.0f;
-    std::memcpy(&value, &raw, sizeof(float));
-    out.descriptor.push_back(value);
+    decoded.descriptor.push_back(read_f32_be(payload.data() + off));
     off += 4;
   }
+
+  if (decoded.version == 1) {
+    out = std::move(decoded);
+    return true;
+  }
+
+  constexpr size_t kV2ExtensionHeaderBytes = 4 + 4 + 4 + 2 + 1 + 1;
+  if (payload.size() - off < kV2ExtensionHeaderBytes) return false;
+  decoded.image_width = read_u32_be(payload.data() + off); off += 4;
+  decoded.image_height = read_u32_be(payload.data() + off); off += 4;
+  const uint32_t feature_count = read_u32_be(payload.data() + off); off += 4;
+  decoded.feature_descriptor_dim = read_u16_be(payload.data() + off); off += 2;
+  decoded.feature_descriptor_type = payload[off++];
+  ++off; // reserved
+  if (decoded.feature_descriptor_type != 1) return false;
+
+  const size_t descriptor_bytes =
+      static_cast<size_t>(decoded.feature_descriptor_dim) * sizeof(float);
+  const size_t feature_stride = 3 * sizeof(float) + descriptor_bytes;
+  if (static_cast<size_t>(feature_count) >
+      (payload.size() - off) / feature_stride) {
+    return false;
+  }
+  decoded.features.reserve(feature_count);
+  for (uint32_t i = 0; i < feature_count; ++i) {
+    KeyframeFeature feature;
+    feature.x = read_f32_be(payload.data() + off); off += 4;
+    feature.y = read_f32_be(payload.data() + off); off += 4;
+    feature.score = read_f32_be(payload.data() + off); off += 4;
+    feature.descriptor.reserve(decoded.feature_descriptor_dim);
+    for (uint16_t j = 0; j < decoded.feature_descriptor_dim; ++j) {
+      feature.descriptor.push_back(read_f32_be(payload.data() + off));
+      off += 4;
+    }
+    decoded.features.push_back(std::move(feature));
+  }
+  out = std::move(decoded);
   return true;
 }
 

@@ -95,8 +95,17 @@ const SAMPLE = {
     pointSize: 1.5,
   },
   keyframe: {
+    version: 2,
+    flags: proto.KEYFRAME_FLAG_LOCAL_FEATURES,
     timestampNs: 123456789n,
     descriptor: [0.125, -0.25, 0.5, 1.0],
+    imageWidth: 640,
+    imageHeight: 400,
+    featureDescriptorDim: 3,
+    features: [
+      { x: 12.5, y: 34.25, score: 0.9, descriptor: [0.1, 0.2, 0.3] },
+      { x: 620, y: 390, score: 0.75, descriptor: [-0.4, 0.5, 0.6] },
+    ],
   },
   vsta: {
     version: 8,
@@ -364,6 +373,19 @@ function verifyFrame(frame, index) {
       assert.strictEqual(res.timestampNs, SAMPLE.keyframe.timestampNs);
       assert.strictEqual(res.descriptorDim, SAMPLE.keyframe.descriptor.length);
       Array.from(res.descriptor).forEach((v, i) => assert(almost(v, SAMPLE.keyframe.descriptor[i], 1e-6)));
+      assert.strictEqual(res.version, 2);
+      assert.strictEqual(res.imageWidth, SAMPLE.keyframe.imageWidth);
+      assert.strictEqual(res.imageHeight, SAMPLE.keyframe.imageHeight);
+      assert.strictEqual(res.featureDescriptorDim, SAMPLE.keyframe.featureDescriptorDim);
+      assert.strictEqual(res.featureCount, SAMPLE.keyframe.features.length);
+      res.features.forEach((feature, i) => {
+        const expected = SAMPLE.keyframe.features[i];
+        assert(almost(feature.x, expected.x, 1e-6));
+        assert(almost(feature.y, expected.y, 1e-6));
+        assert(almost(feature.score, expected.score, 1e-6));
+        Array.from(feature.descriptor).forEach((v, j) =>
+          assert(almost(v, expected.descriptor[j], 1e-6)));
+      });
       break;
     }
     case proto.TYPE.CFGQ: {

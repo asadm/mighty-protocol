@@ -173,17 +173,37 @@ Version 5 appends:
 
 ### 3.5 Keyframe Descriptor (`KEYF`)
 
-`KEYF` carries the timestamp and learned descriptor for a VIO keyframe. The
-producer emits one packet only after the descriptor has been computed.
+`KEYF` carries learned global and local descriptors for a VIO keyframe. The
+producer emits one packet only after all descriptors for that version have
+been computed.
 
-Payload layout, big-endian:
+The version 1 prefix remains unchanged, big-endian:
 
-- `version` (u8), currently `1`
+- `version` (u8), `1` or `2`
 - `descriptor_type` (u8), currently `1` for float32
-- `flags` (u16), currently `0`
+- `flags` (u16); bit 0 means local features are present
 - `timestamp_ns` (u64), matching the VIO/image timestamp of the keyframe
 - `descriptor_dim` (u32)
-- `descriptor` (`f32[descriptor_dim]`)
+- `descriptor` (`f32[descriptor_dim]`), the global CosPlace descriptor
+
+Version 2 appends:
+
+- `image_width` (u32), original keyframe width
+- `image_height` (u32), original keyframe height
+- `feature_count` (u32)
+- `feature_descriptor_dim` (u16)
+- `feature_descriptor_type` (u8), currently `1` for float32
+- `reserved` (u8), currently `0`
+- `features` (`feature_count` records), each containing:
+  - `x` (f32), x coordinate in original-image pixels
+  - `y` (f32), y coordinate in original-image pixels
+  - `score` (f32), producer-defined XFeat detection/ranking score
+  - `descriptor` (`f32[feature_descriptor_dim]`), the local XFeat descriptor
+
+Coordinates are mapped back from the model input to the original image. A
+version 2 consumer can therefore use them directly with the source keyframe;
+it must not apply the XFeat resize scale again. Version 1 remains valid for
+global-descriptor-only producers and fallback behavior.
 
 Version 6 appends:
 - `memory_total_bytes` (u64)

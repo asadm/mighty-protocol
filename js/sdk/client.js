@@ -838,6 +838,12 @@ export class MightyClient {
             descriptorType: k.descriptorType,
             flags: k.flags,
             version: k.version,
+            imageWidth: k.imageWidth,
+            imageHeight: k.imageHeight,
+            featureCount: k.featureCount,
+            featureDescriptorDim: k.featureDescriptorDim,
+            featureDescriptorType: k.featureDescriptorType,
+            features: k.features,
           };
           this._pushLoopclosureKeyframe(mapped);
           this._emit("keyframe", mapped);

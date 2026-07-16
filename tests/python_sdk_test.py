@@ -268,6 +268,14 @@ def main():
     device.emit_packet(mp.make_packet(mp.TYPE["KEYF"], mp.build_keyframe_payload(
         14,
         [0.25, -0.5, 1.0],
+        flags=1,
+        version=2,
+        image_width=640,
+        image_height=400,
+        feature_descriptor_dim=2,
+        features=[
+            {"x": 22.5, "y": 380.0, "score": 0.8, "descriptor": [0.1, -0.2]},
+        ],
     )))
 
     device.emit_packet(mp.make_packet(mp.TYPE["STAT"], b"hello"))
@@ -294,6 +302,13 @@ def main():
     assert last["keyframe"]["timestamp_ns"] == 14
     assert last["keyframe"]["descriptor_dim"] == 3
     assert abs(float(last["keyframe"]["descriptor"][1]) + 0.5) < 1e-6
+    assert last["keyframe"]["version"] == 2
+    assert last["keyframe"]["image_width"] == 640
+    assert last["keyframe"]["image_height"] == 400
+    assert last["keyframe"]["feature_count"] == 1
+    assert last["keyframe"]["feature_descriptor_dim"] == 2
+    assert abs(float(last["keyframe"]["features"][0]["y"]) - 380.0) < 1e-6
+    assert abs(float(last["keyframe"]["features"][0]["score"]) - 0.8) < 1e-6
     assert seen["status"] == 1
     assert seen["reset"] == 1
     assert last["image"]["kind"] == "raw"

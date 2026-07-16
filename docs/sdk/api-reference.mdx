@@ -203,13 +203,26 @@ type VizEvent =
 `onKeyframe`:
 
 ```ts
+type KeyframeFeature = {
+  x: number; // original-image pixels
+  y: number; // original-image pixels
+  score: number;
+  descriptor: Float32Array;
+};
+
 type KeyframeEvent = {
   timestampNs: bigint;
-  descriptor: Float32Array;
+  descriptor: Float32Array; // global CosPlace descriptor
   descriptorDim: number;
   descriptorType: number; // 1 = float32
   flags: number;
-  version: number;
+  version: 1 | 2;
+  imageWidth: number; // 0 for version 1
+  imageHeight: number; // 0 for version 1
+  featureCount: number; // 0 for version 1
+  featureDescriptorDim: number; // 0 for version 1
+  featureDescriptorType: number; // 1 = float32
+  features: KeyframeFeature[]; // empty for version 1
 };
 ```
 

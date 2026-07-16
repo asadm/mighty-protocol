@@ -327,8 +327,16 @@ async function main() {
     { x: 1, y: 2, z: 3, r: 10, g: 20, b: 30 },
   ], 0.01)));
   device.emitPacket(proto.makePacket(proto.TYPE.KEYF, proto.buildKeyframePayload({
+    version: 2,
+    flags: proto.KEYFRAME_FLAG_LOCAL_FEATURES,
     timestampNs: 14n,
     descriptor: [0.25, -0.5, 1.0],
+    imageWidth: 640,
+    imageHeight: 400,
+    featureDescriptorDim: 2,
+    features: [
+      { x: 22.5, y: 380, score: 0.8, descriptor: [0.1, -0.2] },
+    ],
   })));
   device.emitPacket(proto.makePacket(proto.TYPE.STAT, proto.buildStatusPayload("hello")));
   device.emitPacket(proto.makePacket(proto.TYPE.RSET));
@@ -432,6 +440,13 @@ async function main() {
   assert.strictEqual(lastKeyframe.timestampNs, 14n);
   assert.strictEqual(lastKeyframe.descriptorDim, 3);
   assert.ok(almost(lastKeyframe.descriptor[1], -0.5));
+  assert.strictEqual(lastKeyframe.version, 2);
+  assert.strictEqual(lastKeyframe.imageWidth, 640);
+  assert.strictEqual(lastKeyframe.imageHeight, 400);
+  assert.strictEqual(lastKeyframe.featureCount, 1);
+  assert.strictEqual(lastKeyframe.featureDescriptorDim, 2);
+  assert.ok(almost(lastKeyframe.features[0].y, 380));
+  assert.ok(almost(lastKeyframe.features[0].score, 0.8));
   assert.strictEqual(seen.status, 1);
   assert.strictEqual(seen.reset, 1);
   assert.ok(seen.any >= 10);

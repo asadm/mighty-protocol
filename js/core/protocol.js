@@ -65,6 +65,8 @@ const VIO_DEGRADED_REASON = {
   ROTATION_ONLY_3DOF: 1 << 7,
 };
 
+const KEYFRAME_FLAG_LOCAL_FEATURES = 1 << 0;
+
 const VIO_INIT_REASON = {
   NONE: 0,
   WAITING_FOR_FIRST_IMU: 1,
@@ -569,10 +571,39 @@ function buildKeyframePayload({
   flags = 0,
   version = 1,
   descriptorType = 1,
+  imageWidth = 0,
+  imageHeight = 0,
+  features = [],
+  featureDescriptorDim = 0,
+  featureDescriptorType = 1,
 } = {}) {
   const values = descriptor instanceof Float32Array ? descriptor : Array.from(descriptor || []);
   const dim = values.length >>> 0;
-  const buf = new Uint8Array(1 + 1 + 2 + 8 + 4 + dim * 4);
+  const localFeatures = Array.from(features || []);
+  let localDim = Number(featureDescriptorDim || 0);
+  if (localDim === 0 && localFeatures.length > 0) {
+    localDim = Array.from(localFeatures[0]?.descriptor || []).length;
+  }
+  if (!Number.isInteger(localDim) || localDim < 0 || localDim > 0xffff) {
+    throw new Error("KEYF feature descriptor dimension exceeds u16");
+  }
+  if (version !== 1 && version !== 2) {
+    throw new Error(`unsupported KEYF version ${version}`);
+  }
+  if (descriptorType !== 1) {
+    throw new Error(`unsupported KEYF descriptor type ${descriptorType}`);
+  }
+  if (version === 2 && featureDescriptorType !== 1) {
+    throw new Error(`unsupported KEYF feature descriptor type ${featureDescriptorType}`);
+  }
+  const extensionBytes = version === 2 ? 16 : 0;
+  const featureStride = 12 + localDim * 4;
+  const featureBytes = version === 2 ? localFeatures.length * featureStride : 0;
+  const byteLength = 1 + 1 + 2 + 8 + 4 + dim * 4 + extensionBytes + featureBytes;
+  if (!Number.isSafeInteger(byteLength) || byteLength > MAX_PAYLOAD_BYTES) {
+    throw new Error("KEYF payload exceeds protocol limit");
+  }
+  const buf = new Uint8Array(byteLength);
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   let off = 0;
   dv.setUint8(off, version & 0xff); off += 1;
@@ -584,6 +615,28 @@ function buildKeyframePayload({
     const v = Number(values[i]);
     dv.setFloat32(off, Number.isFinite(v) ? v : 0, false);
     off += 4;
+  }
+  if (version === 2) {
+    dv.setUint32(off, Number(imageWidth) >>> 0, false); off += 4;
+    dv.setUint32(off, Number(imageHeight) >>> 0, false); off += 4;
+    dv.setUint32(off, localFeatures.length >>> 0, false); off += 4;
+    dv.setUint16(off, localDim, false); off += 2;
+    dv.setUint8(off, featureDescriptorType & 0xff); off += 1;
+    dv.setUint8(off, 0); off += 1;
+    for (const feature of localFeatures) {
+      const x = Number(feature?.x);
+      const y = Number(feature?.y);
+      const score = Number(feature?.score);
+      dv.setFloat32(off, Number.isFinite(x) ? x : 0, false); off += 4;
+      dv.setFloat32(off, Number.isFinite(y) ? y : 0, false); off += 4;
+      dv.setFloat32(off, Number.isFinite(score) ? score : 0, false); off += 4;
+      const localDescriptor = Array.from(feature?.descriptor || []);
+      for (let i = 0; i < localDim; i += 1) {
+        const value = Number(localDescriptor[i] ?? 0);
+        dv.setFloat32(off, Number.isFinite(value) ? value : 0, false);
+        off += 4;
+      }
+    }
   }
   return fromU8(buf);
 }
@@ -1092,15 +1145,64 @@ function decodeKeyframePayload(payload) {
   const flags = readU16BE(u8, off); off += 2;
   const timestampNs = readBigU64BE(u8, off); off += 8;
   const descriptorDim = readU32BE(u8, off); off += 4;
-  if (version !== 1) throw new Error(`unsupported KEYF version ${version}`);
+  if (version !== 1 && version !== 2) throw new Error(`unsupported KEYF version ${version}`);
   if (descriptorType !== 1) throw new Error(`unsupported KEYF descriptor type ${descriptorType}`);
-  if (u8.length < off + descriptorDim * 4) throw new Error("KEYF descriptor truncated");
+  if (descriptorDim > Math.floor((u8.length - off) / 4)) throw new Error("KEYF descriptor truncated");
   const descriptor = new Float32Array(descriptorDim);
   for (let i = 0; i < descriptorDim; i += 1) {
     descriptor[i] = readF32BE(u8, off);
     off += 4;
   }
-  return { version, descriptorType, flags, timestampNs, descriptorDim, descriptor };
+  const decoded = {
+    version,
+    descriptorType,
+    flags,
+    timestampNs,
+    descriptorDim,
+    descriptor,
+    imageWidth: 0,
+    imageHeight: 0,
+    featureCount: 0,
+    featureDescriptorDim: 0,
+    featureDescriptorType: 1,
+    features: [],
+  };
+  if (version === 1) return decoded;
+  if (u8.length < off + 16) throw new Error("KEYF v2 extension truncated");
+  const imageWidth = readU32BE(u8, off); off += 4;
+  const imageHeight = readU32BE(u8, off); off += 4;
+  const featureCount = readU32BE(u8, off); off += 4;
+  const featureDescriptorDim = readU16BE(u8, off); off += 2;
+  const featureDescriptorType = readU8(u8, off); off += 1;
+  off += 1; // reserved
+  if (featureDescriptorType !== 1) {
+    throw new Error(`unsupported KEYF feature descriptor type ${featureDescriptorType}`);
+  }
+  const featureStride = 12 + featureDescriptorDim * 4;
+  if (featureCount > Math.floor((u8.length - off) / featureStride)) {
+    throw new Error("KEYF feature records truncated");
+  }
+  const features = new Array(featureCount);
+  for (let i = 0; i < featureCount; i += 1) {
+    const x = readF32BE(u8, off); off += 4;
+    const y = readF32BE(u8, off); off += 4;
+    const score = readF32BE(u8, off); off += 4;
+    const localDescriptor = new Float32Array(featureDescriptorDim);
+    for (let j = 0; j < featureDescriptorDim; j += 1) {
+      localDescriptor[j] = readF32BE(u8, off);
+      off += 4;
+    }
+    features[i] = { x, y, score, descriptor: localDescriptor };
+  }
+  return {
+    ...decoded,
+    imageWidth,
+    imageHeight,
+    featureCount,
+    featureDescriptorDim,
+    featureDescriptorType,
+    features,
+  };
 }
 
 function decodeVioStatePayload(payload) {
@@ -1342,6 +1444,7 @@ const api = {
   VIO_STATE,
   VIO_DEGRADED_REASON,
   VIO_INIT_REASON,
+  KEYFRAME_FLAG_LOCAL_FEATURES,
   HEADER_MAGIC,
   FOOTER_MAGIC,
   makePacket,
@@ -1394,6 +1497,7 @@ export {
   VIO_STATE,
   VIO_DEGRADED_REASON,
   VIO_INIT_REASON,
+  KEYFRAME_FLAG_LOCAL_FEATURES,
   HEADER_MAGIC,
   FOOTER_MAGIC,
   makePacket,

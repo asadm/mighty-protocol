@@ -160,7 +160,16 @@ struct SampleData {
         kStaticTranslationConstrained | kRotationOnly3Dof;
 
     keyframe.timestamp_ns = 123456789;
+    keyframe.version = 2;
+    keyframe.flags = KEYFRAME_FLAG_LOCAL_FEATURES;
     keyframe.descriptor = {0.125f, -0.25f, 0.5f, 1.0f};
+    keyframe.image_width = 640;
+    keyframe.image_height = 400;
+    keyframe.feature_descriptor_dim = 3;
+    keyframe.features = {
+      {12.5f, 34.25f, 0.9f, {0.1f, 0.2f, 0.3f}},
+      {620.0f, 390.0f, 0.75f, {-0.4f, 0.5f, 0.6f}},
+    };
 
     event.kind = "apriltag_relocalize";
     event.json = "{\"tagId\":42,\"correctionM\":0.25}";
@@ -346,11 +355,31 @@ bool verify_frame(const Frame& f, int index, const SampleData& s) {
     KeyframeDescriptor out;
     if (!decode_keyframe_payload(f.payload, out)) return false;
     if (out.timestamp_ns != s.keyframe.timestamp_ns ||
-        out.descriptor.size() != s.keyframe.descriptor.size()) {
+        out.version != 2 ||
+        out.descriptor.size() != s.keyframe.descriptor.size() ||
+        out.image_width != s.keyframe.image_width ||
+        out.image_height != s.keyframe.image_height ||
+        out.feature_descriptor_dim != s.keyframe.feature_descriptor_dim ||
+        out.features.size() != s.keyframe.features.size()) {
       return false;
     }
     for (size_t i = 0; i < out.descriptor.size(); ++i) {
       if (!approx(out.descriptor[i], s.keyframe.descriptor[i], 1e-6)) return false;
+    }
+    for (size_t i = 0; i < out.features.size(); ++i) {
+      if (!approx(out.features[i].x, s.keyframe.features[i].x, 1e-6) ||
+          !approx(out.features[i].y, s.keyframe.features[i].y, 1e-6) ||
+          !approx(out.features[i].score, s.keyframe.features[i].score, 1e-6) ||
+          out.features[i].descriptor.size() !=
+              s.keyframe.features[i].descriptor.size()) {
+        return false;
+      }
+      for (size_t j = 0; j < out.features[i].descriptor.size(); ++j) {
+        if (!approx(out.features[i].descriptor[j],
+                    s.keyframe.features[i].descriptor[j], 1e-6)) {
+          return false;
+        }
+      }
     }
     return true;
   }
