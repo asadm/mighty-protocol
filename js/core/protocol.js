@@ -457,9 +457,9 @@ function buildVizPayload(viz) {
       dv.setUint8(off, f.status || 0); off += 1;
       dv.setUint16(off, f.id, false); off += 2;
     }
-  } else if (subtype === 1) {
+  } else if (subtype === 1 || subtype === 4) {
     const parts = [];
-    let total = 0;
+    let total = subtype === 4 ? 8 : 0;
     for (const d of viz.detections) {
       const lbl = (textEncoder || new TextEncoder()).encode(d.label || "");
       const ll = Math.min(255, lbl.length);
@@ -477,6 +477,11 @@ function buildVizPayload(viz) {
     }
     body = new Uint8Array(total);
     let off = 0;
+    if (subtype === 4) {
+      const dv = new DataView(body.buffer, body.byteOffset, body.byteLength);
+      dv.setBigUint64(0, BigInt(viz.timestampNs ?? viz.timestamp_ns ?? 0), false);
+      off = 8;
+    }
     for (const p of parts) { body.set(p, off); off += p.length; }
   } else if (subtype === 2) {
     body = new Uint8Array(viz.matches.length * (2 + 2 + 2 + 2 + 1));
@@ -516,7 +521,7 @@ function buildVizPayload(viz) {
   hdv.setUint16(
     1,
     subtype === 0 ? viz.features.length :
-      subtype === 1 ? viz.detections.length :
+      (subtype === 1 || subtype === 4) ? viz.detections.length :
         subtype === 2 ? viz.matches.length : (viz.apriltags || viz.tags || []).length,
     false,
   );
@@ -1068,7 +1073,11 @@ function decodeVizPayload(payload) {
     }
     return { subtype, features };
   }
-  if (subtype === 1) {
+  if (subtype === 1 || subtype === 4) {
+    let timestampNs = 0n;
+    if (subtype === 4) {
+      timestampNs = readBigU64BE(u8, off); off += 8;
+    }
     const detections = [];
     for (let i = 0; i < count; ++i) {
       const x1 = readU16BE(u8, off); off += 2;
@@ -1079,7 +1088,9 @@ function decodeVizPayload(payload) {
       const label = (textDecoder || new TextDecoder()).decode(u8.subarray(off, off + ll)); off += ll;
       detections.push({ x1, y1, x2, y2, label });
     }
-    return { subtype, detections };
+    return subtype === 4
+      ? { subtype, timestampNs, timestamp_ns: timestampNs, detections }
+      : { subtype, detections };
   }
   if (subtype === 2) {
     const matches = [];

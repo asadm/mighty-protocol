@@ -816,6 +816,13 @@ export class MightyClient {
             tags: v.tags || v.apriltags || [],
             rawPayload: toU8(frame.payload)
           };
+          else if (v.subtype === 4) mapped = {
+            subtype: "tracker",
+            timestampNs: v.timestampNs ?? 0n,
+            timestamp_ns: v.timestampNs ?? 0n,
+            detections: v.detections || [],
+            rawPayload: toU8(frame.payload)
+          };
           else mapped = { subtype: "unknown", rawSubtype: v.subtype, rawPayload: toU8(frame.payload) };
           this._emit("viz", mapped);
           if (wantsAny) this._emitAny({ type: "viz", data: mapped });

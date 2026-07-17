@@ -87,6 +87,13 @@ inline uint32_t read_u32_be(const uint8_t* src) {
          (static_cast<uint32_t>(src[2]) << 8) |
          static_cast<uint32_t>(src[3]);
 }
+inline uint64_t read_u64_be(const uint8_t* src) {
+  uint64_t value = 0;
+  for (int i = 0; i < 8; ++i) {
+    value = (value << 8) | static_cast<uint64_t>(src[i]);
+  }
+  return value;
+}
 inline float read_f32_be(const uint8_t* src) {
   const uint32_t raw = read_u32_be(src);
   float value = 0.0f;
@@ -287,7 +294,8 @@ struct VizAprilTag {
 };
 
 struct VizPayload {
-  uint8_t subtype = 0; // 0=features,1=detections,2=matches,3=apriltags
+  uint8_t subtype = 0; // 0=features,1=detections,2=matches,3=apriltags,4=timestamped tracker
+  uint64_t timestamp_ns = 0;
   std::vector<VizFeature> features;
   std::vector<VizDetection> detections;
   std::vector<VizMatch> matches;
@@ -666,12 +674,13 @@ inline std::vector<uint8_t> build_constraints_payload(const std::vector<PoseCons
 
 inline std::vector<uint8_t> build_viz_payload(const VizPayload& in) {
   std::vector<uint8_t> payload;
-  payload.reserve(3 + 8 * (in.features.size() + in.detections.size() + in.matches.size()) +
+  payload.reserve(3 + (in.subtype == 4 ? 8 : 0) +
+                  8 * (in.features.size() + in.detections.size() + in.matches.size()) +
                   45 * in.apriltags.size());
   payload.push_back(in.subtype);
   uint8_t buf[8];
   const uint16_t count = (in.subtype == 0) ? static_cast<uint16_t>(in.features.size()) :
-                        (in.subtype == 1) ? static_cast<uint16_t>(in.detections.size()) :
+                        (in.subtype == 1 || in.subtype == 4) ? static_cast<uint16_t>(in.detections.size()) :
                         (in.subtype == 2) ? static_cast<uint16_t>(in.matches.size()) :
                                             static_cast<uint16_t>(in.apriltags.size());
   payload.push_back(static_cast<uint8_t>((count >> 8) & 0xFF));
@@ -687,7 +696,11 @@ inline std::vector<uint8_t> build_viz_payload(const VizPayload& in) {
       payload.push_back(static_cast<uint8_t>((f.id >> 8) & 0xFF));
       payload.push_back(static_cast<uint8_t>(f.id & 0xFF));
     }
-  } else if (in.subtype == 1) {
+  } else if (in.subtype == 1 || in.subtype == 4) {
+    if (in.subtype == 4) {
+      write_u64_be(buf, in.timestamp_ns);
+      payload.insert(payload.end(), buf, buf + 8);
+    }
     for (const auto& d : in.detections) {
       payload.push_back(static_cast<uint8_t>((d.x1 >> 8) & 0xFF));
       payload.push_back(static_cast<uint8_t>(d.x1 & 0xFF));
@@ -1372,6 +1385,7 @@ inline bool decode_viz_payload(const std::vector<uint8_t>& payload, VizPayload& 
   if (payload.size() < 3) return false;
   size_t off = 0;
   out.subtype = payload[off++];
+  out.timestamp_ns = 0;
   uint16_t count = read_u16_be(payload.data() + off); off += 2;
   if (out.subtype == 0) {
     const size_t bytes_per = 2 + 2 + 1 + 2;
@@ -1386,7 +1400,12 @@ inline bool decode_viz_payload(const std::vector<uint8_t>& payload, VizPayload& 
       vf.id = read_u16_be(payload.data() + off); off += 2;
       out.features.push_back(vf);
     }
-  } else if (out.subtype == 1) {
+  } else if (out.subtype == 1 || out.subtype == 4) {
+    if (out.subtype == 4) {
+      if (off + 8 > payload.size()) return false;
+      out.timestamp_ns = read_u64_be(payload.data() + off);
+      off += 8;
+    }
     out.detections.clear();
     for (uint16_t i = 0; i < count; ++i) {
       if (off + 9 > payload.size()) return false;

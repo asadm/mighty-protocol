@@ -437,6 +437,16 @@ async function main() {
   );
   assert.throws(() => proto.buildTrackerRectPayload({ ...trackerRect, width: 0 }), RangeError);
 
+  const trackerViz = {
+    subtype: 4,
+    timestampNs: 1234567890123n,
+    detections: [{ x1: 20, y1: 30, x2: 120, y2: 90, label: "NanoTrack" }],
+  };
+  const decodedTrackerViz = proto.decodeVizPayload(proto.buildVizPayload(trackerViz));
+  assert.strictEqual(decodedTrackerViz.subtype, 4);
+  assert.strictEqual(decodedTrackerViz.timestampNs, trackerViz.timestampNs);
+  assert.deepStrictEqual(decodedTrackerViz.detections, trackerViz.detections);
+
   const packets = buildPackets();
   const port = randomPort();
   const bin = path.join(__dirname, 'bin', 'cpp_roundtrip');

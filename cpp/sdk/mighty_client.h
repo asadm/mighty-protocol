@@ -120,8 +120,9 @@ struct VioStateFrame {
 };
 
 struct VizFrame {
-  std::string subtype;  // features | detections | matches | unknown
+  std::string subtype;  // features | detections | matches | tracker | unknown
   uint8_t raw_subtype = 255;
+  uint64_t timestamp_ns = 0;
   std::vector<VizFeature> features;
   std::vector<VizDetection> detections;
   std::vector<VizMatch> matches;
@@ -969,6 +970,10 @@ class MightyClient {
           } else if (decoded.subtype == 2) {
             evt.subtype = "matches";
             evt.matches = std::move(decoded.matches);
+          } else if (decoded.subtype == 4) {
+            evt.subtype = "tracker";
+            evt.timestamp_ns = decoded.timestamp_ns;
+            evt.detections = std::move(decoded.detections);
           } else {
             evt.subtype = "unknown";
             evt.raw = frame.payload;
