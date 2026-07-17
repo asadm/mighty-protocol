@@ -320,6 +320,14 @@ struct ResetVioPoseRequest {
   std::optional<std::array<double, 4>> orientation_xyzw;
 };
 
+// Pixel coordinates in the primary camera image for the start_tracker command.
+struct TrackerRectRequest {
+  uint16_t x = 0;
+  uint16_t y = 0;
+  uint16_t width = 0;
+  uint16_t height = 0;
+};
+
 enum class ConfigOp : uint8_t {
   kGet = 0,
   kSet = 1,
@@ -1029,6 +1037,19 @@ inline std::vector<uint8_t> build_reset_vio_pose_payload(
                             /*confidence01=*/1.0f);
 }
 
+inline std::vector<uint8_t> build_tracker_rect_payload(const TrackerRectRequest& rect) {
+  std::vector<uint8_t> payload(8);
+  payload[0] = static_cast<uint8_t>((rect.x >> 8) & 0xFF);
+  payload[1] = static_cast<uint8_t>(rect.x & 0xFF);
+  payload[2] = static_cast<uint8_t>((rect.y >> 8) & 0xFF);
+  payload[3] = static_cast<uint8_t>(rect.y & 0xFF);
+  payload[4] = static_cast<uint8_t>((rect.width >> 8) & 0xFF);
+  payload[5] = static_cast<uint8_t>(rect.width & 0xFF);
+  payload[6] = static_cast<uint8_t>((rect.height >> 8) & 0xFF);
+  payload[7] = static_cast<uint8_t>(rect.height & 0xFF);
+  return payload;
+}
+
 inline std::vector<uint8_t> build_command_response_payload(const CommandResponse& res) {
   const uint16_t msg_len = static_cast<uint16_t>(std::min<size_t>(65535, res.message.size()));
   const uint32_t data_len = static_cast<uint32_t>(res.data.size());
@@ -1703,6 +1724,16 @@ inline bool decode_reset_vio_pose_payload(const std::vector<uint8_t>& payload,
   }
   out.orientation_xyzw = orientation;
   return true;
+}
+
+inline bool decode_tracker_rect_payload(const std::vector<uint8_t>& payload,
+                                        TrackerRectRequest& out) {
+  if (payload.size() != 8) return false;
+  out.x = read_u16_be(payload.data());
+  out.y = read_u16_be(payload.data() + 2);
+  out.width = read_u16_be(payload.data() + 4);
+  out.height = read_u16_be(payload.data() + 6);
+  return out.width > 0 && out.height > 0;
 }
 
 inline bool decode_command_payload(const std::vector<uint8_t>& payload,

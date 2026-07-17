@@ -310,6 +310,14 @@ def random_jpg(is_ref=False):
     return ts + bytes([len(chan)]) + chan + data
 
 def main():
+    tracker_rect = {"x": 12, "y": 34, "width": 56, "height": 78}
+    assert mp.decode_tracker_rect_payload(mp.build_tracker_rect_payload(**tracker_rect)) == tracker_rect
+    try:
+        mp.build_tracker_rect_payload(12, 34, 0, 78)
+        raise AssertionError("zero-size tracker rectangle was accepted")
+    except ValueError:
+        pass
+
     stream = b"".join(build_packets())
     frames, rest = mp.parse_frames(stream)
     assert not rest

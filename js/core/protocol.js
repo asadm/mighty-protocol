@@ -817,6 +817,25 @@ function buildResetVioPosePayload({ positionM = [0, 0, 0], orientationXyzw = nul
   });
 }
 
+function buildTrackerRectPayload({ x = 0, y = 0, width = 0, height = 0 } = {}) {
+  const values = { x, y, width, height };
+  for (const [name, value] of Object.entries(values)) {
+    if (!Number.isInteger(value) || value < 0 || value > 0xffff) {
+      throw new RangeError(`${name} must be an integer in [0, 65535]`);
+    }
+  }
+  if (width === 0 || height === 0) {
+    throw new RangeError("tracker rectangle width and height must be positive");
+  }
+  const payload = new Uint8Array(8);
+  const dv = new DataView(payload.buffer);
+  dv.setUint16(0, x, false);
+  dv.setUint16(2, y, false);
+  dv.setUint16(4, width, false);
+  dv.setUint16(6, height, false);
+  return fromU8(payload);
+}
+
 function buildCommandResponsePayload({ reqId = 0, status = 0, message = "", data = new Uint8Array() } = {}) {
   const msgBytes = (textEncoder || new TextEncoder()).encode(message || "");
   const msgLen = Math.min(65535, msgBytes.length);
@@ -1417,6 +1436,22 @@ function decodeResetVioPosePayload(payload) {
   };
 }
 
+function decodeTrackerRectPayload(payload) {
+  const u8 = toU8(payload);
+  if (u8.length !== 8) throw new Error("tracker rectangle payload must be 8 bytes");
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  const rect = {
+    x: dv.getUint16(0, false),
+    y: dv.getUint16(2, false),
+    width: dv.getUint16(4, false),
+    height: dv.getUint16(6, false),
+  };
+  if (rect.width === 0 || rect.height === 0) {
+    throw new Error("tracker rectangle width and height must be positive");
+  }
+  return rect;
+}
+
 function decodeConfigResponsePayload(payload) {
   const u8 = toU8(payload);
   if (u8.length < 1 + 1 + 1 + 1 + 1 + 2 + 4) throw new Error("CFGR payload too short");
@@ -1465,6 +1500,7 @@ const api = {
   buildPcldPayload,
   buildCommandPayload,
   buildResetVioPosePayload,
+  buildTrackerRectPayload,
   buildCommandResponsePayload,
   buildLuaLogPayload,
   buildConfigRequestPayload,
@@ -1484,6 +1520,7 @@ const api = {
   decodePcldPayload,
   decodeCommandPayload,
   decodeResetVioPosePayload,
+  decodeTrackerRectPayload,
   decodeCommandResponsePayload,
   decodeLuaLogPayload,
   decodeConfigRequestPayload,
@@ -1518,6 +1555,7 @@ export {
   buildPcldPayload,
   buildCommandPayload,
   buildResetVioPosePayload,
+  buildTrackerRectPayload,
   buildCommandResponsePayload,
   buildLuaLogPayload,
   buildConfigRequestPayload,
@@ -1537,6 +1575,7 @@ export {
   decodePcldPayload,
   decodeCommandPayload,
   decodeResetVioPosePayload,
+  decodeTrackerRectPayload,
   decodeCommandResponsePayload,
   decodeLuaLogPayload,
   decodeConfigRequestPayload,

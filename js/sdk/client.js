@@ -352,6 +352,18 @@ export class MightyClient {
     return this.command("stop_vio");
   }
 
+  async startTracker(rect) {
+    return this.command("start_tracker", protocol.buildTrackerRectPayload(rect));
+  }
+
+  async stopTracker() {
+    return this.command("stop_tracker");
+  }
+
+  async trackerStatus() {
+    return this.command("tracker_status");
+  }
+
   async resetVioPose(pose = {}) {
     const payload = protocol.buildResetVioPosePayload(
       Array.isArray(pose) ? { positionM: pose } : pose

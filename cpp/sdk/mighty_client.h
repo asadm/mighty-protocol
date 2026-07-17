@@ -465,6 +465,18 @@ class MightyClient {
     return command("stop_vio");
   }
 
+  CommandResult start_tracker(const TrackerRectRequest& rect) {
+    return command("start_tracker", build_tracker_rect_payload(rect));
+  }
+
+  CommandResult stop_tracker() {
+    return command("stop_tracker");
+  }
+
+  CommandResult tracker_status() {
+    return command("tracker_status");
+  }
+
   CommandResult reset_vio_pose(
       const std::array<double, 3>& position_m,
       const std::optional<std::array<double, 4>>& orientation_xyzw = std::nullopt) {

@@ -281,6 +281,16 @@ class MightyClient:
     def stop_vio(self) -> Dict[str, Any]:
         return self.command("stop_vio")
 
+    def start_tracker(self, x: int, y: int, width: int, height: int) -> Dict[str, Any]:
+        payload = mp.build_tracker_rect_payload(x, y, width, height)
+        return self.command("start_tracker", payload)
+
+    def stop_tracker(self) -> Dict[str, Any]:
+        return self.command("stop_tracker")
+
+    def tracker_status(self) -> Dict[str, Any]:
+        return self.command("tracker_status")
+
     def reset_vio_pose(self, position_m=(0.0, 0.0, 0.0), orientation_xyzw=None) -> Dict[str, Any]:
         payload = mp.build_reset_vio_pose_payload(position_m, orientation_xyzw)
         return self.command("reset_vio_pose", payload)

@@ -517,6 +517,20 @@ int main(int argc, char** argv) {
       return 9;
     }
   }
+  {
+    const TrackerRectRequest tracker_rect{12, 34, 56, 78};
+    TrackerRectRequest decoded{};
+    if (!decode_tracker_rect_payload(build_tracker_rect_payload(tracker_rect), decoded) ||
+        decoded.x != tracker_rect.x || decoded.y != tracker_rect.y ||
+        decoded.width != tracker_rect.width || decoded.height != tracker_rect.height) {
+      std::cerr << "tracker rectangle payload mismatch\n";
+      return 10;
+    }
+    if (decode_tracker_rect_payload(std::vector<uint8_t>(8, 0), decoded)) {
+      std::cerr << "zero-size tracker rectangle was accepted\n";
+      return 11;
+    }
+  }
   const auto outbound = build_sample_packets(sample);
 
   int server_fd = create_server(port);

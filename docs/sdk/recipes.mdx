@@ -85,6 +85,27 @@ if (!res.ok) {
 Why use it: command results distinguish transport failure from device refusal.
 Always print the response message when `ok` is false.
 
+## Start And Stop NanoTrack
+
+NanoTrack runs in preview mode and keeps the normal camera stream active. Pass
+the initial rectangle in primary-image pixels; tracker output arrives through
+`onViz` / `on_viz` as a `detections` event labeled `NanoTrack`.
+
+```python
+res = client.start_tracker(x=180, y=100, width=120, height=100)
+```
+
+```js
+const res = await client.startTracker({ x: 180, y: 100, width: 120, height: 100 });
+```
+
+```cpp
+mighty_protocol::TrackerRectRequest rect{180, 100, 120, 100};
+auto res = client.start_tracker(rect);
+```
+
+Call `stop_tracker` / `stopTracker` before starting VIO.
+
 ## Reset VIO Pose
 
 Use `reset_vio_pose` / `resetVioPose` to rebase the public `POSE` output stream

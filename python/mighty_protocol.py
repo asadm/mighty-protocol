@@ -339,6 +339,23 @@ def decode_reset_vio_pose_payload(payload: bytes):
         "orientation_xyzw": orientation,
     }
 
+def build_tracker_rect_payload(x: int, y: int, width: int, height: int) -> bytes:
+    values = {"x": x, "y": y, "width": width, "height": height}
+    for name, value in values.items():
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0 or value > 0xFFFF:
+            raise ValueError(f"{name} must be an integer in [0, 65535]")
+    if width == 0 or height == 0:
+        raise ValueError("tracker rectangle width and height must be positive")
+    return struct.pack(">HHHH", x, y, width, height)
+
+def decode_tracker_rect_payload(payload: bytes):
+    if len(payload) != 8:
+        raise ValueError("tracker rectangle payload must be 8 bytes")
+    x, y, width, height = struct.unpack(">HHHH", payload)
+    if width == 0 or height == 0:
+        raise ValueError("tracker rectangle width and height must be positive")
+    return {"x": x, "y": y, "width": width, "height": height}
+
 def decode_constraints_payload(payload: bytes):
     if len(payload) < 4:
         raise ValueError("payload too short")

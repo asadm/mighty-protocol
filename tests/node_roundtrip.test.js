@@ -430,6 +430,13 @@ async function main() {
   assert.deepStrictEqual(resetQuatPose.positionM, [1, 2, 3]);
   assert.deepStrictEqual(resetQuatPose.orientationXyzw, [0, 0, 0, 1]);
 
+  const trackerRect = { x: 12, y: 34, width: 56, height: 78 };
+  assert.deepStrictEqual(
+    proto.decodeTrackerRectPayload(proto.buildTrackerRectPayload(trackerRect)),
+    trackerRect,
+  );
+  assert.throws(() => proto.buildTrackerRectPayload({ ...trackerRect, width: 0 }), RangeError);
+
   const packets = buildPackets();
   const port = randomPort();
   const bin = path.join(__dirname, 'bin', 'cpp_roundtrip');
