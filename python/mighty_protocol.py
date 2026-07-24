@@ -41,6 +41,7 @@ VIO_STATE = {
     "DEGRADED": 3,
     "LOST": 4,
     "LOW_LIGHT": 5,
+    "RECOVERING": 6,
 }
 
 VIO_DEGRADED_REASON = {

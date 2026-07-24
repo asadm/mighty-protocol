@@ -18,6 +18,7 @@ STATE_LABELS = {
     3: "DEGRADED",
     4: "LOST",
     5: "LOW_LIGHT",
+    6: "VIO_RECOVERING",
 }
 
 

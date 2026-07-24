@@ -10,6 +10,8 @@ sys.path.append(os.path.join(HERE, "..", "python"))
 import mighty_protocol as mp  # noqa: E402
 from mighty_sdk import MightyClient  # noqa: E402
 
+assert mp.VIO_STATE["RECOVERING"] == 6
+
 
 def build_pose_payload(
     pose_type=0,

@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 
 import proto from "../js/index.js";
 
+assert.strictEqual(proto.VIO_STATE.RECOVERING, 6);
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -440,7 +442,7 @@ async function main() {
   const trackerViz = {
     subtype: 4,
     timestampNs: 1234567890123n,
-    detections: [{ x1: 20, y1: 30, x2: 120, y2: 90, label: "NanoTrack" }],
+    detections: [{ x1: 20, y1: 30, x2: 120, y2: 90, label: "Tracker" }],
   };
   const decodedTrackerViz = proto.decodeVizPayload(proto.buildVizPayload(trackerViz));
   assert.strictEqual(decodedTrackerViz.subtype, 4);

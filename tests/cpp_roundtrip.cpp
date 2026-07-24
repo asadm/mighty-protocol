@@ -20,6 +20,9 @@
 
 using namespace mighty_protocol;
 
+static_assert(static_cast<uint8_t>(VioStateCode::kRecovering) == 6,
+              "VIO recovering state must remain wire-compatible");
+
 namespace {
 
 constexpr int kExpectedFrames = 21; // + AprilTag VIZ + EVNT + KEYF + CFGQ + CFGR

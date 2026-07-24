@@ -85,11 +85,11 @@ if (!res.ok) {
 Why use it: command results distinguish transport failure from device refusal.
 Always print the response message when `ok` is false.
 
-## Start And Stop NanoTrack
+## Start And Stop The Object Tracker
 
-NanoTrack runs in preview mode and keeps the normal camera stream active. Pass
+The object tracker runs in preview mode and keeps the normal camera stream active. Pass
 the initial rectangle in primary-image pixels; tracker output arrives through
-`onViz` / `on_viz` as a `detections` event labeled `NanoTrack`.
+`onViz` / `on_viz` as a `detections` event labeled `Tracker`.
 
 ```python
 res = client.start_tracker(x=180, y=100, width=120, height=100)
@@ -205,7 +205,9 @@ client.onVioState((s) => {
 
 Why use it: this is the right stream for status indicators, field diagnostics,
 and warnings such as low light, lost tracking, low feature count, or waiting for
-IMU/parallax during initialization.
+IMU/parallax during initialization. State `RECOVERING` (`6`) means VIO is
+preserving its current pose while rebuilding estimator state; keep the device
+still until it returns to `TRACKING`.
 
 ## Read IMU Samples
 

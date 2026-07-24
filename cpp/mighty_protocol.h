@@ -348,6 +348,7 @@ enum class VioStateCode : uint8_t {
   kDegraded = 3,
   kLost = 4,
   kLowLight = 5,
+  kRecovering = 6,
 };
 
 enum VioDegradedReason : uint32_t {

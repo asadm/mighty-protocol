@@ -132,6 +132,7 @@ std::string to_vio_label(int code) {
     case 3: return "DEGRADED";
     case 4: return "LOST";
     case 5: return "LOW_LIGHT";
+    case 6: return "VIO_RECOVERING";
     default: break;
   }
   if (code < 0) return "STATE_NA";

@@ -215,7 +215,7 @@ Version 7 appends:
 - `light_required01` (f32): producer-defined raw requirement/limit value; Mighty VIO on Rockchip currently sends the darkness-proxy limit, or `NaN` when unavailable
 
 Recommended state mapping:
-- `0=OFF, 1=INITIALIZING, 2=TRACKING, 3=DEGRADED, 4=LOST, 5=LOW_LIGHT`
+- `0=OFF, 1=INITIALIZING, 2=TRACKING, 3=DEGRADED, 4=LOST, 5=LOW_LIGHT, 6=RECOVERING`
 
 Recommended init reason mapping:
 - `0=NONE`
@@ -257,7 +257,7 @@ Recommended init reason mapping:
   - `1`: detections (`x1`, `y1`, `x2`, `y2` as u16 image pixels, followed by a length-prefixed UTF-8 label)
   - `2`: matches
   - `3`: AprilTags (`id`, `hamming`, center, four corners)
-- NanoTrack results use subtype `1` with label `NanoTrack`. `VIZ ` itself is not
+- Tracker results use subtype `1` with label `Tracker`. `VIZ ` itself is not
   timestamped, so the device emits each tracker rectangle immediately after its
   matching image on the same ordered stream.
 
@@ -283,11 +283,11 @@ Recommended init reason mapping:
 
 Standard command names:
 - `device_id` / `device-id`: returns the device's stable permanent identifier as UTF-8 text in both the `CRES` message and data fields.
-- `start_tracker`: starts NanoTrack in preview mode. Data is exactly 8 bytes,
+- `start_tracker`: starts the object tracker in preview mode. Data is exactly 8 bytes,
   four big-endian u16 values in primary-image pixels: `x`, `y`, `width`,
   `height`. The rectangle is clipped to the next primary camera frame and must
   retain at least 2x2 pixels. Tracker mode and VIO are mutually exclusive.
-- `stop_tracker`: stops NanoTrack and emits an empty detections `VIZ ` payload
+- `stop_tracker`: stops the object tracker and emits an empty detections `VIZ ` payload
   to clear the current rectangle.
 - `tracker_status`: returns the current tracker state and latest rectangle in
   the `CRES` message.
