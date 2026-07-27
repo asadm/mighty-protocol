@@ -149,6 +149,19 @@ type PoseEvent = {
 };
 ```
 
+`confidence` is an ordinal pose-usability score, not a probability of absolute
+accuracy:
+
+- `confidence >= 0.5`: the current synchronized full 6DoF pose is available.
+- `0.2 <= confidence < 0.5`: use orientation only; translation is deliberately
+  held and is not a current 6DoF measurement.
+- `confidence < 0.2`: do not consume the full 6DoF pose. Inspect the VIO state;
+  during `RECOVERING`, keep the device still.
+
+Within the full-6DoF band, larger values indicate stronger current visual
+support. The score cannot detect global drift that is not observable from the
+current sensor measurements, so consumers should also monitor `onVioState`.
+
 `onImu`:
 
 ```ts

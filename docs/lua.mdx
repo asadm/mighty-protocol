@@ -179,6 +179,14 @@ local pose = Mighty.pose()
 When VIO is not running or no valid pose has been published yet, the pose is
 zero/identity with `valid = false` and `confidence = 0`.
 
+`confidence` is an ordinal pose-usability value, not a probability of absolute
+accuracy:
+
+- `>= 0.5`: full 6DoF pose is available.
+- `>= 0.2` and `< 0.5`: use orientation only; translation is held.
+- `< 0.2`: do not use full 6DoF. If `Mighty.vio_state()` is `"recovering"`,
+  keep the device still.
+
 Recipe: send pose confidence over serial:
 
 ```lua
@@ -192,12 +200,12 @@ function loop()
 end
 ```
 
-Recipe: only act on confident tracking:
+Recipe: only act on a full-6DoF pose:
 
 ```lua
 function loop()
   local pose = Mighty.pose()
-  if pose.valid and pose.confidence > 0.7 then
+  if pose.valid and pose.confidence >= 0.5 then
     print("x", pose.position.x, "y", pose.position.y, "z", pose.position.z)
   end
 end

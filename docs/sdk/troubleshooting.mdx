@@ -178,6 +178,16 @@ Use `on_vio_state` / `onVioState` to inspect:
 - `light_level01`
 - `light_required01`
 
+Treat `pose_confidence` as an ordinal usability signal:
+
+- `>= 0.5`: consume the full 6DoF pose.
+- `0.2` to `< 0.5`: use orientation only.
+- `< 0.2`: do not consume the full 6DoF pose; follow the runtime-state
+  guidance, such as keeping the device still during recovery.
+
+It is not a probability of absolute accuracy and cannot reveal unobservable
+global drift by itself.
+
 Low feature counts usually mean the camera sees a blank wall, darkness, glare,
 or motion blur. Initialization reasons such as waiting for parallax or IMU
 excitation mean the device needs a small amount of translation or rotation to

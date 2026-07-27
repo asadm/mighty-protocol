@@ -151,7 +151,8 @@ Version 1 fields:
 - `timestamp_ns` (u64)
 - `fps_current` (f32)
 - `fps_average` (f32)
-- `pose_confidence01` (f32)
+- `pose_confidence01` (f32): ordinal pose-usability value; see
+  [Pose Guide](/docs/sdk/pose)
 - `tracking_rate` (f32)
 - `num_features` (u32)
 - `loop_closures` (u32)
@@ -216,6 +217,10 @@ Version 7 appends:
 
 Recommended state mapping:
 - `0=OFF, 1=INITIALIZING, 2=TRACKING, 3=DEGRADED, 4=LOST, 5=LOW_LIGHT, 6=RECOVERING`
+
+For Mighty VIO, `TRACKING` means full 6DoF output is available, `DEGRADED`
+means translation is held and orientation-only use is allowed, and
+`RECOVERING` means full 6DoF must not be consumed while the estimator rebuilds.
 
 Recommended init reason mapping:
 - `0=NONE`

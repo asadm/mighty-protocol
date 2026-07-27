@@ -180,13 +180,14 @@ client.on_pose([](const mighty_protocol::sdk::PoseFrame& p) {
 
 Why use it: pose is the primary public VIO output. It is reported as
 `T_odom_body`, with `odom` as the local world frame and `base_link` as the body
-frame. See the pose guide before mapping axes into a renderer or robot stack.
+frame. Before using it for control or mapping, gate component use with the
+confidence bands in the [Pose Guide](/docs/sdk/pose).
 
 ## Monitor VIO State
 
 Use VIO state for health, UI, and automated recovery. Pose tells you where the
-device thinks it is; VIO state tells you how confident the estimator is and why
-it may be waiting.
+device currently reports itself; VIO state tells you which pose components are
+usable and why the estimator may be waiting.
 
 ```python
 def on_state(s):
@@ -205,9 +206,10 @@ client.onVioState((s) => {
 
 Why use it: this is the right stream for status indicators, field diagnostics,
 and warnings such as low light, lost tracking, low feature count, or waiting for
-IMU/parallax during initialization. State `RECOVERING` (`6`) means VIO is
-preserving its current pose while rebuilding estimator state; keep the device
-still until it returns to `TRACKING`.
+IMU/parallax during initialization. State `DEGRADED` (`3`) means translation is
+held and only orientation should be consumed. State `RECOVERING` (`6`) means
+VIO is preserving its current pose while rebuilding estimator state; do not use
+full 6DoF, and keep the device still until it returns to `TRACKING`.
 
 ## Read IMU Samples
 
