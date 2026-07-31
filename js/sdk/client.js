@@ -379,6 +379,14 @@ export class MightyClient {
     return this.command("keyframes", encodeText("status"));
   }
 
+  async setDepthEstimationEnabled(enabled) {
+    return this.command("depth_estimation", encodeText(enabled ? "on" : "off"));
+  }
+
+  async depthEstimationStatus() {
+    return this.command("depth_estimation", encodeText("status"));
+  }
+
   async enableLoopclosureWasm(options = {}) {
     if (this._loopclosure) return this._loopclosure;
     if (this._loopclosureInit && Object.keys(options || {}).length === 0) return this._loopclosureInit;

@@ -85,6 +85,16 @@ class MockDevice {
       });
     }
 
+    if (cmd.name === "depth_estimation") {
+      const action = Buffer.from(cmd.data || new Uint8Array()).toString("utf8");
+      return proto.buildCommandResponsePayload({
+        reqId: cmd.reqId,
+        status: 0,
+        message: `depth ${action === "status" ? "disabled" : action === "on" ? "enabled" : "disabled"}`,
+        data: new Uint8Array(),
+      });
+    }
+
     if (cmd.name === "config") {
       const cfgReq = proto.decodeConfigRequestPayload(cmd.data);
       if (cfgReq.key !== "calib") {
@@ -474,6 +484,14 @@ async function main() {
   const keyframesStatus = await client.keyframesStatus();
   assert.strictEqual(keyframesStatus.ok, true);
   assert.strictEqual(keyframesStatus.message, "keyframes disabled");
+
+  const depthOn = await client.setDepthEstimationEnabled(true);
+  assert.strictEqual(depthOn.ok, true);
+  assert.strictEqual(depthOn.message, "depth enabled");
+
+  const depthStatus = await client.depthEstimationStatus();
+  assert.strictEqual(depthStatus.ok, true);
+  assert.strictEqual(depthStatus.message, "depth disabled");
 
   const cfgGet = await client.configGet("calib", { as: "text" });
   assert.strictEqual(cfgGet.ok, true);

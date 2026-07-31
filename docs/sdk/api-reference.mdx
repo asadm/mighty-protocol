@@ -87,6 +87,8 @@ Command/config:
 - `resetVioPose(pose?: { positionM?: [number, number, number]; orientationXyzw?: [number, number, number, number] | null } | [number, number, number]): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
 - `setKeyframesEnabled(enabled: boolean): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
 - `keyframesStatus(): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
+- `setDepthEstimationEnabled(enabled: boolean): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
+- `depthEstimationStatus(): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
 
 Subscriptions (each returns `() => void` to unsubscribe):
 
