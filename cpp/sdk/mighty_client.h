@@ -499,6 +499,18 @@ class MightyClient {
     return command("keyframes", std::vector<uint8_t>(action.begin(), action.end()));
   }
 
+  CommandResult set_depth_estimation_enabled(bool enabled) {
+    const std::string action = enabled ? "on" : "off";
+    return command("depth_estimation",
+                   std::vector<uint8_t>(action.begin(), action.end()));
+  }
+
+  CommandResult depth_estimation_status() {
+    const std::string action = "status";
+    return command("depth_estimation",
+                   std::vector<uint8_t>(action.begin(), action.end()));
+  }
+
   bool set_loopclosure_calibration_yaml(const std::string& yaml) {
     opts_.loopclosure_calibration_yaml = yaml;
 #if defined(MIGHTY_PROTOCOL_ENABLE_LOOPCLOSURE)

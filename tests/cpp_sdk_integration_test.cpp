@@ -160,6 +160,17 @@ int main() {
       return;
     }
 
+    if (cmd.name == "depth_estimation") {
+      const std::string action(cmd.data.begin(), cmd.data.end());
+      CommandResponse cres;
+      cres.req_id = cmd.req_id;
+      cres.status = 0;
+      cres.message = action == "status" ? "depth disabled" : "depth " + action;
+      const auto body = build_command_response_payload(cres);
+      res.set_content(reinterpret_cast<const char*>(body.data()), body.size(), "application/octet-stream");
+      return;
+    }
+
     if (cmd.name == "config") {
       ConfigRequest cfgq;
       if (!decode_config_request_payload(cmd.data, cfgq)) {
@@ -352,6 +363,14 @@ int main() {
     CommandResult keyframes_status = client.keyframes_status();
     assert(keyframes_status.ok);
     assert(keyframes_status.message == "keyframes disabled");
+
+    CommandResult depth_on = client.set_depth_estimation_enabled(true);
+    assert(depth_on.ok);
+    assert(depth_on.message == "depth on");
+
+    CommandResult depth_status = client.depth_estimation_status();
+    assert(depth_status.ok);
+    assert(depth_status.message == "depth disabled");
 
     ConfigGetTextResult cfg_get = client.config_get_text("calib");
     assert(cfg_get.ok);

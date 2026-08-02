@@ -99,6 +99,16 @@ class MockDevice : public MightyDeviceIO {
       return true;
     }
 
+    if (cmd.name == "depth_estimation") {
+      const std::string action(cmd.data.begin(), cmd.data.end());
+      CommandResponse ok;
+      ok.req_id = cmd.req_id;
+      ok.status = 0;
+      ok.message = action == "status" ? "depth disabled" : "depth " + action;
+      if (response_payload) *response_payload = build_command_response_payload(ok);
+      return true;
+    }
+
     if (cmd.name == "config") {
       ConfigRequest cfgq;
       if (!decode_config_request_payload(cmd.data, cfgq)) {
@@ -435,6 +445,14 @@ int main() {
   CommandResult keyframes_status = client.keyframes_status();
   assert(keyframes_status.ok);
   assert(keyframes_status.message == "keyframes disabled");
+
+  CommandResult depth_on = client.set_depth_estimation_enabled(true);
+  assert(depth_on.ok);
+  assert(depth_on.message == "depth on");
+
+  CommandResult depth_status = client.depth_estimation_status();
+  assert(depth_status.ok);
+  assert(depth_status.message == "depth disabled");
 
   ConfigGetTextResult cfg_get = client.config_get_text("calib");
   assert(cfg_get.ok);
