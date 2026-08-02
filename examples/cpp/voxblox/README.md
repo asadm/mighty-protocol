@@ -11,21 +11,43 @@ C++ SDK:
 - `config_get_text("calib")` supplies the camera-to-IMU calibration needed to
   turn the public `odom -> base_link` pose into `odom -> cam0_rectified`.
 
-No ROS topics or services are used at runtime. Upstream voxblox is normally
-built and exported by catkin, so its catkin workspace is used only for CMake
-dependency discovery.
+No ROS or catkin components are used at build time or runtime. Plain CMake
+fetches pinned voxblox and minkindr sources, generates the upstream protobuf
+messages, and builds only the TSDF, meshing, and serialization code needed by
+this example.
 
 ## Prerequisites
 
-Install [upstream voxblox](https://github.com/ethz-asl/voxblox) in a catkin
-workspace, including its declared dependencies, and build that workspace.
-Then source the workspace before configuring the example:
+Install CMake, Git, Eigen, protobuf, glog, and gflags. On macOS with Homebrew:
 
 ```bash
-source ~/catkin_ws/devel/setup.bash
+brew install cmake eigen protobuf glog gflags
+```
+
+On Ubuntu/Debian:
+
+```bash
+sudo apt install cmake git libeigen3-dev libprotobuf-dev protobuf-compiler \
+  libgoogle-glog-dev libgflags-dev
+```
+
+Then configure and build directly:
+
+```bash
 cd mighty-web/mighty-protocol/examples/cpp/voxblox
-cmake -S . -B build
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
+```
+
+The first configure downloads the pinned
+[voxblox](https://github.com/ethz-asl/voxblox) and
+[minkindr](https://github.com/ethz-asl/minkindr) revisions into `build/_deps`.
+For offline or pre-fetched builds, pass repository roots explicitly:
+
+```bash
+cmake -S . -B build \
+  -DMIGHTY_VOXBLOX_SOURCE_DIR=/path/to/voxblox \
+  -DMIGHTY_MINKINDR_SOURCE_DIR=/path/to/minkindr
 ```
 
 ## Run
@@ -34,7 +56,7 @@ Connect to a Mighty endpoint and optionally start VIO immediately:
 
 ```bash
 ./build/mighty_voxblox --host http://192.168.7.1
-./build/mighty_voxblox --host http://127.0.0.1:8080 --start-vio
+./build/mighty_voxblox --host http://127.0.0.1:8084 --start-vio
 ```
 
 Depth estimation is enabled as soon as the protocol stream connects. VIO is
