@@ -19,6 +19,7 @@ inline constexpr char TYPE_JPG[4]  = {'J','P','G',' '};
 inline constexpr char TYPE_RJPG[4] = {'R','J','P','G'};
 inline constexpr char TYPE_RAW[4]  = {'R','A','W',' '};
 inline constexpr char TYPE_SRAW[4] = {'S','R','A','W'};
+inline constexpr char TYPE_DPT[4]  = {'D','P','T',' '};
 inline constexpr char TYPE_POSE[4] = {'P','O','S','E'};
 inline constexpr char TYPE_UPOSE[4]= {'U','P','O','S'};
 inline constexpr char TYPE_LCON[4] = {'L','C','O','N'};
@@ -49,6 +50,35 @@ enum class RawFormat : uint8_t {
   kYUV420P = 7,
 };
 
+enum class DepthEncoding : uint8_t {
+  kUnknown = 0,
+  // Samples are unsigned 16-bit millimetres in network byte order. Zero is
+  // normally reserved for invalid pixels; `invalid_value` is authoritative.
+  kUint16Millimeters = 1,
+};
+
+enum class DepthConvention : uint8_t {
+  kUnknown = 0,
+  // Forward optical-axis depth. Point reconstruction is X=(u-cx)/fx*Z,
+  // Y=(v-cy)/fy*Z, Z=depth.
+  kZDepth = 1,
+  kRayRange = 2,
+};
+
+enum class DepthCameraModel : uint8_t {
+  kUnknown = 0,
+  kPinhole = 1,
+  kDoubleSphere = 2,
+};
+
+enum class DepthDistortionModel : uint8_t {
+  kNone = 0,
+  kRadtan = 1,
+  kEquidistant = 2,
+};
+
+inline constexpr uint8_t DEPTH_FLAG_RECTIFIED = 1u << 0;
+
 inline constexpr uint8_t HEADER_MAGIC[4] = {0xDE, 0xAD, 0xBE, 0xEF};
 inline constexpr uint8_t FOOTER_MAGIC[4] = {0xFE, 0xED, 0xFA, 0xCE};
 
@@ -59,6 +89,10 @@ inline void write_u32_be(uint8_t* dst, uint32_t value) {
   for (int i = 0; i < 4; ++i) {
     dst[i] = static_cast<uint8_t>((value >> (24 - 8 * i)) & 0xFF);
   }
+}
+inline void write_u16_be(uint8_t* dst, uint16_t value) {
+  dst[0] = static_cast<uint8_t>((value >> 8) & 0xFF);
+  dst[1] = static_cast<uint8_t>(value & 0xFF);
 }
 inline void write_u64_be(uint8_t* dst, uint64_t value) {
   for (int i = 0; i < 8; ++i) {
@@ -183,14 +217,16 @@ inline bool parse_frame(const std::vector<uint8_t>& buffer,
     consumed = pkt_size;
     return false;
   }
-  const bool is_raw = (buffer[4] == 'R' && buffer[5] == 'A' && buffer[6] == 'W' && buffer[7] == ' ') ||
-                      (buffer[4] == 'S' && buffer[5] == 'R' && buffer[6] == 'A' && buffer[7] == 'W');
+  const bool may_omit_crc =
+      (buffer[4] == 'R' && buffer[5] == 'A' && buffer[6] == 'W' && buffer[7] == ' ') ||
+      (buffer[4] == 'S' && buffer[5] == 'R' && buffer[6] == 'A' && buffer[7] == 'W') ||
+      (buffer[4] == 'D' && buffer[5] == 'P' && buffer[6] == 'T' && buffer[7] == ' ');
   const uint32_t recv_crc = (static_cast<uint32_t>(buffer[crc_start]) << 24) |
                             (static_cast<uint32_t>(buffer[crc_start + 1]) << 16) |
                             (static_cast<uint32_t>(buffer[crc_start + 2]) << 8) |
                             (static_cast<uint32_t>(buffer[crc_start + 3]));
   if (len > 0) {
-    const bool skip_crc = is_raw && recv_crc == 0;
+    const bool skip_crc = may_omit_crc && recv_crc == 0;
     if (!skip_crc) {
       const uint32_t calc_crc = crc32_be(buffer.data() + payload_start, len);
       if (calc_crc != recv_crc) {
@@ -236,6 +272,31 @@ struct Feature3D {
 struct Point3DColor {
   float x, y, z;
   uint8_t r, g, b;
+};
+
+struct DepthFrame {
+  uint8_t version = 1;
+  uint8_t encoding = static_cast<uint8_t>(DepthEncoding::kUint16Millimeters);
+  uint8_t depth_convention = static_cast<uint8_t>(DepthConvention::kZDepth);
+  uint8_t camera_model = static_cast<uint8_t>(DepthCameraModel::kPinhole);
+  uint8_t distortion_model = static_cast<uint8_t>(DepthDistortionModel::kNone);
+  uint8_t flags = DEPTH_FLAG_RECTIFIED;
+  uint16_t invalid_value = 0;
+  uint64_t timestamp_ns = 0;
+  uint32_t width = 0;
+  uint32_t height = 0;
+  uint32_t source_width = 0;
+  uint32_t source_height = 0;
+  float depth_scale_m = 0.001f;
+  // fx, fy, cx, cy for the rectified depth grid.
+  std::array<float, 4> depth_intrinsics{};
+  // Effective fx, fy, cx, cy for the source image dimensions above.
+  std::array<float, 4> source_intrinsics{};
+  // radtan: k1,k2,p1,p2; equidistant: k1..k4; double sphere: xi,alpha,0,0.
+  std::array<float, 4> distortion{};
+  std::string source_channel = "cam0";
+  std::string frame_id = "cam0_rectified";
+  std::vector<uint16_t> depth_mm;
 };
 
 inline constexpr uint16_t KEYFRAME_FLAG_LOCAL_FEATURES = 1u << 0;
@@ -520,6 +581,67 @@ inline std::vector<uint8_t> build_raw_payload(uint64_t timestamp_ns,
   }
   if (len > 0 && data) {
     std::memcpy(payload.data() + offset, data, len);
+  }
+  return payload;
+}
+
+inline std::vector<uint8_t> build_depth_payload(const DepthFrame& frame) {
+  if (frame.version != 1 ||
+      frame.encoding != static_cast<uint8_t>(DepthEncoding::kUint16Millimeters) ||
+      frame.width == 0 || frame.height == 0) {
+    return {};
+  }
+  const uint64_t sample_count =
+      static_cast<uint64_t>(frame.width) * static_cast<uint64_t>(frame.height);
+  if (sample_count != frame.depth_mm.size() ||
+      sample_count > (std::numeric_limits<size_t>::max() / 2u)) {
+    return {};
+  }
+
+  const uint8_t channel_len = static_cast<uint8_t>(
+      std::min<size_t>(255, frame.source_channel.size()));
+  const uint8_t frame_id_len = static_cast<uint8_t>(
+      std::min<size_t>(255, frame.frame_id.size()));
+  constexpr size_t kFixedBytes = 86;
+  std::vector<uint8_t> payload(
+      kFixedBytes + channel_len + frame_id_len +
+      static_cast<size_t>(sample_count) * 2u);
+  size_t offset = 0;
+  payload[offset++] = frame.version;
+  payload[offset++] = frame.encoding;
+  payload[offset++] = frame.depth_convention;
+  payload[offset++] = frame.camera_model;
+  payload[offset++] = frame.distortion_model;
+  payload[offset++] = frame.flags;
+  write_u16_be(payload.data() + offset, frame.invalid_value); offset += 2;
+  write_u64_be(payload.data() + offset, frame.timestamp_ns); offset += 8;
+  write_u32_be(payload.data() + offset, frame.width); offset += 4;
+  write_u32_be(payload.data() + offset, frame.height); offset += 4;
+  write_u32_be(payload.data() + offset, frame.source_width); offset += 4;
+  write_u32_be(payload.data() + offset, frame.source_height); offset += 4;
+  write_f32_be(payload.data() + offset, frame.depth_scale_m); offset += 4;
+  for (float value : frame.depth_intrinsics) {
+    write_f32_be(payload.data() + offset, value); offset += 4;
+  }
+  for (float value : frame.source_intrinsics) {
+    write_f32_be(payload.data() + offset, value); offset += 4;
+  }
+  for (float value : frame.distortion) {
+    write_f32_be(payload.data() + offset, value); offset += 4;
+  }
+  payload[offset++] = channel_len;
+  payload[offset++] = frame_id_len;
+  if (channel_len > 0) {
+    std::memcpy(payload.data() + offset, frame.source_channel.data(), channel_len);
+    offset += channel_len;
+  }
+  if (frame_id_len > 0) {
+    std::memcpy(payload.data() + offset, frame.frame_id.data(), frame_id_len);
+    offset += frame_id_len;
+  }
+  for (uint16_t value : frame.depth_mm) {
+    write_u16_be(payload.data() + offset, value);
+    offset += 2;
   }
   return payload;
 }
@@ -1179,6 +1301,65 @@ inline bool decode_raw_payload(const std::vector<uint8_t>& payload,
   channel.assign(reinterpret_cast<const char*>(payload.data() + offset), clen);
   offset += clen;
   data.assign(payload.begin() + offset, payload.end());
+  return true;
+}
+
+inline bool decode_depth_payload(const std::vector<uint8_t>& payload,
+                                 DepthFrame& frame) {
+  constexpr size_t kFixedBytes = 86;
+  if (payload.size() < kFixedBytes) return false;
+  DepthFrame decoded;
+  size_t offset = 0;
+  decoded.version = payload[offset++];
+  decoded.encoding = payload[offset++];
+  decoded.depth_convention = payload[offset++];
+  decoded.camera_model = payload[offset++];
+  decoded.distortion_model = payload[offset++];
+  decoded.flags = payload[offset++];
+  decoded.invalid_value = read_u16_be(payload.data() + offset); offset += 2;
+  decoded.timestamp_ns = read_u64_be(payload.data() + offset); offset += 8;
+  decoded.width = read_u32_be(payload.data() + offset); offset += 4;
+  decoded.height = read_u32_be(payload.data() + offset); offset += 4;
+  decoded.source_width = read_u32_be(payload.data() + offset); offset += 4;
+  decoded.source_height = read_u32_be(payload.data() + offset); offset += 4;
+  decoded.depth_scale_m = read_f32_be(payload.data() + offset); offset += 4;
+  for (float& value : decoded.depth_intrinsics) {
+    value = read_f32_be(payload.data() + offset); offset += 4;
+  }
+  for (float& value : decoded.source_intrinsics) {
+    value = read_f32_be(payload.data() + offset); offset += 4;
+  }
+  for (float& value : decoded.distortion) {
+    value = read_f32_be(payload.data() + offset); offset += 4;
+  }
+  const uint8_t channel_len = payload[offset++];
+  const uint8_t frame_id_len = payload[offset++];
+  if (payload.size() < offset + channel_len + frame_id_len) return false;
+  decoded.source_channel.assign(
+      reinterpret_cast<const char*>(payload.data() + offset), channel_len);
+  offset += channel_len;
+  decoded.frame_id.assign(
+      reinterpret_cast<const char*>(payload.data() + offset), frame_id_len);
+  offset += frame_id_len;
+
+  if (decoded.version != 1 ||
+      decoded.encoding != static_cast<uint8_t>(DepthEncoding::kUint16Millimeters) ||
+      decoded.width == 0 || decoded.height == 0 ||
+      !std::isfinite(decoded.depth_scale_m) || decoded.depth_scale_m <= 0.0f) {
+    return false;
+  }
+  const uint64_t sample_count =
+      static_cast<uint64_t>(decoded.width) * static_cast<uint64_t>(decoded.height);
+  if (sample_count > (std::numeric_limits<size_t>::max() / 2u) ||
+      payload.size() - offset != static_cast<size_t>(sample_count) * 2u) {
+    return false;
+  }
+  decoded.depth_mm.resize(static_cast<size_t>(sample_count));
+  for (uint16_t& value : decoded.depth_mm) {
+    value = read_u16_be(payload.data() + offset);
+    offset += 2;
+  }
+  frame = std::move(decoded);
   return true;
 }
 

@@ -10,6 +10,7 @@ const TYPE = {
   RJPG: "RJPG",
   RAW: "RAW ",
   SRAW: "SRAW",
+  DPT: "DPT ",
   POSE: "POSE",
   UPOSE: "UPOS",
   LCON: "LCON",
@@ -39,6 +40,31 @@ const RAW_FORMAT = {
   YUV420SP: 6,
   YUV420P: 7,
 };
+
+const DEPTH_ENCODING = {
+  UNKNOWN: 0,
+  UINT16_MILLIMETERS: 1,
+};
+
+const DEPTH_CONVENTION = {
+  UNKNOWN: 0,
+  Z_DEPTH: 1,
+  RAY_RANGE: 2,
+};
+
+const DEPTH_CAMERA_MODEL = {
+  UNKNOWN: 0,
+  PINHOLE: 1,
+  DOUBLE_SPHERE: 2,
+};
+
+const DEPTH_DISTORTION_MODEL = {
+  NONE: 0,
+  RADTAN: 1,
+  EQUIDISTANT: 2,
+};
+
+const DEPTH_FLAG_RECTIFIED = 1 << 0;
 
 const CONFIG_OP = {
   GET: 0,
@@ -233,7 +259,7 @@ function parseFrames(buffer) {
     const recvCrc = readU32BE(u8, offset + 12 + len);
     const footer = u8.subarray(offset + 16 + len, offset + pktSize);
     const footerOk = arraysEqual(footer, FOOTER_BYTES);
-    const skipCrc = (type === "RAW " || type === "SRAW") && recvCrc === 0;
+    const skipCrc = (type === "RAW " || type === "SRAW" || type === "DPT ") && recvCrc === 0;
     const crcOk = len && !skipCrc ? crc32(payloadView) === recvCrc : true;
     if (!footerOk || !crcOk) {
       if (debug) {
@@ -317,6 +343,77 @@ function buildRawPayload({
   out[off] = chanLen; off += 1;
   out.set(chanBytes.subarray(0, chanLen), off); off += chanLen;
   out.set(dataU8, off);
+  return fromU8(out);
+}
+
+function buildDepthPayload({
+  version = 1,
+  encoding = DEPTH_ENCODING.UINT16_MILLIMETERS,
+  depthConvention = DEPTH_CONVENTION.Z_DEPTH,
+  cameraModel = DEPTH_CAMERA_MODEL.PINHOLE,
+  distortionModel = DEPTH_DISTORTION_MODEL.NONE,
+  flags = DEPTH_FLAG_RECTIFIED,
+  invalidValue = 0,
+  timestampNs = 0n,
+  width = 0,
+  height = 0,
+  sourceWidth = 0,
+  sourceHeight = 0,
+  depthScaleM = 0.001,
+  depthIntrinsics = [0, 0, 0, 0],
+  sourceIntrinsics = [0, 0, 0, 0],
+  distortion = [0, 0, 0, 0],
+  sourceChannel = "cam0",
+  frameId = "cam0_rectified",
+  depthMm = new Uint16Array(),
+} = {}) {
+  const w = Number(width) >>> 0;
+  const h = Number(height) >>> 0;
+  const sampleCount = w * h;
+  if (version !== 1 || encoding !== DEPTH_ENCODING.UINT16_MILLIMETERS ||
+      w === 0 || h === 0 || !Number.isSafeInteger(sampleCount) ||
+      !depthMm || Number(depthMm.length) !== sampleCount) {
+    throw new Error("DPT requires width*height UINT16_MILLIMETERS samples");
+  }
+  const channelBytes = (textEncoder || new TextEncoder()).encode(sourceChannel || "");
+  const frameIdBytes = (textEncoder || new TextEncoder()).encode(frameId || "");
+  const channelLen = Math.min(255, channelBytes.length);
+  const frameIdLen = Math.min(255, frameIdBytes.length);
+  const fixedBytes = 86;
+  const out = new Uint8Array(fixedBytes + channelLen + frameIdLen + sampleCount * 2);
+  const dv = new DataView(out.buffer, out.byteOffset, out.byteLength);
+  let off = 0;
+  dv.setUint8(off, version); off += 1;
+  dv.setUint8(off, encoding); off += 1;
+  dv.setUint8(off, depthConvention); off += 1;
+  dv.setUint8(off, cameraModel); off += 1;
+  dv.setUint8(off, distortionModel); off += 1;
+  dv.setUint8(off, flags); off += 1;
+  dv.setUint16(off, Number(invalidValue) & 0xffff, false); off += 2;
+  dv.setBigUint64(off, BigInt(timestampNs || 0n), false); off += 8;
+  dv.setUint32(off, w, false); off += 4;
+  dv.setUint32(off, h, false); off += 4;
+  dv.setUint32(off, Number(sourceWidth) >>> 0, false); off += 4;
+  dv.setUint32(off, Number(sourceHeight) >>> 0, false); off += 4;
+  dv.setFloat32(off, Number(depthScaleM), false); off += 4;
+  const writeVec4 = (values) => {
+    const vector = Array.from(values || []);
+    for (let i = 0; i < 4; i += 1) {
+      dv.setFloat32(off, Number(vector[i]) || 0, false);
+      off += 4;
+    }
+  };
+  writeVec4(depthIntrinsics);
+  writeVec4(sourceIntrinsics);
+  writeVec4(distortion);
+  dv.setUint8(off, channelLen); off += 1;
+  dv.setUint8(off, frameIdLen); off += 1;
+  out.set(channelBytes.subarray(0, channelLen), off); off += channelLen;
+  out.set(frameIdBytes.subarray(0, frameIdLen), off); off += frameIdLen;
+  for (let i = 0; i < sampleCount; i += 1) {
+    dv.setUint16(off, Number(depthMm[i]) & 0xffff, false);
+    off += 2;
+  }
   return fromU8(out);
 }
 
@@ -944,6 +1041,62 @@ function decodeRawPayload(payload) {
   return { timestampNs, width, height, format, channel, data };
 }
 
+function decodeDepthPayload(payload) {
+  const u8 = toU8(payload);
+  const fixedBytes = 86;
+  if (u8.length < fixedBytes) throw new Error("DPT payload too short");
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  let off = 0;
+  const version = dv.getUint8(off); off += 1;
+  const encoding = dv.getUint8(off); off += 1;
+  const depthConvention = dv.getUint8(off); off += 1;
+  const cameraModel = dv.getUint8(off); off += 1;
+  const distortionModel = dv.getUint8(off); off += 1;
+  const flags = dv.getUint8(off); off += 1;
+  const invalidValue = dv.getUint16(off, false); off += 2;
+  const timestampNs = dv.getBigUint64(off, false); off += 8;
+  const width = dv.getUint32(off, false); off += 4;
+  const height = dv.getUint32(off, false); off += 4;
+  const sourceWidth = dv.getUint32(off, false); off += 4;
+  const sourceHeight = dv.getUint32(off, false); off += 4;
+  const depthScaleM = dv.getFloat32(off, false); off += 4;
+  const readVec4 = () => {
+    const value = [
+      dv.getFloat32(off, false), dv.getFloat32(off + 4, false),
+      dv.getFloat32(off + 8, false), dv.getFloat32(off + 12, false),
+    ];
+    off += 16;
+    return value;
+  };
+  const depthIntrinsics = readVec4();
+  const sourceIntrinsics = readVec4();
+  const distortion = readVec4();
+  const channelLen = dv.getUint8(off); off += 1;
+  const frameIdLen = dv.getUint8(off); off += 1;
+  if (u8.length < off + channelLen + frameIdLen) throw new Error("DPT strings truncated");
+  const decoder = textDecoder || new TextDecoder();
+  const sourceChannel = decoder.decode(u8.subarray(off, off + channelLen)); off += channelLen;
+  const frameId = decoder.decode(u8.subarray(off, off + frameIdLen)); off += frameIdLen;
+  const sampleCount = width * height;
+  if (version !== 1 || encoding !== DEPTH_ENCODING.UINT16_MILLIMETERS ||
+      width === 0 || height === 0 || !Number.isSafeInteger(sampleCount) ||
+      !Number.isFinite(depthScaleM) || depthScaleM <= 0 ||
+      u8.length - off !== sampleCount * 2) {
+    throw new Error("invalid DPT payload");
+  }
+  const depthMm = new Uint16Array(sampleCount);
+  for (let i = 0; i < sampleCount; i += 1) {
+    depthMm[i] = dv.getUint16(off, false);
+    off += 2;
+  }
+  return {
+    version, encoding, depthConvention, cameraModel, distortionModel, flags,
+    invalidValue, timestampNs, width, height, sourceWidth, sourceHeight,
+    depthScaleM, depthIntrinsics, sourceIntrinsics, distortion,
+    sourceChannel, frameId, depthMm,
+  };
+}
+
 function decodeStereoRawPayload(payload) {
   const u8 = toU8(payload);
   if (u8.length < 8 + 8 + 4 + 4 + 1 + 1 + 4 + 4 + 1 + 1 + 4 + 4) {
@@ -1487,6 +1640,11 @@ function decodeConfigResponsePayload(payload) {
 const api = {
   TYPE,
   RAW_FORMAT,
+  DEPTH_ENCODING,
+  DEPTH_CONVENTION,
+  DEPTH_CAMERA_MODEL,
+  DEPTH_DISTORTION_MODEL,
+  DEPTH_FLAG_RECTIFIED,
   CONFIG_OP,
   VIO_STATE,
   VIO_DEGRADED_REASON,
@@ -1499,6 +1657,7 @@ const api = {
   FrameDispatcher,
   buildJpgPayload,
   buildRawPayload,
+  buildDepthPayload,
   buildStereoRawPayload,
   buildPosePayload,
   buildConstraintsPayload,
@@ -1519,6 +1678,7 @@ const api = {
   buildConfigResponsePayload,
   decodeJpgPayload,
   decodeRawPayload,
+  decodeDepthPayload,
   decodeStereoRawPayload,
   decodePosePayload,
   decodeConstraintsPayload,
@@ -1542,6 +1702,11 @@ const api = {
 export {
   TYPE,
   RAW_FORMAT,
+  DEPTH_ENCODING,
+  DEPTH_CONVENTION,
+  DEPTH_CAMERA_MODEL,
+  DEPTH_DISTORTION_MODEL,
+  DEPTH_FLAG_RECTIFIED,
   CONFIG_OP,
   VIO_STATE,
   VIO_DEGRADED_REASON,
@@ -1554,6 +1719,7 @@ export {
   FrameDispatcher,
   buildJpgPayload,
   buildRawPayload,
+  buildDepthPayload,
   buildStereoRawPayload,
   buildPosePayload,
   buildConstraintsPayload,
@@ -1574,6 +1740,7 @@ export {
   buildConfigResponsePayload,
   decodeJpgPayload,
   decodeRawPayload,
+  decodeDepthPayload,
   decodeStereoRawPayload,
   decodePosePayload,
   decodeConstraintsPayload,

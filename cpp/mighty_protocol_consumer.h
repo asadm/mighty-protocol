@@ -116,6 +116,7 @@ class DecodedDispatcher {
   using RawHandler = std::function<void(uint64_t timestamp_ns, uint32_t width, uint32_t height, uint8_t format,
                                         const std::string& channel, const std::vector<uint8_t>& data)>;
   using StereoRawHandler = std::function<void(const RawFrame& left, const RawFrame& right)>;
+  using DepthHandler = std::function<void(const DepthFrame&)>;
   using PoseHandler = std::function<void(const Pose&, bool is_unoptimized)>;
   using ConstraintsHandler = std::function<void(const Constraints&)>;
   using FeaturesHandler = std::function<void(const std::vector<Feature3D>&)>;
@@ -134,6 +135,7 @@ class DecodedDispatcher {
   void on_jpg(JpgHandler h) { jpg_handler_ = std::move(h); }
   void on_raw(RawHandler h) { raw_handler_ = std::move(h); }
   void on_stereo_raw(StereoRawHandler h) { stereo_raw_handler_ = std::move(h); }
+  void on_depth(DepthHandler h) { depth_handler_ = std::move(h); }
   void on_pose(PoseHandler h) { pose_handler_ = std::move(h); }
   void on_constraints(ConstraintsHandler h) { constraints_handler_ = std::move(h); }
   void on_features(FeaturesHandler h) { fea_handler_ = std::move(h); }
@@ -193,6 +195,12 @@ class DecodedDispatcher {
           raw_handler_(left.timestamp_ns, left.width, left.height, left.format, left.channel, left.data);
           raw_handler_(right.timestamp_ns, right.width, right.height, right.format, right.channel, right.data);
         }
+      }
+    } else if (type == "DPT ") {
+      if (!depth_handler_) return;
+      DepthFrame depth;
+      if (decode_depth_payload(f.payload, depth)) {
+        depth_handler_(depth);
       }
     } else if (type == "POSE" || type == "UPOS") {
       if (!pose_handler_) return;
@@ -285,6 +293,7 @@ class DecodedDispatcher {
   JpgHandler jpg_handler_;
   RawHandler raw_handler_;
   StereoRawHandler stereo_raw_handler_;
+  DepthHandler depth_handler_;
   PoseHandler pose_handler_;
   ConstraintsHandler constraints_handler_;
   FeaturesHandler fea_handler_;

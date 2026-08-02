@@ -20,6 +20,9 @@ g++ -std=c++17 -I"$HERE/.." "$HERE/cpp_pose_contract_test.cpp" -o "$BIN_DIR/cpp_
 echo "[build] g++ cpp_pose_viz_map.cpp"
 g++ -std=c++17 -I"$HERE/.." "$HERE/cpp_pose_viz_map.cpp" -o "$BIN_DIR/cpp_pose_viz_map"
 
+echo "[build] g++ cpp_depth_test.cpp"
+g++ -std=c++17 -pthread -I"$HERE/.." "$HERE/cpp_depth_test.cpp" -o "$BIN_DIR/cpp_depth_test"
+
 echo "[test] cpp sdk unit"
 "$BIN_DIR/cpp_sdk_test"
 
@@ -29,11 +32,17 @@ echo "[test] cpp sdk integration"
 echo "[test] cpp pose contract"
 "$BIN_DIR/cpp_pose_contract_test"
 
+echo "[test] cpp depth"
+"$BIN_DIR/cpp_depth_test"
+
 echo "[test] node roundtrip"
 node "$HERE/node_roundtrip.test.js"
 
 echo "[test] node sdk"
 node "$HERE/node_sdk.test.js"
+
+echo "[test] node depth"
+node "$HERE/node_depth.test.js"
 
 echo "[test] node pose contract"
 node "$HERE/node_pose_contract.test.js"
@@ -46,6 +55,9 @@ python3 "$HERE/python_sdk_test.py"
 
 echo "[test] python sdk integration"
 python3 "$HERE/python_sdk_integration_test.py"
+
+echo "[test] python depth"
+python3 "$HERE/python_depth_test.py"
 
 echo "[test] python pose contract"
 python3 "$HERE/python_pose_contract_test.py"

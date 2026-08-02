@@ -163,7 +163,7 @@ struct ResetEvent {
 };
 
 struct AnyEvent {
-  std::string type;      // image|pose|imu|vio_state|viz|lcon|status|reset|unknown
+  std::string type;      // image|depth|pose|imu|vio_state|viz|lcon|status|reset|unknown
   std::string raw_type;  // only for unknown
   std::vector<uint8_t> payload; // only for unknown
 };
@@ -208,6 +208,7 @@ struct ConfigSetResult {
 class MightyClient {
  public:
   using ImageHandler = std::function<void(const ImageFrame&)>;
+  using DepthHandler = std::function<void(const DepthFrame&)>;
   using PoseHandler = std::function<void(const PoseFrame&)>;
   using ImuHandler = std::function<void(const ImuBatch&)>;
   using VioStateHandler = std::function<void(const VioStateFrame&)>;
@@ -224,6 +225,7 @@ class MightyClient {
     enum class Kind {
       kInvalid,
       kImage,
+      kDepth,
       kPose,
       kImu,
       kVioState,
@@ -306,6 +308,7 @@ class MightyClient {
   }
 
   Subscription on_image(ImageHandler cb) { return subscribe(image_handlers_, Subscription::Kind::kImage, std::move(cb)); }
+  Subscription on_depth(DepthHandler cb) { return subscribe(depth_handlers_, Subscription::Kind::kDepth, std::move(cb)); }
   Subscription on_pose(PoseHandler cb) { return subscribe(pose_handlers_, Subscription::Kind::kPose, std::move(cb)); }
   Subscription on_imu(ImuHandler cb) { return subscribe(imu_handlers_, Subscription::Kind::kImu, std::move(cb)); }
   Subscription on_vio_state(VioStateHandler cb) { return subscribe(vio_state_handlers_, Subscription::Kind::kVioState, std::move(cb)); }
@@ -323,6 +326,7 @@ class MightyClient {
     if (!sub.valid()) return;
     switch (sub.kind) {
       case Subscription::Kind::kImage: image_handlers_.remove(sub.id); break;
+      case Subscription::Kind::kDepth: depth_handlers_.remove(sub.id); break;
       case Subscription::Kind::kPose: pose_handlers_.remove(sub.id); break;
       case Subscription::Kind::kImu: imu_handlers_.remove(sub.id); break;
       case Subscription::Kind::kVioState: vio_state_handlers_.remove(sub.id); break;
@@ -859,6 +863,17 @@ class MightyClient {
         return;
       }
 
+      if (type == "DPT ") {
+        if (depth_handlers_.empty() && !wants_any) return;
+        DepthFrame evt;
+        if (!decode_depth_payload(frame.payload, evt)) {
+          throw std::runtime_error("DPT decode failed");
+        }
+        emit(depth_handlers_, evt);
+        if (wants_any) emit_any(AnyEvent{"depth", "", {}});
+        return;
+      }
+
       if (type == "POSE" || type == "UPOS") {
         if (pose_handlers_.empty() && !wants_any && !opts_.loopclosure) return;
         uint32_t pose_type = 0;
@@ -1113,6 +1128,7 @@ class MightyClient {
   FrameDispatcher frame_dispatcher_;
 
   ListenerSet<ImageHandler> image_handlers_;
+  ListenerSet<DepthHandler> depth_handlers_;
   ListenerSet<PoseHandler> pose_handlers_;
   ListenerSet<ImuHandler> imu_handlers_;
   ListenerSet<VioStateHandler> vio_state_handlers_;

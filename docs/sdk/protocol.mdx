@@ -20,8 +20,8 @@ Each frame on the wire is:
 - Endianness: **big-endian** for numeric fields
 - CRC: CRC32 of payload bytes (zero when payload is empty)
 
-Raw-frame CRC compatibility rule:
-- For `RAW ` and `SRAW`, decoders may accept `crc32 == 0` as a skip-CRC fast path (for device interoperability).
+Bulk-frame CRC compatibility rule:
+- For `RAW `, `SRAW`, and `DPT `, decoders may accept `crc32 == 0` as a skip-CRC fast path (for device interoperability).
 
 ## 2. Type Codes
 
@@ -31,6 +31,7 @@ Raw-frame CRC compatibility rule:
 - `RJPG`: reference JPEG image
 - `RAW `: mono raw image
 - `SRAW`: stereo raw image (left + right)
+- `DPT `: calibrated metric depth image
 - `POSE`: canonical public body pose (`T_odom_body`)
 - `UPOS`: reserved/internal pose stream (not part of public API)
 - `LCON`: loop constraints / line segments
@@ -83,6 +84,40 @@ Formats (SDK constant: `RAW_FORMAT`):
 #### `SRAW`
 - left raw image payload
 - right raw image payload
+
+#### `DPT `
+
+Version 1 carries the numeric depth plane and all geometry needed to align its
+source image in every frame. Numeric fields and uint16 samples are big-endian.
+
+```text
+u8  version (=1)
+u8  encoding (=1, UINT16_MILLIMETERS)
+u8  depth_convention (=1, Z_DEPTH)
+u8  camera_model (1=PINHOLE, 2=DOUBLE_SPHERE)
+u8  distortion_model (0=NONE, 1=RADTAN, 2=EQUIDISTANT)
+u8  flags (bit 0 = rectified)
+u16 invalid_value (normally 0)
+u64 timestamp_ns
+u32 width, height
+u32 source_width, source_height
+f32 depth_scale_m (normally 0.001)
+f32 depth_intrinsics[4]   # fx, fy, cx, cy on depth grid
+f32 source_intrinsics[4]  # fx, fy, cx, cy on source grid
+f32 distortion[4]
+u8  source_channel_length
+u8  frame_id_length
+bytes source_channel
+bytes frame_id
+u16 depth_samples[width * height]
+```
+
+`Z_DEPTH` is forward optical-axis depth, so a valid pixel reconstructs as
+`X=(u-cx)/fx*Z`, `Y=(v-cy)/fy*Z`, `Z=sample*depth_scale_m`. The depth grid is
+rectified. The source image may still be distorted; SDK
+`rectifyImageToDepth` / `rectify_image_to_depth` helpers use the included
+camera metadata to put it on the depth grid. Pair source and depth frames using
+both `source_channel` and the exact `timestamp_ns`.
 
 ### 3.2 Pose (`POSE`; `UPOS` reserved/internal)
 
@@ -340,13 +375,13 @@ apriltags:
 - framing: `makePacket`, `parseFrames`, `FrameDispatcher`
 - builders: `build*Payload` helpers for each type
 - decoders: `decode*Payload` helpers for each type
-- constants: `TYPE`, `RAW_FORMAT`, `CONFIG_OP`
+- constants: `TYPE`, `RAW_FORMAT`, `DEPTH_*`, `CONFIG_OP`
 
 ### Python (`python/mighty_protocol.py`)
 
 - framing: `make_packet`, `parse_frames`, `FrameDispatcher`
 - builders/decoders: type-specific functions matching protocol payloads
-- constants: `TYPE`, `RAW_FORMAT`, `CONFIG_OP`
+- constants: `TYPE`, `RAW_FORMAT`, `DEPTH_*`, `CONFIG_OP`
 
 ### C++ (`cpp/mighty_protocol.h`, `cpp/mighty_protocol_consumer.h`)
 

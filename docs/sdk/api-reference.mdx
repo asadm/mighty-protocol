@@ -13,6 +13,8 @@ import {
   MightyWebDevice,
   DEFAULT_BASE_URLS,
   decodeRawToRgb,
+  depthAtMeters,
+  rectifyImageToDepth,
 } from "mighty-protocol";
 ```
 
@@ -22,6 +24,10 @@ import {
 - `MightyWebDevice`
 - `DEFAULT_BASE_URLS: string[]`
 - `decodeRawToRgb(frame, rawFormat?)`
+- `depthAtMeters(depth, x, y)`
+- `rectifyImageToDepth(image, depth, options?)`
+- `colorizeDepth(depth, options?)`
+- `RgbdSynchronizer`
 
 ### `MightyWebDevice`
 
@@ -93,6 +99,8 @@ Command/config:
 Subscriptions (each returns `() => void` to unsubscribe):
 
 - `onImage(cb)`
+- `onDepth(cb)`
+- `onRgbd(cb, options?)`
 - `onPose(cb)`
 - `onImu(cb)`
 - `onVioState(cb)`
@@ -129,6 +137,61 @@ type StereoRawImageFrame = {
   right: RawImageFrame;
 };
 ```
+
+`onDepth`:
+
+Most applications only need `timestampNs`, `width`, `height`,
+`depthAtMeters(...)`, and optionally `rectifyImageToDepth(...)`. The remaining
+fields below are advanced camera-alignment metadata; they describe the public
+pixel geometry, not the depth model or its implementation.
+
+```ts
+type MetricDepthFrame = {
+  kind: "depth";
+  timestampNs: bigint;       // same capture timestamp as the source image
+  width: number;
+  height: number;
+  depthMm: Uint16Array;      // row-major; invalidValue is not a measurement
+  invalidValue: number;      // normally 0
+  depthScaleM: number;       // normally 0.001
+  depthConvention: number;   // DEPTH_CONVENTION.Z_DEPTH
+  depthIntrinsics: [number, number, number, number];  // fx, fy, cx, cy
+  sourceWidth: number;
+  sourceHeight: number;
+  sourceIntrinsics: [number, number, number, number]; // fx, fy, cx, cy
+  cameraModel: number;
+  distortionModel: number;
+  distortion: [number, number, number, number];
+  sourceChannel: string;     // normally "cam0"
+  frameId: string;           // normally "cam0_rectified"
+};
+```
+
+`onRgbd` pairs image and depth events by the exact capture timestamp and the
+canonical camera channel (`preview` and `left` alias to `cam0`):
+
+```js
+const unsubscribe = client.onRgbd(({ image, depth }) => {
+  if (image.kind !== "raw") return;
+
+  // The source image is distorted; put it on the same rectified pixel grid as
+  // depth before using corresponding pixels.
+  const rectified = rectifyImageToDepth(image, depth);
+  const centerX = Math.floor(depth.width / 2);
+  const centerY = Math.floor(depth.height / 2);
+  const centerDepthM = depthAtMeters(depth, centerX, centerY);
+  console.log(depth.timestampNs, centerDepthM, rectified.rgba);
+});
+```
+
+`rectifyImageToDepth(image, depth, { requireMatchingTimestamp = true })`
+returns `{ width, height, rgba, timestampNs, frameId }`. It supports raw
+`GRAY8`, RGB/BGR(A), and YUV luma input. It throws on mismatched nonzero
+timestamps by default.
+
+`colorizeDepth(depth, { nearM = 0, farM = 10 })` returns presentation-only
+Turbo RGBA. It does not modify metric samples. `depthAtMeters` returns `null`
+for an invalid or out-of-bounds sample.
 
 `onPose`:
 
@@ -261,6 +324,7 @@ type ResetEvent = { receivedAtMs: number };
 ```ts
 type AnyEvent =
   | { type: "image"; data: RawImageFrame | StereoRawImageFrame }
+  | { type: "depth"; data: MetricDepthFrame }
   | { type: "pose"; data: PoseEvent }
   | { type: "imu"; data: ImuEvent }
   | { type: "vio_state"; data: VioStateEvent }
@@ -294,7 +358,12 @@ decodeRawToRgb(
 ## Python SDK
 
 ```python
-from mighty_sdk import MightyClient, MightyWebDevice
+from mighty_sdk import (
+    MightyClient,
+    MightyWebDevice,
+    depth_at_meters,
+    rectify_image_to_depth,
+)
 ```
 
 ### `MightyWebDevice`
@@ -364,6 +433,8 @@ Command/config:
 Subscriptions (each returns `Callable[[], None]` unsubscribe):
 
 - `on_image(cb)`
+- `on_depth(cb)`
+- `on_rgbd(cb, max_entries=64)`
 - `on_pose(cb)`
 - `on_imu(cb)`
 - `on_vio_state(cb)`
@@ -400,6 +471,53 @@ Subscriptions (each returns `Callable[[], None]` unsubscribe):
   "right": { ...raw... },
 }
 ```
+
+`on_depth` returns the per-frame calibration and the metric plane together:
+
+Ordinary consumers can use `timestamp_ns`, the dimensions, and
+`depth_at_meters(...)` without interpreting the calibration fields. Those
+fields are public camera geometry for advanced alignment, not ML-model
+metadata.
+
+```python
+{
+  "kind": "depth",
+  "timestamp_ns": int,
+  "width": int,
+  "height": int,
+  "depth_mm": array.array,       # unsigned 16-bit row-major samples
+  "invalid_value": int,         # normally 0
+  "depth_scale_m": float,       # normally 0.001
+  "depth_convention": int,      # DEPTH_CONVENTION["Z_DEPTH"]
+  "depth_intrinsics": tuple,    # fx, fy, cx, cy on the rectified grid
+  "source_width": int,
+  "source_height": int,
+  "source_intrinsics": tuple,   # fx, fy, cx, cy on the source grid
+  "camera_model": int,
+  "distortion_model": int,
+  "distortion": tuple,
+  "source_channel": str,
+  "frame_id": str,
+}
+```
+
+Pair and rectify without separately loading `calib.yaml`:
+
+```python
+def on_rgbd(pair):
+    image, depth = pair["image"], pair["depth"]
+    if image["kind"] != "raw":
+        return
+    rectified = rectify_image_to_depth(image, depth)
+    x, y = depth["width"] // 2, depth["height"] // 2
+    print(depth["timestamp_ns"], depth_at_meters(depth, x, y))
+
+unsubscribe = client.on_rgbd(on_rgbd)
+```
+
+`rectify_image_to_depth` checks exact nonzero timestamps by default and returns
+an RGBA image on the depth grid. `depth_at_meters` returns `None` for invalid
+or out-of-bounds samples.
 
 `on_pose`:
 
@@ -537,6 +655,7 @@ Headers:
 - `cpp/sdk/mighty_client.h`
 - `cpp/sdk/mighty_web_device.h`
 - `cpp/sdk/mighty_device_io.h`
+- `cpp/sdk/mighty_depth.h`
 
 Namespace:
 
@@ -622,6 +741,7 @@ Lifecycle and stats:
 Subscriptions:
 
 - `Subscription on_image(ImageHandler cb)`
+- `Subscription on_depth(DepthHandler cb)`
 - `Subscription on_pose(PoseHandler cb)`
 - `Subscription on_imu(ImuHandler cb)`
 - `Subscription on_vio_state(VioStateHandler cb)`
@@ -658,10 +778,14 @@ struct Subscription {
   enum class Kind {
     kInvalid,
     kImage,
+    kDepth,
     kPose,
     kImu,
     kVioState,
     kViz,
+    kLcon,
+    kKeyframe,
+    kLoopClosure,
     kStatus,
     kReset,
     kAny,
@@ -692,6 +816,28 @@ struct ImageFrame {
   Kind kind = Kind::kRaw;
   RawImageFrame left;
   std::optional<RawImageFrame> right;
+};
+
+struct DepthFrame {
+  uint8_t version = 1;
+  uint8_t encoding = 1;          // uint16 millimetres
+  uint8_t depth_convention = 1;  // camera-axis Z depth
+  uint8_t camera_model = 1;
+  uint8_t distortion_model = 0;
+  uint8_t flags = 1;             // rectified depth grid
+  uint64_t timestamp_ns = 0;
+  uint32_t width = 0;
+  uint32_t height = 0;
+  uint16_t invalid_value = 0;
+  float depth_scale_m = 0.001f;
+  std::array<float, 4> depth_intrinsics;   // fx, fy, cx, cy
+  uint32_t source_width = 0;
+  uint32_t source_height = 0;
+  std::array<float, 4> source_intrinsics;  // fx, fy, cx, cy
+  std::array<float, 4> distortion;
+  std::string source_channel;
+  std::string frame_id;
+  std::vector<uint16_t> depth_mm;
 };
 
 struct PoseFrame {
@@ -753,7 +899,7 @@ struct StatusEvent { std::string text; };
 struct ResetEvent { uint64_t received_at_ms = 0; };
 
 struct AnyEvent {
-  std::string type;      // image|pose|imu|vio_state|viz|status|reset|unknown
+  std::string type;      // image|depth|pose|imu|vio_state|viz|lcon|keyframe|status|reset|unknown
   std::string raw_type;  // set for unknown
   std::vector<uint8_t> payload; // set for unknown
 };
@@ -826,3 +972,38 @@ struct VizMatch {
   uint8_t confidence;
 };
 ```
+
+### C++ metric-depth helpers
+
+The helper path intentionally hides wire encoding and camera-model branching
+from normal users. Access `DepthFrame` calibration fields directly only when
+implementing custom alignment or 3D reconstruction.
+
+```cpp
+#include "mighty_sdk.h"
+
+using namespace mighty_protocol::sdk;
+
+RgbdSynchronizer synchronizer(
+    [](const RawImageFrame& image, const mighty_protocol::DepthFrame& depth) {
+      RectifiedRgbaFrame rectified;
+      if (!rectify_image_to_depth(image, depth, &rectified)) return;
+
+      const uint32_t x = depth.width / 2;
+      const uint32_t y = depth.height / 2;
+      const std::optional<float> z_m = depth_at_meters(depth, x, y);
+    });
+
+auto image_sub = client.on_image([&](const ImageFrame& frame) {
+  synchronizer.push_image(frame.left);
+  if (frame.right) synchronizer.push_image(*frame.right);
+});
+auto depth_sub = client.on_depth([&](const mighty_protocol::DepthFrame& depth) {
+  synchronizer.push_depth(depth);
+});
+```
+
+`RgbdSynchronizer` matches the canonical source channel and exact nanosecond
+timestamp. `rectify_image_to_depth` returns `false` for unsupported raw formats,
+invalid geometry, or mismatched nonzero timestamps. `depth_at_meters` returns
+`std::nullopt` for invalid or out-of-bounds samples.

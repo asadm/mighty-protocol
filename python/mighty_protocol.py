@@ -1,6 +1,8 @@
 import struct
 import math
 import json
+import array
+import sys
 from typing import List, Tuple, Dict, Any, Optional
 
 HEADER_MAGIC = bytes([0xDE, 0xAD, 0xBE, 0xEF])
@@ -11,6 +13,7 @@ TYPE = {
     "RJPG": b"RJPG",
     "RAW": b"RAW ",
     "SRAW": b"SRAW",
+    "DPT": b"DPT ",
     "POSE": b"POSE",
     "UPOSE": b"UPOS",
     "LCON": b"LCON",
@@ -87,6 +90,31 @@ RAW_FORMAT = {
     "YUV420P": 7,
 }
 
+DEPTH_ENCODING = {
+    "UNKNOWN": 0,
+    "UINT16_MILLIMETERS": 1,
+}
+
+DEPTH_CONVENTION = {
+    "UNKNOWN": 0,
+    "Z_DEPTH": 1,
+    "RAY_RANGE": 2,
+}
+
+DEPTH_CAMERA_MODEL = {
+    "UNKNOWN": 0,
+    "PINHOLE": 1,
+    "DOUBLE_SPHERE": 2,
+}
+
+DEPTH_DISTORTION_MODEL = {
+    "NONE": 0,
+    "RADTAN": 1,
+    "EQUIDISTANT": 2,
+}
+
+DEPTH_FLAG_RECTIFIED = 1 << 0
+
 def _crc32(data: bytes) -> int:
     crc = 0xFFFFFFFF
     for b in data:
@@ -128,7 +156,7 @@ def parse_frames(buf: bytes) -> Tuple[List[Dict[str, Any]], bytes]:
         offset += pkt_size
         if footer != FOOTER_MAGIC:
             continue
-        skip_crc = tcode in (b"RAW ", b"SRAW") and recv_crc == 0
+        skip_crc = tcode in (b"RAW ", b"SRAW", b"DPT ") and recv_crc == 0
         if length and not skip_crc and _crc32(payload) != recv_crc:
             continue
         frames.append({"type": tcode.decode("ascii"), "payload": payload})
@@ -146,6 +174,62 @@ def build_raw_payload(timestamp_ns: int,
     header = struct.pack(">QII", int(timestamp_ns), int(width), int(height))
     header += bytes([fmt & 0xFF, chan_len])
     return header + chan_bytes[:chan_len] + data
+
+def build_depth_payload(timestamp_ns: int,
+                        width: int,
+                        height: int,
+                        source_width: int,
+                        source_height: int,
+                        depth_intrinsics,
+                        source_intrinsics,
+                        distortion,
+                        depth_mm,
+                        source_channel: str = "cam0",
+                        frame_id: str = "cam0_rectified",
+                        version: int = 1,
+                        encoding: int = DEPTH_ENCODING["UINT16_MILLIMETERS"],
+                        depth_convention: int = DEPTH_CONVENTION["Z_DEPTH"],
+                        camera_model: int = DEPTH_CAMERA_MODEL["PINHOLE"],
+                        distortion_model: int = DEPTH_DISTORTION_MODEL["NONE"],
+                        flags: int = DEPTH_FLAG_RECTIFIED,
+                        invalid_value: int = 0,
+                        depth_scale_m: float = 0.001) -> bytes:
+    width = int(width)
+    height = int(height)
+    values = list(depth_mm or [])
+    if version != 1 or encoding != DEPTH_ENCODING["UINT16_MILLIMETERS"] or \
+            width <= 0 or height <= 0 or len(values) != width * height:
+        raise ValueError("DPT requires width*height UINT16_MILLIMETERS samples")
+    depth_k = list(depth_intrinsics or [])[:4]
+    source_k = list(source_intrinsics or [])[:4]
+    coeffs = list(distortion or [])[:4]
+    depth_k += [0.0] * (4 - len(depth_k))
+    source_k += [0.0] * (4 - len(source_k))
+    coeffs += [0.0] * (4 - len(coeffs))
+    channel = (source_channel or "").encode("utf-8")[:255]
+    frame = (frame_id or "").encode("utf-8")[:255]
+    header = struct.pack(
+        ">BBBBBBHQIIIIf",
+        int(version) & 0xff,
+        int(encoding) & 0xff,
+        int(depth_convention) & 0xff,
+        int(camera_model) & 0xff,
+        int(distortion_model) & 0xff,
+        int(flags) & 0xff,
+        int(invalid_value) & 0xffff,
+        int(timestamp_ns),
+        width,
+        height,
+        int(source_width),
+        int(source_height),
+        float(depth_scale_m),
+    )
+    header += struct.pack(">ffffffffffff", *(float(v) for v in depth_k + source_k + coeffs))
+    header += bytes([len(channel), len(frame)]) + channel + frame
+    samples = array.array("H", (int(v) & 0xffff for v in values))
+    if sys.byteorder == "little":
+        samples.byteswap()
+    return header + samples.tobytes()
 
 def build_stereo_raw_payload(left_timestamp_ns: int,
                              right_timestamp_ns: int,
@@ -197,6 +281,58 @@ def decode_raw_payload(payload: bytes):
     channel = payload[18:18+clen].decode("utf-8")
     data = payload[18+clen:]
     return {"timestamp_ns": ts, "width": width, "height": height, "format": fmt, "channel": channel, "data": data}
+
+def decode_depth_payload(payload: bytes):
+    fixed_bytes = 86
+    if len(payload) < fixed_bytes:
+        raise ValueError("DPT payload too short")
+    off = 0
+    version, encoding, depth_convention, camera_model, distortion_model, flags = \
+        struct.unpack(">BBBBBB", payload[off:off+6]); off += 6
+    invalid_value = struct.unpack(">H", payload[off:off+2])[0]; off += 2
+    timestamp_ns = struct.unpack(">Q", payload[off:off+8])[0]; off += 8
+    width, height, source_width, source_height = struct.unpack(">IIII", payload[off:off+16]); off += 16
+    depth_scale_m = struct.unpack(">f", payload[off:off+4])[0]; off += 4
+    geometry = struct.unpack(">ffffffffffff", payload[off:off+48]); off += 48
+    depth_intrinsics = geometry[0:4]
+    source_intrinsics = geometry[4:8]
+    distortion = geometry[8:12]
+    channel_len = payload[off]; off += 1
+    frame_id_len = payload[off]; off += 1
+    if len(payload) < off + channel_len + frame_id_len:
+        raise ValueError("DPT strings truncated")
+    source_channel = payload[off:off+channel_len].decode("utf-8"); off += channel_len
+    frame_id = payload[off:off+frame_id_len].decode("utf-8"); off += frame_id_len
+    sample_count = int(width) * int(height)
+    if version != 1 or encoding != DEPTH_ENCODING["UINT16_MILLIMETERS"] or \
+            width <= 0 or height <= 0 or not math.isfinite(depth_scale_m) or \
+            depth_scale_m <= 0.0 or len(payload) - off != sample_count * 2:
+        raise ValueError("invalid DPT payload")
+    values = array.array("H")
+    values.frombytes(payload[off:])
+    if sys.byteorder == "little":
+        values.byteswap()
+    return {
+        "version": version,
+        "encoding": encoding,
+        "depth_convention": depth_convention,
+        "camera_model": camera_model,
+        "distortion_model": distortion_model,
+        "flags": flags,
+        "invalid_value": invalid_value,
+        "timestamp_ns": timestamp_ns,
+        "width": width,
+        "height": height,
+        "source_width": source_width,
+        "source_height": source_height,
+        "depth_scale_m": depth_scale_m,
+        "depth_intrinsics": depth_intrinsics,
+        "source_intrinsics": source_intrinsics,
+        "distortion": distortion,
+        "source_channel": source_channel,
+        "frame_id": frame_id,
+        "depth_mm": values,
+    }
 
 def decode_stereo_raw_payload(payload: bytes):
     if len(payload) < 8 + 8 + 4 + 4 + 1 + 1 + 4 + 4 + 1 + 1 + 4 + 4:

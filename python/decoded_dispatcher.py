@@ -7,6 +7,7 @@ class DecodedDispatcher:
       on_jpg(timestamp_ns, channel, data, is_ref)
       on_raw(timestamp_ns, width, height, format, channel, data)
       on_stereo_raw(left_dict, right_dict)
+      on_depth(depth_dict)
       on_pose(pose_dict, is_unoptimized)
       on_constraints(segments_list)
       on_features(features_list)
@@ -26,6 +27,7 @@ class DecodedDispatcher:
         self.on_jpg = None
         self.on_raw = None
         self.on_stereo_raw = None
+        self.on_depth = None
         self.on_pose = None
         self.on_constraints = None
         self.on_features = None
@@ -69,6 +71,9 @@ class DecodedDispatcher:
                         right = d["right"]
                         self.on_raw(left["timestamp_ns"], left["width"], left["height"], left["format"], left["channel"], left["data"])
                         self.on_raw(right["timestamp_ns"], right["width"], right["height"], right["format"], right["channel"], right["data"])
+            elif t == "DPT":
+                if self.on_depth:
+                    self.on_depth(mp.decode_depth_payload(p))
             elif t == "POSE":
                 if self.on_pose:
                     d = mp.decode_pose_payload(p); self.on_pose(d, False)

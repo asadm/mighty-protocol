@@ -5,6 +5,7 @@ import {
   createLoopClosureWasmModule,
 } from "./loopclosure-wasm.js";
 import { toU8, encodeText, decodeText, sleep, isAbortError } from "./utils.js";
+import { RgbdSynchronizer } from "./depth.js";
 
 export const VIO_STATE = protocol.VIO_STATE;
 export const VIO_DEGRADED_REASON = protocol.VIO_DEGRADED_REASON;
@@ -27,6 +28,7 @@ const DEFAULT_OPTS = {
 
 const EVENT_KEYS = [
   "image",
+  "depth",
   "pose",
   "imu",
   "vio_state",
@@ -190,6 +192,17 @@ export class MightyClient {
   }
 
   onImage(cb) { return this._subscribe("image", cb); }
+  onDepth(cb) { return this._subscribe("depth", cb); }
+  onRgbd(cb, opts = {}) {
+    const synchronizer = new RgbdSynchronizer(cb, opts);
+    const offImage = this.onImage((image) => synchronizer.pushImage(image));
+    const offDepth = this.onDepth((depth) => synchronizer.pushDepth(depth));
+    return () => {
+      offImage();
+      offDepth();
+      synchronizer.clear();
+    };
+  }
   onPose(cb) { return this._subscribe("pose", cb); }
   onImu(cb) { return this._subscribe("imu", cb); }
   onVioState(cb) { return this._subscribe("vio_state", cb); }
@@ -711,6 +724,14 @@ export class MightyClient {
           this._pushLoopclosureImage(mapped);
           this._emit("image", mapped);
           if (wantsAny) this._emitAny({ type: "image", data: mapped });
+          return;
+        }
+        case protocol.TYPE.DPT: {
+          if (!this._hasListeners("depth") && !wantsAny) return;
+          const depth = protocol.decodeDepthPayload(frame.payload);
+          const mapped = { kind: "depth", ...depth };
+          this._emit("depth", mapped);
+          if (wantsAny) this._emitAny({ type: "depth", data: mapped });
           return;
         }
         case protocol.TYPE.SRAW: {

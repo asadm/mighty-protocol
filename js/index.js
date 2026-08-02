@@ -8,6 +8,11 @@ import {
   NativeMapperWasm,
   createLoopClosureWasmModule,
   decodeRawToRgb,
+  RgbdSynchronizer,
+  colorizeDepth,
+  depthAtMeters,
+  isUint16MetricDepth,
+  rectifyImageToDepth,
 } from "./sdk/index.js";
 
 const { default: _coreDefault, ...coreNamed } = core;
@@ -21,6 +26,11 @@ const sdk = {
   NativeMapperWasm,
   createLoopClosureWasmModule,
   decodeRawToRgb,
+  RgbdSynchronizer,
+  colorizeDepth,
+  depthAtMeters,
+  isUint16MetricDepth,
+  rectifyImageToDepth,
 };
 
 const api = {
@@ -40,6 +50,11 @@ export {
   NativeMapperWasm,
   createLoopClosureWasmModule,
   decodeRawToRgb,
+  RgbdSynchronizer,
+  colorizeDepth,
+  depthAtMeters,
+  isUint16MetricDepth,
+  rectifyImageToDepth,
   sdk,
   coreNamed as core,
 };

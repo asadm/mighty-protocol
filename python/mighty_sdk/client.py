@@ -6,6 +6,7 @@ import mighty_protocol as mp
 from dispatcher import FrameDispatcher
 
 from .loopclosure import LoopClosureError, NativeLoopClosure
+from .depth import RgbdSynchronizer
 from .utils import clamp01, sleep_seconds, to_bytes
 
 
@@ -37,6 +38,7 @@ class MightyClient:
 
         self._listeners: Dict[str, set] = {
             "image": set(),
+            "depth": set(),
             "pose": set(),
             "imu": set(),
             "vio_state": set(),
@@ -121,6 +123,21 @@ class MightyClient:
 
     def on_image(self, cb: Callable[[dict], None]) -> Callable[[], None]:
         return self._subscribe("image", cb)
+
+    def on_depth(self, cb: Callable[[dict], None]) -> Callable[[], None]:
+        return self._subscribe("depth", cb)
+
+    def on_rgbd(self, cb: Callable[[dict], None], max_entries: int = 64) -> Callable[[], None]:
+        synchronizer = RgbdSynchronizer(cb, max_entries=max_entries)
+        off_image = self.on_image(synchronizer.push_image)
+        off_depth = self.on_depth(synchronizer.push_depth)
+
+        def _unsubscribe() -> None:
+            off_image()
+            off_depth()
+            synchronizer.clear()
+
+        return _unsubscribe
 
     def on_pose(self, cb: Callable[[dict], None]) -> Callable[[], None]:
         return self._subscribe("pose", cb)
@@ -454,6 +471,15 @@ class MightyClient:
                 self._emit("image", mapped)
                 if wants_any:
                     self._emit_any({"type": "image", "data": mapped})
+                return
+
+            if frame_type == "DPT ":
+                if not self._has_listeners("depth") and not wants_any:
+                    return
+                mapped = {"kind": "depth", **mp.decode_depth_payload(payload)}
+                self._emit("depth", mapped)
+                if wants_any:
+                    self._emit_any({"type": "depth", "data": mapped})
                 return
 
             if frame_type == "SRAW":
