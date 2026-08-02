@@ -23,6 +23,9 @@ g++ -std=c++17 -I"$HERE/.." "$HERE/cpp_pose_viz_map.cpp" -o "$BIN_DIR/cpp_pose_v
 echo "[build] g++ cpp_depth_test.cpp"
 g++ -std=c++17 -pthread -I"$HERE/.." "$HERE/cpp_depth_test.cpp" -o "$BIN_DIR/cpp_depth_test"
 
+echo "[build] g++ cpp_calibration_test.cpp"
+g++ -std=c++17 -I"$HERE/.." "$HERE/cpp_calibration_test.cpp" -o "$BIN_DIR/cpp_calibration_test"
+
 echo "[test] cpp sdk unit"
 "$BIN_DIR/cpp_sdk_test"
 
@@ -35,6 +38,9 @@ echo "[test] cpp pose contract"
 echo "[test] cpp depth"
 "$BIN_DIR/cpp_depth_test"
 
+echo "[test] cpp calibration"
+"$BIN_DIR/cpp_calibration_test"
+
 echo "[test] node roundtrip"
 node "$HERE/node_roundtrip.test.js"
 
@@ -43,6 +49,9 @@ node "$HERE/node_sdk.test.js"
 
 echo "[test] node depth"
 node "$HERE/node_depth.test.js"
+
+echo "[test] node calibration"
+node "$HERE/node_calibration.test.js"
 
 echo "[test] node pose contract"
 node "$HERE/node_pose_contract.test.js"
@@ -58,6 +67,9 @@ python3 "$HERE/python_sdk_integration_test.py"
 
 echo "[test] python depth"
 python3 "$HERE/python_depth_test.py"
+
+echo "[test] python calibration"
+python3 "$HERE/python_calibration_test.py"
 
 echo "[test] python pose contract"
 python3 "$HERE/python_pose_contract_test.py"

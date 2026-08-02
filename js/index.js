@@ -13,6 +13,7 @@ import {
   depthAtMeters,
   isUint16MetricDepth,
   rectifyImageToDepth,
+  parseCalibrationYaml,
 } from "./sdk/index.js";
 
 const { default: _coreDefault, ...coreNamed } = core;
@@ -31,6 +32,7 @@ const sdk = {
   depthAtMeters,
   isUint16MetricDepth,
   rectifyImageToDepth,
+  parseCalibrationYaml,
 };
 
 const api = {
@@ -55,6 +57,7 @@ export {
   depthAtMeters,
   isUint16MetricDepth,
   rectifyImageToDepth,
+  parseCalibrationYaml,
   sdk,
   coreNamed as core,
 };

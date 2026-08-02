@@ -3,32 +3,30 @@
 #include <cerrno>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <csignal>
 #include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <deque>
-#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <thread>
 #include <utility>
 #include <vector>
 
-#include <sys/select.h>
-#include <unistd.h>
-
 #include "mighty_sdk.h"
 #include "voxblox_mapper.h"
+#include "voxblox_viewer.h"
 
 namespace {
 
 using mighty_protocol::VioStateCode;
+using mighty_protocol::sdk::CameraCalibration;
 using mighty_protocol::sdk::CommandResult;
 using mighty_protocol::sdk::MightyClient;
 using mighty_protocol::sdk::MightyClientOptions;
@@ -38,10 +36,15 @@ using mighty_protocol::sdk::MightyWebDeviceOptions;
 using mighty_protocol::sdk::PoseFrame;
 using mighty_protocol::sdk::ResetEvent;
 using mighty_protocol::sdk::VioStateFrame;
-using mighty_voxblox::BodyCameraCalibration;
 using mighty_voxblox::FusionInput;
 using mighty_voxblox::MapperConfig;
 using mighty_voxblox::MapperStats;
+using mighty_voxblox::MeshSnapshot;
+using mighty_voxblox::ViewerActions;
+using mighty_voxblox::ViewerOptions;
+using mighty_voxblox::ViewerPose;
+using mighty_voxblox::ViewerState;
+using mighty_voxblox::ViewerStats;
 using mighty_voxblox::VoxbloxMapper;
 
 std::atomic<bool> g_stop{false};
@@ -55,19 +58,12 @@ struct Options {
   double pose_tolerance_ms = 15.0;
   std::string mesh_path = "mighty_voxblox_mesh.ply";
   std::string map_path = "mighty_voxblox_map.voxblox";
+  std::size_t mesh_update_ms = 500;
   bool start_vio = false;
+  bool follow_pose = false;
   bool leave_depth_on = false;
   bool save_on_exit = true;
 };
-
-std::string trim(std::string value) {
-  const auto not_space = [](unsigned char ch) { return !std::isspace(ch); };
-  value.erase(value.begin(),
-              std::find_if(value.begin(), value.end(), not_space));
-  value.erase(std::find_if(value.rbegin(), value.rend(), not_space).base(),
-              value.end());
-  return value;
-}
 
 std::string lower(std::string value) {
   std::transform(value.begin(), value.end(), value.begin(),
@@ -109,6 +105,10 @@ void print_usage(const char* argv0) {
       << "  --host URL                  Mighty HTTP base URL\n"
       << "  --start-vio                 Start VIO after enabling depth\n"
       << "  --leave-depth-on            Do not disable depth on exit\n\n"
+      << "Viewer:\n"
+      << "  --follow                    Start by following the latest VIO pose\n"
+      << "  --no-follow                 Start with a free camera (default)\n"
+      << "  --mesh-update-ms N          Live mesh refresh interval (default 500)\n\n"
       << "Fusion:\n"
       << "  --voxel-size M              TSDF voxel size (default 0.05)\n"
       << "  --voxels-per-side N         Power-of-two block side (default 16)\n"
@@ -147,6 +147,15 @@ bool parse_options(int argc, char** argv, Options* options) {
       options->host = value;
     } else if (arg == "--start-vio") {
       options->start_vio = true;
+    } else if (arg == "--follow") {
+      options->follow_pose = true;
+    } else if (arg == "--no-follow") {
+      options->follow_pose = false;
+    } else if (arg == "--mesh-update-ms") {
+      const char* value = require_value("--mesh-update-ms");
+      if (!value || !parse_positive_size(value, &options->mesh_update_ms)) {
+        return false;
+      }
     } else if (arg == "--leave-depth-on") {
       options->leave_depth_on = true;
     } else if (arg == "--no-save-on-exit") {
@@ -483,44 +492,43 @@ class DepthPoseSynchronizer {
   std::atomic<std::uint64_t> unmatched_depth_drops_{0};
 };
 
-void print_command_result(const std::string& command,
-                          const CommandResult& result) {
-  std::cout << command << ": " << (result.ok ? "ok" : "failed")
-            << " (status=" << static_cast<int>(result.status) << ")";
-  if (!result.message.empty()) std::cout << " " << result.message;
-  std::cout << '\n';
+std::string command_result_text(const std::string& command,
+                                const CommandResult& result) {
+  std::string text = command + ": " + (result.ok ? "ok" : "failed");
+  if (!result.message.empty()) text += " — " + result.message;
+  return text;
 }
 
-void print_controls() {
-  std::cout
-      << "Commands:\n"
-      << "  start | stop | toggle   control VIO through Mighty Protocol\n"
-      << "  status                  show connection, synchronization, and map stats\n"
-      << "  depth                   query depth-estimation status\n"
-      << "  mesh [path]             write a PLY mesh snapshot\n"
-      << "  map [path]              write a serialized voxblox TSDF layer\n"
-      << "  save                    write both configured outputs\n"
-      << "  clear                   clear the local TSDF\n"
-      << "  help                    show these commands\n"
-      << "  quit                    disable depth and exit\n";
+void report_command_result(ViewerState* viewer,
+                           const std::string& command,
+                           const CommandResult& result) {
+  const std::string text = command_result_text(command, result);
+  std::cout << text << '\n';
+  if (viewer) viewer->set_status(text);
 }
 
-void save_mesh(VoxbloxMapper* mapper, const std::string& path) {
+std::string save_mesh(VoxbloxMapper* mapper, const std::string& path) {
   std::string error;
   if (mapper && mapper->save_mesh(path, &error)) {
-    std::cout << "wrote mesh: " << path << '\n';
-  } else {
-    std::cout << "mesh not written: " << error << '\n';
+    const std::string result = "Wrote mesh: " + path;
+    std::cout << result << '\n';
+    return result;
   }
+  const std::string result = "Mesh not written: " + error;
+  std::cout << result << '\n';
+  return result;
 }
 
-void save_map(VoxbloxMapper* mapper, const std::string& path) {
+std::string save_map(VoxbloxMapper* mapper, const std::string& path) {
   std::string error;
   if (mapper && mapper->save_map(path, &error)) {
-    std::cout << "wrote map: " << path << '\n';
-  } else {
-    std::cout << "map not written: " << error << '\n';
+    const std::string result = "Wrote map: " + path;
+    std::cout << result << '\n';
+    return result;
   }
+  const std::string result = "Map not written: " + error;
+  std::cout << result << '\n';
+  return result;
 }
 
 void print_status(const MightyClient& client,
@@ -544,24 +552,73 @@ void print_status(const MightyClient& client,
             << " points=" << map.integrated_points << '\n';
 }
 
-enum class InputPollResult { kTimeout, kLine, kEof };
+class MeshSnapshotWorker {
+ public:
+  MeshSnapshotWorker(VoxbloxMapper* mapper,
+                     ViewerState* viewer,
+                     std::chrono::milliseconds interval)
+      : mapper_(mapper), viewer_(viewer), interval_(interval) {}
 
-InputPollResult poll_stdin(std::string* line) {
-  fd_set read_set;
-  FD_ZERO(&read_set);
-  FD_SET(STDIN_FILENO, &read_set);
-  timeval timeout{};
-  timeout.tv_sec = 0;
-  timeout.tv_usec = 200000;
-  const int result = select(STDIN_FILENO + 1, &read_set, nullptr, nullptr, &timeout);
-  if (result < 0) {
-    if (errno == EINTR) return InputPollResult::kTimeout;
-    return InputPollResult::kEof;
+  ~MeshSnapshotWorker() { stop(); }
+
+  void start() {
+    if (thread_.joinable()) return;
+    thread_ = std::thread([this]() { run(); });
   }
-  if (result == 0) return InputPollResult::kTimeout;
-  if (!std::getline(std::cin, *line)) return InputPollResult::kEof;
-  return InputPollResult::kLine;
-}
+
+  void request_refresh() {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      refresh_requested_ = true;
+    }
+    condition_.notify_all();
+  }
+
+  void stop() {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      stopping_ = true;
+    }
+    condition_.notify_all();
+    if (thread_.joinable()) thread_.join();
+  }
+
+ private:
+  void run() {
+    bool first = true;
+    while (true) {
+      if (!first) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        condition_.wait_for(lock, interval_, [this]() {
+          return stopping_ || refresh_requested_;
+        });
+        if (stopping_) return;
+        refresh_requested_ = false;
+      }
+      first = false;
+
+      MeshSnapshot snapshot;
+      std::string error;
+      if (mapper_ && mapper_->mesh_snapshot(&snapshot, &error)) {
+        if (viewer_) {
+          viewer_->set_mesh(
+              std::make_shared<MeshSnapshot>(std::move(snapshot)));
+        }
+      } else if (viewer_) {
+        viewer_->set_status("Mesh update failed: " + error);
+      }
+    }
+  }
+
+  VoxbloxMapper* mapper_ = nullptr;
+  ViewerState* viewer_ = nullptr;
+  std::chrono::milliseconds interval_{500};
+  std::mutex mutex_;
+  std::condition_variable condition_;
+  bool stopping_ = false;
+  bool refresh_requested_ = false;
+  std::thread thread_;
+};
 
 }  // namespace
 
@@ -583,11 +640,20 @@ int main(int argc, char** argv) {
   client_options.auto_reconnect = true;
   client_options.reconnect_delay_ms = 1000;
   MightyClient client(device, client_options);
+  ViewerState viewer;
+  std::atomic<bool> inspection_paused{false};
 
-  client.on_error([](const MightyErrorEvent& error) {
-    std::cerr << "[mighty] " << error.scope << " " << error.code << ": "
-              << error.message << '\n';
+  client.on_error([&viewer, &inspection_paused](
+                      const MightyErrorEvent& error) {
+    const std::string message =
+        "[mighty] " + error.scope + " " + error.code + ": " + error.message;
+    std::cerr << message << '\n';
+    if (!(inspection_paused.load(std::memory_order_relaxed) &&
+          error.scope == "transport")) {
+      viewer.set_status(message);
+    }
   });
+  viewer.set_status("Connecting to Mighty");
   client.connect();
 
   const auto connect_deadline =
@@ -604,21 +670,29 @@ int main(int argc, char** argv) {
 
   const auto device_info = device->get_info();
   std::cout << "connected to " << device_info.source << '\n';
+  viewer.set_status("Connected; loading calibration");
 
-  BodyCameraCalibration calibration;
-  const auto calibration_result = client.config_get_text("calib");
-  if (calibration_result.ok && calibration_result.found) {
-    calibration = mighty_voxblox::parse_body_camera_calibration(
-        calibration_result.value);
-  } else {
-    calibration.message = "protocol calibration fetch failed: " +
-        calibration_result.message;
+  const auto calibration_result = client.get_calibration();
+  if (!calibration_result.ok || !calibration_result.found) {
+    std::cerr << "could not load Mighty calibration: "
+              << calibration_result.message << '\n';
+    client.disconnect();
+    return 1;
   }
-  std::cout << "calibration: " << calibration.message << '\n';
-  if (!calibration.valid) {
-    std::cout << "warning: body poses will be rejected; camera-type poses can "
-                 "still be fused\n";
+  const CameraCalibration* protocol_camera =
+      calibration_result.value.camera("cam0");
+  if (!protocol_camera || !protocol_camera->body_from_camera.valid) {
+    std::cerr << "Mighty calibration cam0 has no valid body_from_camera "
+                 "transform\n";
+    client.disconnect();
+    return 1;
   }
+  const CameraCalibration calibration = *protocol_camera;
+  std::cout << "calibration: " << calibration_result.value.source_format
+            << " cam0 " << calibration.resolution_width << 'x'
+            << calibration.resolution_height << " fx="
+            << calibration.intrinsics.fx << " fy="
+            << calibration.intrinsics.fy << '\n';
 
   std::unique_ptr<VoxbloxMapper> mapper;
   try {
@@ -632,24 +706,56 @@ int main(int argc, char** argv) {
   DepthPoseSynchronizer synchronizer(
       mapper.get(), options.minimum_pose_confidence,
       options.pose_tolerance_ms);
+  MeshSnapshotWorker mesh_worker(
+      mapper.get(), &viewer,
+      std::chrono::milliseconds(options.mesh_update_ms));
 
-  client.on_pose([&synchronizer](const PoseFrame& pose) {
+  client.on_pose([&synchronizer, &viewer, &options](const PoseFrame& pose) {
     synchronizer.on_pose(pose);
+    if (!pose.is_public || !pose.timestamp_ns.has_value() ||
+        !pose.orientation_xyzw.has_value() ||
+        !std::isfinite(pose.confidence) ||
+        pose.confidence < options.minimum_pose_confidence ||
+        synchronizer.vio_state() !=
+            static_cast<int>(VioStateCode::kTracking)) {
+      return;
+    }
+    ViewerPose viewer_pose;
+    viewer_pose.timestamp_ns = *pose.timestamp_ns;
+    viewer_pose.position_m = pose.position_m;
+    viewer_pose.orientation_xyzw = *pose.orientation_xyzw;
+    viewer.add_pose(viewer_pose);
   });
-  client.on_depth([&synchronizer](const mighty_protocol::DepthFrame& depth) {
+  client.on_depth([&synchronizer, &viewer, &options](
+                      const mighty_protocol::DepthFrame& depth) {
+    viewer.update_depth(
+        depth, options.mapper.min_depth_m, options.mapper.max_depth_m);
     synchronizer.on_depth(depth);
   });
-  client.on_vio_state([&synchronizer](const VioStateFrame& state) {
+  client.on_vio_state(
+      [&synchronizer, &viewer, &inspection_paused](
+          const VioStateFrame& state) {
     synchronizer.on_vio_state(state);
+    if (state.state == static_cast<std::uint8_t>(VioStateCode::kOff)) {
+      inspection_paused.store(true, std::memory_order_relaxed);
+      viewer.set_status(
+          "VIO stopped; map paused for inspection. Close the window to exit.");
+    } else {
+      inspection_paused.store(false, std::memory_order_relaxed);
+    }
   });
-  client.on_reset([&synchronizer, &mapper](const ResetEvent&) {
+  client.on_reset(
+      [&synchronizer, &mapper, &viewer, &mesh_worker](const ResetEvent&) {
     synchronizer.clear();
     mapper->clear();
+    viewer.clear_map_visuals();
+    viewer.set_status("VIO reset; cleared local TSDF");
+    mesh_worker.request_refresh();
     std::cout << "[mighty] VIO reset: cleared local TSDF\n";
   });
 
   const CommandResult depth_on = client.set_depth_estimation_enabled(true);
-  print_command_result("depth on", depth_on);
+  report_command_result(&viewer, "Depth on", depth_on);
   if (!depth_on.ok) {
     client.disconnect();
     mapper->stop();
@@ -657,7 +763,7 @@ int main(int argc, char** argv) {
   }
 
   if (options.start_vio) {
-    print_command_result("start VIO", client.start_vio());
+    report_command_result(&viewer, "Start VIO", client.start_vio());
   }
 
   std::cout << "voxblox: voxel=" << options.mapper.voxel_size_m
@@ -666,81 +772,99 @@ int main(int argc, char** argv) {
             << options.mapper.max_depth_m << "]m stride="
             << options.mapper.pixel_stride << " integrator="
             << options.mapper.integrator << '\n';
-  print_controls();
-  std::cout << "mighty-voxblox> " << std::flush;
-
+  mesh_worker.start();
   bool stream_was_connected = true;
-  while (!g_stop.load(std::memory_order_relaxed)) {
+  ViewerActions actions;
+  actions.tick = [&]() {
     const bool stream_is_connected = client.is_connected();
     if (!stream_was_connected && stream_is_connected) {
-      print_command_result(
-          "depth on after reconnect",
+      inspection_paused.store(false, std::memory_order_relaxed);
+      report_command_result(
+          &viewer, "Depth on after reconnect",
           client.set_depth_estimation_enabled(true));
-      std::cout << "mighty-voxblox> " << std::flush;
+    } else if (stream_was_connected && !stream_is_connected) {
+      inspection_paused.store(true, std::memory_order_relaxed);
+      viewer.set_status(
+          "Stream ended; map paused for inspection. Close the window to exit.");
     }
     stream_was_connected = stream_is_connected;
-
-    std::string line;
-    const InputPollResult poll_result = poll_stdin(&line);
-    if (poll_result == InputPollResult::kTimeout) continue;
-    if (poll_result == InputPollResult::kEof) break;
-
-    line = trim(line);
-    std::istringstream input(line);
-    std::string command;
-    input >> command;
-    command = lower(command);
-    std::string argument;
-    std::getline(input, argument);
-    argument = trim(argument);
-
-    if (command.empty()) {
-      // Just redisplay the prompt.
-    } else if (command == "start") {
-      print_command_result("start VIO", client.start_vio());
-    } else if (command == "stop") {
-      print_command_result("stop VIO", client.stop_vio());
-    } else if (command == "toggle") {
-      const bool is_off = synchronizer.vio_state() ==
-          static_cast<int>(VioStateCode::kOff);
-      print_command_result(is_off ? "start VIO" : "stop VIO",
-                           is_off ? client.start_vio() : client.stop_vio());
-    } else if (command == "status") {
-      print_status(client, synchronizer, *mapper);
-    } else if (command == "depth") {
-      print_command_result("depth status", client.depth_estimation_status());
-    } else if (command == "mesh") {
-      save_mesh(mapper.get(), argument.empty() ? options.mesh_path : argument);
-    } else if (command == "map") {
-      save_map(mapper.get(), argument.empty() ? options.map_path : argument);
-    } else if (command == "save") {
-      save_mesh(mapper.get(), options.mesh_path);
-      save_map(mapper.get(), options.map_path);
-    } else if (command == "clear") {
-      synchronizer.clear();
-      mapper->clear();
-      std::cout << "cleared local TSDF\n";
-    } else if (command == "help" || command == "?") {
-      print_controls();
-    } else if (command == "quit" || command == "exit" || command == "q") {
-      break;
-    } else {
-      std::cout << "unknown command: " << command << " (type help)\n";
+  };
+  actions.start_vio = [&]() {
+    const CommandResult result = client.start_vio();
+    if (result.ok) {
+      inspection_paused.store(false, std::memory_order_relaxed);
     }
-    std::cout << "mighty-voxblox> " << std::flush;
-  }
-  std::cout << '\n';
+    report_command_result(&viewer, "Start VIO", result);
+  };
+  actions.stop_vio = [&]() {
+    const CommandResult result = client.stop_vio();
+    report_command_result(&viewer, "Stop VIO", result);
+    if (result.ok) {
+      inspection_paused.store(true, std::memory_order_relaxed);
+      viewer.set_status(
+          "VIO stopped; map paused for inspection. Close the window to exit.");
+    }
+  };
+  actions.clear_map = [&]() {
+    synchronizer.clear();
+    mapper->clear();
+    viewer.clear_map_visuals();
+    viewer.set_status("Cleared local TSDF");
+    mesh_worker.request_refresh();
+  };
+  actions.save_mesh = [&]() {
+    viewer.set_status(save_mesh(mapper.get(), options.mesh_path));
+  };
+  actions.save_map = [&]() {
+    viewer.set_status(save_map(mapper.get(), options.map_path));
+  };
+  actions.save_outputs = [&]() {
+    viewer.set_status("Saving mesh and map");
+    const std::string mesh_result = save_mesh(mapper.get(), options.mesh_path);
+    const std::string map_result = save_map(mapper.get(), options.map_path);
+    viewer.set_status(mesh_result + "; " + map_result);
+  };
+  actions.read_stats = [&]() {
+    const auto sync = synchronizer.stats();
+    const MapperStats map = mapper->stats();
+    ViewerStats stats;
+    stats.connected = client.is_connected();
+    stats.inspection_paused =
+        inspection_paused.load(std::memory_order_relaxed);
+    stats.source = device_info.source;
+    stats.vio_state = vio_state_name(synchronizer.vio_state());
+    stats.poses_received = sync.poses_received;
+    stats.depth_received = sync.depth_received;
+    stats.matched_frames = sync.matched_frames;
+    stats.unmatched_depth_drops = sync.unmatched_depth_drops;
+    stats.integrated_frames = map.integrated_frames;
+    stats.rejected_frames = map.rejected_frames;
+    stats.queue_drops = map.queue_drops;
+    stats.allocated_blocks = map.allocated_blocks;
+    stats.integrated_points = map.integrated_points;
+    return stats;
+  };
+
+  ViewerOptions viewer_options;
+  viewer_options.follow_pose = options.follow_pose;
+  mighty_voxblox::run_voxblox_viewer(
+      &viewer, actions, viewer_options, []() {
+        return g_stop.load(std::memory_order_relaxed);
+      });
+
+  mesh_worker.stop();
 
   if (!options.leave_depth_on && client.is_connected()) {
-    print_command_result("depth off", client.set_depth_estimation_enabled(false));
+    report_command_result(
+        &viewer, "Depth off", client.set_depth_estimation_enabled(false));
   }
   client.disconnect();
   mapper->stop();
 
   const MapperStats final_stats = mapper->stats();
   if (options.save_on_exit && final_stats.integrated_frames > 0) {
-    save_mesh(mapper.get(), options.mesh_path);
-    save_map(mapper.get(), options.map_path);
+    static_cast<void>(save_mesh(mapper.get(), options.mesh_path));
+    static_cast<void>(save_map(mapper.get(), options.map_path));
   }
   print_status(client, synchronizer, *mapper);
   return 0;

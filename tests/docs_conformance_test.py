@@ -33,6 +33,19 @@ def main():
     for snippet in REQUIRED_DOC_SNIPPETS:
         assert_contains(protocol_doc, snippet, "docs/sdk/protocol.mdx")
 
+    api_reference = read_text(os.path.join(ROOT, "docs", "sdk", "api-reference.mdx"))
+    for snippet in (
+        "getCalibration()",
+        "parseCalibrationYaml(yaml)",
+        "get_calibration()",
+        "parse_calibration_yaml(yaml)",
+        "CalibrationGetResult get_calibration()",
+        "cpp/sdk/mighty_calibration.h",
+        "body_from_camera",
+        "bodyFromCamera",
+    ):
+        assert_contains(api_reference, snippet, "docs/sdk/api-reference.mdx")
+
     cpp_example_path = os.path.join(ROOT, "examples", "cpp", "dashboard", "main.cpp")
     cpp_example_label = "examples/cpp/dashboard/main.cpp"
     cpp_example = read_text(cpp_example_path)

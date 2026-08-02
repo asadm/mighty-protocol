@@ -498,6 +498,12 @@ async function main() {
   assert.strictEqual(cfgGet.found, true);
   assert.ok(cfgGet.value.includes("intrinsics"));
 
+  const calibrationGet = await client.getCalibration();
+  assert.strictEqual(calibrationGet.ok, true);
+  assert.strictEqual(calibrationGet.found, true);
+  assert.strictEqual(calibrationGet.value.sourceFormat, "kalibr");
+  assert.strictEqual(calibrationGet.value.cameras[0].intrinsics.fx, 1);
+
   const setText = "%YAML:1.0\nfoo: 1\n";
   const cfgSet = await client.configSet("calib", setText);
   assert.strictEqual(cfgSet.ok, true);
@@ -505,6 +511,7 @@ async function main() {
   const cfgGet2 = await client.configGet("calib", { as: "text" });
   assert.strictEqual(cfgGet2.ok, true);
   assert.strictEqual(cfgGet2.value, setText);
+  assert.strictEqual((await client.getCalibration()).ok, false);
 
   const stats = client.stats();
   assert.ok(stats.rxFrames >= 8);

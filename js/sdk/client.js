@@ -6,6 +6,7 @@ import {
 } from "./loopclosure-wasm.js";
 import { toU8, encodeText, decodeText, sleep, isAbortError } from "./utils.js";
 import { RgbdSynchronizer } from "./depth.js";
+import { parseCalibrationYaml } from "./calibration.js";
 
 export const VIO_STATE = protocol.VIO_STATE;
 export const VIO_DEGRADED_REASON = protocol.VIO_DEGRADED_REASON;
@@ -355,6 +356,30 @@ export class MightyClient {
         message: msg,
       };
     }
+  }
+
+  async getCalibration() {
+    const raw = await this.configGet("calib", { as: "text" });
+    const result = {
+      ok: !!raw.ok,
+      found: !!raw.found,
+      value: null,
+      message: raw.message || "",
+    };
+    if (!result.ok || !result.found) return result;
+    try {
+      result.value = parseCalibrationYaml(raw.value);
+    } catch (err) {
+      result.ok = false;
+      result.message = `invalid calibration: ${err?.message || String(err)}`;
+      this._emitError({
+        scope: "calibration",
+        code: "decode_failed",
+        message: result.message,
+        cause: err,
+      });
+    }
+    return result;
   }
 
   async startVio() {

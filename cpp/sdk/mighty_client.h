@@ -16,6 +16,7 @@
 #include <utility>
 #include <vector>
 
+#include "mighty_calibration.h"
 #include "mighty_device_io.h"
 #include "../mighty_protocol.h"
 #include "../mighty_protocol_consumer.h"
@@ -423,6 +424,23 @@ class MightyClient {
     out.key = bytes.key;
     out.value.assign(bytes.value.begin(), bytes.value.end());
     out.message = bytes.message;
+    return out;
+  }
+
+  CalibrationGetResult get_calibration() {
+    const ConfigGetTextResult raw = config_get_text("calib");
+    CalibrationGetResult out;
+    out.ok = raw.ok;
+    out.found = raw.found;
+    out.message = raw.message;
+    if (!raw.ok || !raw.found) return out;
+
+    std::string parse_error;
+    if (!parse_calibration_yaml(raw.value, &out.value, &parse_error)) {
+      out.ok = false;
+      out.message = "invalid calibration: " + parse_error;
+      emit_error("calibration", "decode_failed", out.message);
+    }
     return out;
   }
 

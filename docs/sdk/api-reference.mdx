@@ -14,6 +14,7 @@ import {
   DEFAULT_BASE_URLS,
   decodeRawToRgb,
   depthAtMeters,
+  parseCalibrationYaml,
   rectifyImageToDepth,
 } from "mighty-protocol";
 ```
@@ -25,6 +26,7 @@ import {
 - `DEFAULT_BASE_URLS: string[]`
 - `decodeRawToRgb(frame, rawFormat?)`
 - `depthAtMeters(depth, x, y)`
+- `parseCalibrationYaml(yaml)`
 - `rectifyImageToDepth(image, depth, options?)`
 - `colorizeDepth(depth, options?)`
 - `RgbdSynchronizer`
@@ -85,6 +87,7 @@ Command/config:
 - `command(name: string, data?: Uint8Array): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
 - `configGet(key: string, opts?: { as?: "text" }): Promise<{ ok: boolean; found: boolean; key: string; value: Uint8Array | string; message: string }>`
 - `configSet(key: string, value: Uint8Array | string): Promise<{ ok: boolean; key: string; value: Uint8Array; message: string }>`
+- `getCalibration(): Promise<{ ok: boolean; found: boolean; value: Calibration | null; message: string }>`
 - `startVio(): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
 - `stopVio(): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
 - `startTracker(rect: { x: number; y: number; width: number; height: number }): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
@@ -95,6 +98,48 @@ Command/config:
 - `keyframesStatus(): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
 - `setDepthEstimationEnabled(enabled: boolean): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
 - `depthEstimationStatus(): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
+
+### JavaScript calibration
+
+`getCalibration()` fetches the active `calib` config and normalizes it. This
+means a replay bag's calibration override is resolved by Mighty before the SDK
+returns the object. `parseCalibrationYaml(yaml)` exposes the same normalizer for
+calibration text already held by the application. Both Kalibr `cam0`/`cam1`
+YAML and Mighty's flat OpenCV FileStorage YAML are accepted.
+
+```ts
+type RigidTransform3d = {
+  matrix: number[]; // 16 row-major values
+  valid: boolean;
+};
+
+type CameraCalibration = {
+  id: string;                         // "cam0", "cam1", ...
+  cameraModel: "pinhole" | "double_sphere" | "unknown";
+  distortionModel: "none" | "radtan" | "equidistant" | "unknown";
+  intrinsics: { fx: number; fy: number; cx: number; cy: number };
+  projectionParameters: number[];     // double-sphere: [xi, alpha]
+  distortionCoefficients: number[];
+  resolution: { width: number; height: number };
+  topic: string;
+  timeShiftCameraImuS: number;
+  cameraFromImu: RigidTransform3d;
+  bodyFromCamera: RigidTransform3d;
+  valid: boolean;                     // valid canonical intrinsics
+};
+
+type Calibration = {
+  sourceFormat: "kalibr" | "opencv";
+  cameras: CameraCalibration[];
+};
+```
+
+Transform names are literal `targetFromSource` mappings. For example,
+`cameraFromImu` satisfies `p_camera = T_camera_imu * p_imu`, and
+`bodyFromCamera` satisfies `p_body = T_body_camera * p_camera`. Matrices are
+row-major homogeneous transforms. `body` is the public `base_link` FLU frame
+at the IMU origin; camera coordinates are optical right/down/forward. A
+transform has `valid: false` when its source field was absent or invalid.
 
 Subscriptions (each returns `() => void` to unsubscribe):
 
@@ -362,6 +407,7 @@ from mighty_sdk import (
     MightyClient,
     MightyWebDevice,
     depth_at_meters,
+    parse_calibration_yaml,
     rectify_image_to_depth,
 )
 ```
@@ -421,6 +467,8 @@ Command/config:
   - keys: `ok: bool`, `found: bool`, `key: str`, `value: bytes | str`, `message: str`
 - `config_set(key: str, value: Any) -> dict[str, Any]`
   - keys: `ok: bool`, `key: str`, `value: bytes`, `message: str`
+- `get_calibration() -> dict[str, Any]`
+  - keys: `ok: bool`, `found: bool`, `value: dict | None`, `message: str`
 - `start_vio() -> dict[str, Any]`
 - `stop_vio() -> dict[str, Any]`
 - `start_tracker(x: int, y: int, width: int, height: int) -> dict[str, Any]`
@@ -429,6 +477,37 @@ Command/config:
 - `reset_vio_pose(position_m=(0.0, 0.0, 0.0), orientation_xyzw=None) -> dict[str, Any]`
 - `set_keyframes_enabled(enabled: bool) -> dict[str, Any]`
 - `keyframes_status() -> dict[str, Any]`
+
+### Python calibration
+
+`client.get_calibration()` fetches and normalizes the active device or replay
+calibration. `parse_calibration_yaml(yaml)` performs the same normalization on
+an existing string. The returned `value` uses this stable snake-case schema:
+
+```python
+{
+  "source_format": "kalibr" | "opencv",
+  "cameras": [{
+    "id": str,
+    "camera_model": "pinhole" | "double_sphere" | "unknown",
+    "distortion_model": "none" | "radtan" | "equidistant" | "unknown",
+    "intrinsics": {"fx": float, "fy": float, "cx": float, "cy": float},
+    "projection_parameters": list[float],
+    "distortion_coefficients": list[float],
+    "resolution": {"width": int, "height": int},
+    "topic": str,
+    "time_shift_camera_imu_s": float,
+    "camera_from_imu": {"matrix": list[float], "valid": bool},
+    "body_from_camera": {"matrix": list[float], "valid": bool},
+    "valid": bool,
+  }],
+}
+```
+
+Each matrix has 16 row-major values and follows `target_from_source` naming.
+`body_from_camera` maps optical right/down/forward camera points into the
+public FLU `base_link` frame at the IMU origin. The parser accepts Kalibr
+multi-camera YAML and flat OpenCV FileStorage YAML.
 
 Subscriptions (each returns `Callable[[], None]` unsubscribe):
 
@@ -656,6 +735,7 @@ Headers:
 - `cpp/sdk/mighty_web_device.h`
 - `cpp/sdk/mighty_device_io.h`
 - `cpp/sdk/mighty_depth.h`
+- `cpp/sdk/mighty_calibration.h`
 
 Namespace:
 
@@ -760,6 +840,7 @@ Command/config:
 - `CommandResult command(const std::string& name, const std::vector<uint8_t>& data = {})`
 - `ConfigGetResult config_get(const std::string& key)`
 - `ConfigGetTextResult config_get_text(const std::string& key)`
+- `CalibrationGetResult get_calibration()`
 - `ConfigSetResult config_set(const std::string& key, const std::vector<uint8_t>& value)`
 - `ConfigSetResult config_set_text(const std::string& key, const std::string& value)`
 - `CommandResult start_vio()`
@@ -772,6 +853,60 @@ Command/config:
 - `CommandResult keyframes_status()`
 - `CommandResult set_depth_estimation_enabled(bool enabled)`
 - `CommandResult depth_estimation_status()`
+
+### C++ calibration
+
+`get_calibration()` fetches the active `calib` config and returns normalized,
+typed camera records. `parse_calibration_yaml(...)` is also available for
+text already held by the application.
+
+```cpp
+struct RigidTransform3d {
+  std::array<double, 16> matrix;  // row-major target_from_source
+  bool valid = false;
+};
+
+struct PinholeIntrinsics {
+  double fx, fy, cx, cy;
+  bool valid() const;
+};
+
+struct CameraCalibration {
+  std::string id;
+  std::string camera_model;
+  std::string distortion_model;
+  PinholeIntrinsics intrinsics;
+  std::vector<double> projection_parameters;
+  std::vector<double> distortion_coefficients;
+  std::uint32_t resolution_width, resolution_height;
+  std::string topic;
+  double time_shift_camera_imu_s;
+  RigidTransform3d camera_from_imu;
+  RigidTransform3d body_from_camera;
+  bool valid() const;
+};
+
+struct Calibration {
+  std::string source_format;  // "kalibr" or "opencv"
+  std::vector<CameraCalibration> cameras;
+  const CameraCalibration* camera(const std::string& id = "cam0") const;
+};
+
+struct CalibrationGetResult {
+  bool ok, found;
+  Calibration value;
+  std::string message;
+};
+
+bool parse_calibration_yaml(const std::string& yaml,
+                            Calibration* calibration,
+                            std::string* error = nullptr);
+```
+
+`camera_from_imu` is `T_camera_imu` and `body_from_camera` is the derived
+`T_body_camera`. The latter maps optical right/down/forward points into the
+public FLU `base_link` frame at the IMU origin. Both matrices are row-major.
+The parser accepts Kalibr multi-camera YAML and flat OpenCV FileStorage YAML.
 
 `Subscription`:
 

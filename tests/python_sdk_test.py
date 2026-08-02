@@ -413,6 +413,12 @@ def main():
     assert cfg_get["found"]
     assert "intrinsics" in cfg_get["value"]
 
+    calibration_get = client.get_calibration()
+    assert calibration_get["ok"]
+    assert calibration_get["found"]
+    assert calibration_get["value"]["source_format"] == "kalibr"
+    assert calibration_get["value"]["cameras"][0]["intrinsics"]["fx"] == 1.0
+
     payload_text = "%YAML:1.0\nfoo: 1\n"
     cfg_set = client.config_set("calib", payload_text)
     assert cfg_set["ok"]
@@ -420,6 +426,7 @@ def main():
     cfg_get2 = client.config_get("calib", as_text=True)
     assert cfg_get2["ok"]
     assert cfg_get2["value"] == payload_text
+    assert not client.get_calibration()["ok"]
 
     stats = client.stats()
     assert stats["rx_frames"] >= 8

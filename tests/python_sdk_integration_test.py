@@ -343,6 +343,11 @@ def main():
         assert cfg_get["found"]
         assert "intrinsics" in cfg_get["value"]
 
+        calibration_get = client.get_calibration()
+        assert calibration_get["ok"]
+        assert calibration_get["found"]
+        assert calibration_get["value"]["cameras"][0]["intrinsics"]["fx"] == 9.0
+
         cfg_set = client.config_set("calib", "%YAML:1.0\nfoo: 9\n")
         assert cfg_set["ok"]
         cfg_get2 = client.config_get("calib", as_text=True)

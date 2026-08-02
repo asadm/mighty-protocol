@@ -4,7 +4,6 @@
 #include <atomic>
 #include <cmath>
 #include <condition_variable>
-#include <cstdlib>
 #include <deque>
 #include <limits>
 #include <mutex>
@@ -29,64 +28,11 @@ using mighty_protocol::DEPTH_FLAG_RECTIFIED;
 using mighty_protocol::DepthConvention;
 using mighty_protocol::DepthEncoding;
 using mighty_protocol::DepthFrame;
+using mighty_protocol::sdk::CameraCalibration;
 using mighty_protocol::sdk::PoseFrame;
 
 bool finite_transform(const Eigen::Isometry3d& transform) {
   return transform.matrix().allFinite();
-}
-
-bool extract_matrix_values(const std::string& yaml,
-                           const std::string& key,
-                           std::array<double, 16>* values) {
-  if (!values) return false;
-  const std::size_t key_pos = yaml.find(key);
-  if (key_pos == std::string::npos) return false;
-
-  const std::size_t colon_pos = yaml.find(':', key_pos + key.size());
-  if (colon_pos == std::string::npos) return false;
-
-  std::size_t search_pos = colon_pos + 1;
-  const std::size_t matrix_tag = yaml.find("!!opencv-matrix", search_pos);
-  if (matrix_tag != std::string::npos && matrix_tag - search_pos < 96) {
-    const std::size_t data_pos = yaml.find("data", matrix_tag);
-    if (data_pos == std::string::npos || data_pos - matrix_tag > 512) {
-      return false;
-    }
-    search_pos = data_pos + 4;
-  }
-
-  const std::size_t open_bracket = yaml.find('[', search_pos);
-  if (open_bracket == std::string::npos || open_bracket - search_pos > 512) {
-    return false;
-  }
-
-  std::size_t close_bracket = open_bracket;
-  int bracket_depth = 0;
-  for (; close_bracket < yaml.size(); ++close_bracket) {
-    if (yaml[close_bracket] == '[') {
-      ++bracket_depth;
-    } else if (yaml[close_bracket] == ']') {
-      --bracket_depth;
-      if (bracket_depth == 0) break;
-    }
-  }
-  if (close_bracket >= yaml.size()) return false;
-
-  std::size_t count = 0;
-  const char* cursor = yaml.c_str() + open_bracket + 1;
-  const char* end = yaml.c_str() + close_bracket;
-  while (cursor < end && count < values->size()) {
-    char* parsed_end = nullptr;
-    const double value = std::strtod(cursor, &parsed_end);
-    if (parsed_end != cursor) {
-      if (!std::isfinite(value)) return false;
-      (*values)[count++] = value;
-      cursor = parsed_end;
-    } else {
-      ++cursor;
-    }
-  }
-  return count == values->size();
 }
 
 Eigen::Isometry3d matrix_from_row_major(
@@ -100,28 +46,6 @@ Eigen::Isometry3d matrix_from_row_major(
   return transform;
 }
 
-std::array<double, 16> row_major_from_matrix(
-    const Eigen::Isometry3d& transform) {
-  std::array<double, 16> values{};
-  for (int row = 0; row < 4; ++row) {
-    for (int col = 0; col < 4; ++col) {
-      values[static_cast<std::size_t>(row * 4 + col)] =
-          transform.matrix()(row, col);
-    }
-  }
-  return values;
-}
-
-Eigen::Matrix3d canonical_base_from_camera_rotation() {
-  Eigen::Matrix3d rotation;
-  // base_link is FLU and the depth frame is OpenCV optical (right/down/forward).
-  // x_base=+z_cam, y_base=-x_cam, z_base=-y_cam.
-  rotation << 0.0, 0.0, 1.0,
-             -1.0, 0.0, 0.0,
-              0.0, -1.0, 0.0;
-  return rotation;
-}
-
 bool pose_is_body(const PoseFrame& pose) {
   return pose.pose_type == "body" || pose.pose_type_raw == 0;
 }
@@ -131,7 +55,7 @@ bool pose_is_camera(const PoseFrame& pose) {
 }
 
 bool pose_to_world_camera(const PoseFrame& pose,
-                          const BodyCameraCalibration& calibration,
+                          const CameraCalibration& calibration,
                           Eigen::Isometry3d* world_camera) {
   if (!world_camera || !pose.orientation_xyzw.has_value()) return false;
   if (!pose_is_body(pose) && !pose_is_camera(pose)) return false;
@@ -159,10 +83,10 @@ bool pose_to_world_camera(const PoseFrame& pose,
     *world_camera = world_pose;
     return finite_transform(*world_camera);
   }
-  if (!calibration.valid) return false;
+  if (!calibration.body_from_camera.valid) return false;
 
   *world_camera =
-      world_pose * matrix_from_row_major(calibration.T_body_camera);
+      world_pose * matrix_from_row_major(calibration.body_from_camera.matrix);
   return finite_transform(*world_camera);
 }
 
@@ -266,68 +190,10 @@ voxblox::Transformation to_voxblox_transform(
 
 }  // namespace
 
-BodyCameraCalibration parse_body_camera_calibration(
-    const std::string& calibration_yaml) {
-  BodyCameraCalibration result;
-  if (calibration_yaml.empty()) {
-    result.message = "calibration text is empty";
-    return result;
-  }
-
-  std::array<double, 16> values{};
-  std::string key = "T_cam_imu";
-  if (!extract_matrix_values(calibration_yaml, key, &values)) {
-    key = "T_cam_body";
-    if (!extract_matrix_values(calibration_yaml, key, &values)) {
-      result.message = "calibration has no readable T_cam_imu matrix";
-      return result;
-    }
-  }
-
-  const Eigen::Isometry3d camera_imu = matrix_from_row_major(values);
-  if (!finite_transform(camera_imu)) {
-    result.message = key + " contains non-finite values";
-    return result;
-  }
-  if (std::abs(camera_imu.matrix()(3, 0)) > 1e-6 ||
-      std::abs(camera_imu.matrix()(3, 1)) > 1e-6 ||
-      std::abs(camera_imu.matrix()(3, 2)) > 1e-6 ||
-      std::abs(camera_imu.matrix()(3, 3) - 1.0) > 1e-6) {
-    result.message = key + " does not contain a homogeneous rigid transform";
-    return result;
-  }
-  const Eigen::Matrix3d camera_imu_rotation = camera_imu.linear();
-  const double determinant = camera_imu_rotation.determinant();
-  const double orthogonality_error =
-      (camera_imu_rotation * camera_imu_rotation.transpose() -
-       Eigen::Matrix3d::Identity()).norm();
-  if (std::abs(determinant - 1.0) > 0.1 || orthogonality_error > 0.1) {
-    result.message = key + " does not contain a valid rigid rotation";
-    return result;
-  }
-
-  const Eigen::Isometry3d imu_camera = camera_imu.inverse();
-  const Eigen::Matrix3d base_camera_rotation =
-      canonical_base_from_camera_rotation();
-  const Eigen::Matrix3d base_imu_rotation =
-      base_camera_rotation * camera_imu_rotation;
-
-  Eigen::Isometry3d body_camera = Eigen::Isometry3d::Identity();
-  body_camera.linear() = base_camera_rotation;
-  body_camera.translation() = base_imu_rotation * imu_camera.translation();
-
-  result.valid = finite_transform(body_camera);
-  result.T_body_camera = row_major_from_matrix(body_camera);
-  result.message = result.valid
-      ? "loaded T_body_camera from protocol calibration " + key
-      : "derived T_body_camera is invalid";
-  return result;
-}
-
 class VoxbloxMapper::Impl {
  public:
   Impl(const MapperConfig& config,
-       const BodyCameraCalibration& calibration)
+       const CameraCalibration& calibration)
       : config_(config), calibration_(calibration) {
     if (!std::isfinite(config_.voxel_size_m) || config_.voxel_size_m <= 0.0f) {
       throw std::invalid_argument("voxel_size_m must be positive");
@@ -358,6 +224,13 @@ class VoxbloxMapper::Impl {
     map_config.tsdf_voxel_size = config_.voxel_size_m;
     map_config.tsdf_voxels_per_side = config_.voxels_per_side;
     map_ = std::make_unique<voxblox::TsdfMap>(map_config);
+
+    mesh_layer_ = std::make_unique<voxblox::MeshLayer>(map_->block_size());
+    voxblox::MeshIntegratorConfig mesh_config;
+    mesh_config.use_color = true;
+    mesh_integrator_ =
+        std::make_unique<voxblox::MeshIntegrator<voxblox::TsdfVoxel>>(
+            mesh_config, map_->getTsdfLayerPtr(), mesh_layer_.get());
 
     voxblox::TsdfIntegratorBase::Config integrator_config;
     integrator_config.default_truncation_distance =
@@ -399,6 +272,8 @@ class VoxbloxMapper::Impl {
     }
     std::lock_guard<std::mutex> map_lock(map_mutex_);
     map_->getTsdfLayerPtr()->removeAllBlocks();
+    mesh_layer_->clear();
+    map_revision_.fetch_add(1, std::memory_order_relaxed);
   }
 
   void stop() {
@@ -448,6 +323,50 @@ class VoxbloxMapper::Impl {
       if (error) *error = "voxblox SaveLayer failed";
       return false;
     }
+    return true;
+  }
+
+  bool mesh_snapshot(MeshSnapshot* snapshot, std::string* error) {
+    if (!snapshot) {
+      if (error) *error = "mesh snapshot destination is null";
+      return false;
+    }
+
+    MeshSnapshot next;
+    std::lock_guard<std::mutex> map_lock(map_mutex_);
+    next.revision = map_revision_.load(std::memory_order_relaxed);
+    if (map_->getTsdfLayer().getNumberOfAllocatedBlocks() == 0) {
+      *snapshot = std::move(next);
+      return true;
+    }
+
+    try {
+      // The persistent mesh layer lets voxblox update only TSDF blocks changed
+      // since the previous GUI snapshot.
+      mesh_integrator_->generateMesh(true, true);
+      voxblox::Mesh mesh;
+      mesh_layer_->getMesh(&mesh);
+      next.vertices.reserve(mesh.vertices.size());
+      const bool has_colors = mesh.colors.size() == mesh.vertices.size();
+      for (std::size_t index = 0; index < mesh.vertices.size(); ++index) {
+        const voxblox::Point& point = mesh.vertices[index];
+        MeshVertex vertex;
+        vertex.x = point.x();
+        vertex.y = point.y();
+        vertex.z = point.z();
+        if (has_colors) {
+          vertex.r = mesh.colors[index].r;
+          vertex.g = mesh.colors[index].g;
+          vertex.b = mesh.colors[index].b;
+        }
+        next.vertices.push_back(vertex);
+      }
+    } catch (const std::exception& exception) {
+      if (error) *error = exception.what();
+      return false;
+    }
+
+    *snapshot = std::move(next);
     return true;
   }
 
@@ -508,6 +427,7 @@ class VoxbloxMapper::Impl {
         }
         integrator_->integratePointCloud(
             to_voxblox_transform(world_camera), points, colors, false);
+        map_revision_.fetch_add(1, std::memory_order_relaxed);
         integrated_frames_.fetch_add(1, std::memory_order_relaxed);
         integrated_points_.fetch_add(points.size(), std::memory_order_relaxed);
       } catch (const std::exception&) {
@@ -517,9 +437,12 @@ class VoxbloxMapper::Impl {
   }
 
   MapperConfig config_;
-  BodyCameraCalibration calibration_;
+  CameraCalibration calibration_;
   std::unique_ptr<voxblox::TsdfMap> map_;
   voxblox::TsdfIntegratorBase::Ptr integrator_;
+  std::unique_ptr<voxblox::MeshLayer> mesh_layer_;
+  std::unique_ptr<voxblox::MeshIntegrator<voxblox::TsdfVoxel>>
+      mesh_integrator_;
 
   mutable std::mutex queue_mutex_;
   std::condition_variable queue_cv_;
@@ -529,6 +452,7 @@ class VoxbloxMapper::Impl {
 
   mutable std::mutex map_mutex_;
   std::atomic<std::uint64_t> generation_{0};
+  std::atomic<std::uint64_t> map_revision_{0};
   std::atomic<std::uint64_t> queued_frames_{0};
   std::atomic<std::uint64_t> queue_drops_{0};
   std::atomic<std::uint64_t> integrated_frames_{0};
@@ -538,7 +462,7 @@ class VoxbloxMapper::Impl {
 
 VoxbloxMapper::VoxbloxMapper(
     const MapperConfig& config,
-    const BodyCameraCalibration& calibration)
+    const CameraCalibration& calibration)
     : impl_(std::make_unique<Impl>(config, calibration)) {}
 
 VoxbloxMapper::~VoxbloxMapper() = default;
@@ -557,6 +481,10 @@ bool VoxbloxMapper::save_mesh(const std::string& path, std::string* error) {
 
 bool VoxbloxMapper::save_map(const std::string& path, std::string* error) {
   return impl_->save_map(path, error);
+}
+
+bool VoxbloxMapper::mesh_snapshot(MeshSnapshot* snapshot, std::string* error) {
+  return impl_->mesh_snapshot(snapshot, error);
 }
 
 MapperStats VoxbloxMapper::stats() const { return impl_->stats(); }

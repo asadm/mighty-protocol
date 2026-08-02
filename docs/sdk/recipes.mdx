@@ -280,6 +280,43 @@ if (res.ok) console.log(new TextDecoder().decode(res.data));
 Why use it: a stable device identifier prevents mixing data from several
 cameras, especially during manufacturing, calibration, and field testing.
 
+## Fetch The Active Camera Calibration
+
+Use the typed calibration API when an application needs intrinsics or camera /
+body transforms. It accepts both Mighty OpenCV YAML and Kalibr multi-camera
+YAML, so consumers do not need their own YAML-layout parser. During replay,
+the result reflects the bag's active calibration override.
+
+```python
+result = client.get_calibration()
+if result["ok"] and result["found"]:
+    cam0 = next(c for c in result["value"]["cameras"] if c["id"] == "cam0")
+    print(cam0["intrinsics"], cam0["body_from_camera"])
+```
+
+```js
+const result = await client.getCalibration();
+if (result.ok && result.found) {
+  const cam0 = result.value.cameras.find((camera) => camera.id === "cam0");
+  console.log(cam0.intrinsics, cam0.bodyFromCamera);
+}
+```
+
+```cpp
+const auto result = client.get_calibration();
+if (result.ok && result.found) {
+  const auto* cam0 = result.value.camera("cam0");
+  if (cam0) {
+    std::cout << cam0->intrinsics.fx << " "
+              << cam0->body_from_camera.valid << '\n';
+  }
+}
+```
+
+Transform matrices are row-major and use `target_from_source` names. In
+particular, `body_from_camera` maps an optical-camera point into the public FLU
+`base_link` frame at the IMU origin.
+
 ## Get And Set Config Values
 
 Use config APIs for named firmware settings exposed by the device. Prefer typed

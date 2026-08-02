@@ -11,7 +11,7 @@ JavaScript, C++, and ROS 2.
 
 - Stream VIO pose, velocity, IMU, image, and status events.
 - Start and stop onboard VIO from your own application.
-- Read device identity and configuration values.
+- Read device identity, configuration values, and normalized camera calibration.
 - Build dashboards, robot adapters, logging tools, and calibration utilities.
 - Decode the same protocol consistently across Python, JavaScript, and C++.
 
@@ -183,8 +183,9 @@ Run the cross-language protocol and SDK tests:
 ./tests/run_tests.sh
 ```
 
-The tests cover packet round-trips, SDK dispatch behavior, pose contract
-compatibility, and docs/example conformance.
+The tests cover packet round-trips, SDK dispatch behavior, OpenCV/Kalibr
+calibration normalization, pose contract compatibility, and docs/example
+conformance.
 
 ## License
 

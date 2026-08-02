@@ -5,28 +5,11 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "mighty_sdk.h"
 
 namespace mighty_voxblox {
-
-struct BodyCameraCalibration {
-  bool valid = false;
-  // Row-major T_body_camera. It maps OpenCV optical-camera points into the
-  // canonical Mighty base_link body frame.
-  std::array<double, 16> T_body_camera{
-      1.0, 0.0, 0.0, 0.0,
-      0.0, 1.0, 0.0, 0.0,
-      0.0, 0.0, 1.0, 0.0,
-      0.0, 0.0, 0.0, 1.0};
-  std::string message;
-};
-
-// Parses T_cam_imu from the calibration YAML returned by
-// MightyClient::config_get_text("calib") and applies Mighty's canonical
-// base_link (FLU) to camera-optical convention.
-BodyCameraCalibration parse_body_camera_calibration(
-    const std::string& calibration_yaml);
 
 struct MapperConfig {
   float voxel_size_m = 0.05f;
@@ -54,10 +37,28 @@ struct MapperStats {
   std::size_t allocated_blocks = 0;
 };
 
+struct MeshVertex {
+  float x = 0.0f;
+  float y = 0.0f;
+  float z = 0.0f;
+  std::uint8_t r = 255;
+  std::uint8_t g = 255;
+  std::uint8_t b = 255;
+};
+
+// Triangle-list snapshot for GUI rendering. Every consecutive three vertices
+// form one triangle, so the viewer does not need to depend on voxblox types.
+struct MeshSnapshot {
+  std::uint64_t revision = 0;
+  std::vector<MeshVertex> vertices;
+
+  std::size_t triangle_count() const { return vertices.size() / 3; }
+};
+
 class VoxbloxMapper {
  public:
   VoxbloxMapper(const MapperConfig& config,
-                const BodyCameraCalibration& calibration);
+                const mighty_protocol::sdk::CameraCalibration& calibration);
   ~VoxbloxMapper();
 
   VoxbloxMapper(const VoxbloxMapper&) = delete;
@@ -75,6 +76,7 @@ class VoxbloxMapper {
 
   bool save_mesh(const std::string& path, std::string* error = nullptr);
   bool save_map(const std::string& path, std::string* error = nullptr);
+  bool mesh_snapshot(MeshSnapshot* snapshot, std::string* error = nullptr);
   MapperStats stats() const;
 
  private:

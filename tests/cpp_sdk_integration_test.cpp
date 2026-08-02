@@ -377,6 +377,12 @@ int main() {
     assert(cfg_get.found);
     assert(cfg_get.value.find("intrinsics") != std::string::npos);
 
+    CalibrationGetResult calibration_get = client.get_calibration();
+    assert(calibration_get.ok);
+    assert(calibration_get.found);
+    assert(calibration_get.value.camera("cam0") != nullptr);
+    assert(calibration_get.value.camera("cam0")->intrinsics.fx == 9.0);
+
     ConfigSetResult cfg_set = client.config_set_text("calib", "%YAML:1.0\nfoo: 9\n");
     assert(cfg_set.ok);
 

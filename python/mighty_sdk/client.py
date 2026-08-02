@@ -5,6 +5,7 @@ from typing import Any, Callable, Dict, Optional
 import mighty_protocol as mp
 from dispatcher import FrameDispatcher
 
+from .calibration import parse_calibration_yaml
 from .loopclosure import LoopClosureError, NativeLoopClosure
 from .depth import RgbdSynchronizer
 from .utils import clamp01, sleep_seconds, to_bytes
@@ -291,6 +292,24 @@ class MightyClient:
                 "value": value_bytes,
                 "message": str(exc),
             }
+
+    def get_calibration(self) -> Dict[str, Any]:
+        raw = self.config_get("calib", as_text=True)
+        result = {
+            "ok": bool(raw.get("ok", False)),
+            "found": bool(raw.get("found", False)),
+            "value": None,
+            "message": raw.get("message", ""),
+        }
+        if not result["ok"] or not result["found"]:
+            return result
+        try:
+            result["value"] = parse_calibration_yaml(raw.get("value", ""))
+        except (TypeError, ValueError) as exc:
+            result["ok"] = False
+            result["message"] = "invalid calibration: {}".format(exc)
+            self._emit_error("calibration", "decode_failed", result["message"], exc)
+        return result
 
     def start_vio(self) -> Dict[str, Any]:
         return self.command("start_vio")

@@ -12,5 +12,7 @@ examples/web/node_modules
 examples/web/dist
 build
 build-*
+mighty_voxblox_map.voxblox
+mighty_voxblox_mesh.ply
 lib/algorithms/
 lib/loopclosure/

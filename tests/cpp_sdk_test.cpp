@@ -459,12 +459,19 @@ int main() {
   assert(cfg_get.found);
   assert(cfg_get.value.find("intrinsics") != std::string::npos);
 
+  CalibrationGetResult calibration_get = client.get_calibration();
+  assert(calibration_get.ok);
+  assert(calibration_get.found);
+  assert(calibration_get.value.camera("cam0") != nullptr);
+  assert(approx(calibration_get.value.camera("cam0")->intrinsics.fx, 1.0));
+
   ConfigSetResult cfg_set = client.config_set_text("calib", "%YAML:1.0\nfoo: 1\n");
   assert(cfg_set.ok);
 
   ConfigGetTextResult cfg_get2 = client.config_get_text("calib");
   assert(cfg_get2.ok);
   assert(cfg_get2.value == "%YAML:1.0\nfoo: 1\n");
+  assert(!client.get_calibration().ok);
 
   MightyClientStats st = client.stats();
   assert(st.rx_frames >= 8);
