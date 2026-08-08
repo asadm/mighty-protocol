@@ -1,29 +1,48 @@
 import { RAW_FORMAT } from "../core/protocol.js";
 
 export const DEFAULT_ALGORITHMS_WASM_URL = "/mighty_algorithms.wasm";
-const ALGORITHMS_MODULE_URL = "../../lib/algorithms/wasm/lib/mighty_algorithms.js";
+export const DEFAULT_ALGORITHMS_MODULE_URL = "/mighty_algorithms.js";
+const PACKAGED_ALGORITHMS_MODULE_URL = "../../lib/algorithms/wasm/lib/mighty_algorithms.js";
 
-let algorithmsModuleFactoryPromise = null;
+const algorithmsModuleFactoryPromises = new Map();
 
-async function loadAlgorithmsModuleFactory() {
-  if (!algorithmsModuleFactoryPromise) {
-    algorithmsModuleFactoryPromise = (async () => {
+function resolveRuntimeUrl(requestedUrl) {
+  const requested = String(requestedUrl || "");
+  if (!requested) return "";
+  if (/^[a-z][a-z\d+.-]*:/i.test(requested)) return requested;
+  const origin = globalThis.location?.origin;
+  if (requested.startsWith("/") && origin && origin !== "null") {
+    return `${origin}${requested}`;
+  }
+  const runtimeHref = globalThis.location?.href;
+  if (runtimeHref && /^[a-z][a-z\d+.-]*:/i.test(runtimeHref)) {
+    return new URL(requested, runtimeHref).href;
+  }
+  return requested;
+}
+
+async function loadAlgorithmsModuleFactory(requestedUrl = "") {
+  const moduleUrl = requestedUrl
+    ? resolveRuntimeUrl(requestedUrl)
+    : new URL(PACKAGED_ALGORITHMS_MODULE_URL, import.meta.url).href;
+  if (!algorithmsModuleFactoryPromises.has(moduleUrl)) {
+    algorithmsModuleFactoryPromises.set(moduleUrl, (async () => {
       try {
-        const moduleUrl = new URL(ALGORITHMS_MODULE_URL, import.meta.url).href;
         const imported = await import(/* webpackIgnore: true */ moduleUrl);
         return imported.default || imported.createMightyAlgorithmsModule || imported;
       } catch (err) {
+        algorithmsModuleFactoryPromises.delete(moduleUrl);
         const error = new Error(
-          "Mighty loop closure module package is not available. " +
-          "Build or install mighty-protocol/lib/algorithms/wasm before enabling loop closure."
+          `Mighty Algorithms module is not available at ${moduleUrl}.`
         );
-        error.code = "loopclosure_module_not_found";
+        error.code = "algorithms_module_not_found";
+        error.moduleUrl = moduleUrl;
         error.cause = err;
         throw error;
       }
-    })();
+    })());
   }
-  return algorithmsModuleFactoryPromise;
+  return algorithmsModuleFactoryPromises.get(moduleUrl);
 }
 
 const EVENT_NAMES = {
@@ -148,11 +167,11 @@ async function fetchWasmBinary(wasmUrl) {
   const response = await fetch(wasmUrl, { credentials: "same-origin" });
   if (!response.ok) {
     const error = new Error(
-      `Mighty loop closure WASM not found at ${wasmUrl} (HTTP ${response.status}). ` +
+      `Mighty Algorithms WASM not found at ${wasmUrl} (HTTP ${response.status}). ` +
       `Put mighty_algorithms.wasm at ${DEFAULT_ALGORITHMS_WASM_URL}, ` +
       "or pass algorithmsWasmUrl with the URL where it is served."
     );
-    error.code = "loopclosure_wasm_not_found";
+    error.code = "algorithms_wasm_not_found";
     error.wasmUrl = wasmUrl;
     throw error;
   }
@@ -162,7 +181,7 @@ async function fetchWasmBinary(wasmUrl) {
 export async function createAlgorithmsWasmModule(options = {}) {
   const createMightyAlgorithmsModule = options.moduleFactory
     || options.createModule
-    || await loadAlgorithmsModuleFactory();
+    || await loadAlgorithmsModuleFactory(options.moduleUrl);
   const wasmUrl = options.wasmUrl || options.url || "";
   const locateFile = options.locateFile || (wasmUrl
     ? ((name) => (name === "mighty_algorithms.wasm" ? wasmUrl : name))

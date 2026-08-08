@@ -4,6 +4,8 @@ import {
   NativeLoopClosureWasm,
   createAlgorithmsWasmModule,
 } from "./loopclosure-wasm.js";
+import { MightyOccupancyGrid } from "./occupancy-wasm.js";
+import { MightyOccupancyGridWorker } from "./occupancy-worker.js";
 import { toU8, encodeText, decodeText, sleep, isAbortError } from "./utils.js";
 import { RgbdSynchronizer } from "./depth.js";
 import { parseCalibrationYaml } from "./calibration.js";
@@ -20,11 +22,16 @@ const DEFAULT_OPTS = {
   emitStatAsStatus: true,
   normalizeChannelAliases: true,
   loopclosure: false,
+  occupancyGrid: false,
+  algorithmsModuleUrl: "",
   algorithmsWasmUrl: DEFAULT_ALGORITHMS_WASM_URL,
   loopclosureCalibrationYaml: "",
+  occupancyCalibrationYaml: "",
+  occupancyGridOptions: null,
   algorithmsWasmModule: null,
   algorithmsWasmOptions: null,
   loopclosureFailOpen: false,
+  occupancyFailOpen: true,
 };
 
 const EVENT_KEYS = [
@@ -42,6 +49,7 @@ const EVENT_KEYS = [
   "event",
   "reset",
   "loopclosure",
+  "occupancy_grid",
   "any",
   "error",
 ];
@@ -102,6 +110,13 @@ export class MightyClient {
     }
     this.device = device;
     this.opts = { ...DEFAULT_OPTS, ...(opts || {}) };
+    if (!Object.prototype.hasOwnProperty.call(opts || {}, "algorithmsWasmUrl")
+        && Object.prototype.hasOwnProperty.call(opts || {}, "loopclosureWasmUrl")) {
+      this.opts.algorithmsWasmUrl = opts.loopclosureWasmUrl;
+    }
+    if (!this.opts.algorithmsWasmModule && opts?.loopclosureWasmModule) {
+      this.opts.algorithmsWasmModule = opts.loopclosureWasmModule;
+    }
 
     this._listeners = {};
     for (const key of EVENT_KEYS) this._listeners[key] = new Set();
@@ -124,6 +139,11 @@ export class MightyClient {
     };
     this._loopclosure = null;
     this._loopclosureInit = null;
+    this._occupancyGrid = null;
+    this._occupancyGridInit = null;
+    this._occupancyGridGeneration = 0;
+    this._algorithmsWasmModule = this.opts.algorithmsWasmModule || null;
+    this._algorithmsWasmInit = null;
   }
 
   async connect() {
@@ -133,6 +153,13 @@ export class MightyClient {
         await this.enableLoopclosureWasm();
       } catch (err) {
         if (!this.opts.loopclosureFailOpen) throw err;
+      }
+    }
+    if (this.opts.occupancyGrid && !this._occupancyGrid) {
+      try {
+        await this.enableOccupancyGridWasm();
+      } catch (err) {
+        if (!this.opts.occupancyFailOpen) throw err;
       }
     }
     this._running = true;
@@ -217,6 +244,7 @@ export class MightyClient {
   onEvent(cb) { return this._subscribe("event", cb); }
   onReset(cb) { return this._subscribe("reset", cb); }
   onLoopclosure(cb) { return this._subscribe("loopclosure", cb); }
+  onOccupancyGrid(cb) { return this._subscribe("occupancy_grid", cb); }
   onAny(cb) { return this._subscribe("any", cb); }
   onError(cb) { return this._subscribe("error", cb); }
 
@@ -425,29 +453,49 @@ export class MightyClient {
     return this.command("depth_estimation", encodeText("status"));
   }
 
+  async _loadAlgorithmsWasm(options = {}) {
+    if (options.module) {
+      this._algorithmsWasmModule = options.module;
+      return options.module;
+    }
+    if (this._algorithmsWasmModule) return this._algorithmsWasmModule;
+    if (this._algorithmsWasmInit) return this._algorithmsWasmInit;
+
+    const wasmOptions = {
+      ...(this.opts.algorithmsWasmOptions || {}),
+      ...((options && options.wasm) || {}),
+    };
+    if (Object.prototype.hasOwnProperty.call(options, "wasmUrl")) {
+      wasmOptions.wasmUrl = options.wasmUrl;
+    } else if (
+      this.opts.algorithmsWasmUrl
+      && !wasmOptions.wasmUrl
+      && !wasmOptions.locateFile
+      && !wasmOptions.wasmBinary
+    ) {
+      wasmOptions.wasmUrl = this.opts.algorithmsWasmUrl;
+    }
+    if (Object.prototype.hasOwnProperty.call(options, "moduleUrl")) {
+      wasmOptions.moduleUrl = options.moduleUrl;
+    } else if (this.opts.algorithmsModuleUrl && !wasmOptions.moduleUrl) {
+      wasmOptions.moduleUrl = this.opts.algorithmsModuleUrl;
+    }
+
+    this._algorithmsWasmInit = createAlgorithmsWasmModule(wasmOptions);
+    try {
+      this._algorithmsWasmModule = await this._algorithmsWasmInit;
+      return this._algorithmsWasmModule;
+    } finally {
+      this._algorithmsWasmInit = null;
+    }
+  }
+
   async enableLoopclosureWasm(options = {}) {
     if (this._loopclosure) return this._loopclosure;
     if (this._loopclosureInit && Object.keys(options || {}).length === 0) return this._loopclosureInit;
 
     const init = (async () => {
-      const wasmOptions = {
-        ...(this.opts.algorithmsWasmOptions || {}),
-        ...((options && options.wasm) || {}),
-      };
-      if (options && Object.prototype.hasOwnProperty.call(options, "wasmUrl")) {
-        wasmOptions.wasmUrl = options.wasmUrl;
-      } else if (
-        this.opts.algorithmsWasmUrl
-        && !wasmOptions.wasmUrl
-        && !wasmOptions.locateFile
-        && !wasmOptions.wasmBinary
-      ) {
-        wasmOptions.wasmUrl = this.opts.algorithmsWasmUrl;
-      }
-
-      const wasmModule = options.module
-        || this.opts.algorithmsWasmModule
-        || await createAlgorithmsWasmModule(wasmOptions);
+      const wasmModule = await this._loadAlgorithmsWasm(options);
       const loopclosure = new NativeLoopClosureWasm(wasmModule, {
         onEvent: (event) => this._handleLoopclosureEvent(event),
       });
@@ -479,7 +527,7 @@ export class MightyClient {
     if (err) err._mightyLoopclosureLogged = true;
     const wasmUrl = err?.wasmUrl || this.opts.algorithmsWasmUrl || DEFAULT_ALGORITHMS_WASM_URL;
     if (typeof console !== "undefined" && typeof console.error === "function") {
-      if (err?.code === "loopclosure_wasm_not_found" || err?.code === "loopclosure_module_not_found") {
+      if (err?.code === "algorithms_wasm_not_found" || err?.code === "algorithms_module_not_found") {
         console.error(
           `Mighty SDK loop closure could not load ${wasmUrl}. ` +
           `Put mighty_algorithms.wasm at ${DEFAULT_ALGORITHMS_WASM_URL}, ` +
@@ -524,6 +572,99 @@ export class MightyClient {
 
   loopclosureTrajectory() {
     return this._loopclosure ? this._loopclosure.getTrajectory() : [];
+  }
+
+  async enableOccupancyGridWasm(options = {}) {
+    if (this._occupancyGrid) return this._occupancyGrid;
+    if (this._occupancyGridInit) return this._occupancyGridInit;
+    const generation = ++this._occupancyGridGeneration;
+
+    const init = (async () => {
+      const calibration = options.calibration
+        ?? options.calibrationYaml
+        ?? this.opts.occupancyCalibrationYaml;
+      if (!calibration) throw new Error("occupancy grid requires camera calibration");
+      const callerOnUpdate = options.onUpdate;
+      const callerOnError = options.onError;
+      const gridOptions = {
+        ...(this.opts.occupancyGridOptions || {}),
+        ...options,
+        calibration,
+        onUpdate: (update) => {
+          callerOnUpdate?.(update);
+          this._handleOccupancyGridUpdate(update);
+        },
+        onError: (error) => {
+          callerOnError?.(error);
+          this._emitError({
+            scope: "occupancy_grid",
+            code: "processing_failed",
+            message: error?.message || String(error),
+            cause: error,
+          });
+        },
+      };
+      let grid;
+      if (gridOptions.worker === true && typeof Worker === "function") {
+        grid = new MightyOccupancyGridWorker(this, {
+          ...gridOptions,
+          moduleUrl: gridOptions.moduleUrl || this.opts.algorithmsModuleUrl,
+          wasmUrl: gridOptions.wasmUrl || gridOptions.url || this.opts.algorithmsWasmUrl,
+        });
+        await grid.ready;
+      } else {
+        const algorithmsModule = await this._loadAlgorithmsWasm(options);
+        grid = new MightyOccupancyGrid(this, algorithmsModule, gridOptions);
+      }
+      if (generation !== this._occupancyGridGeneration) {
+        grid.close();
+        const error = new Error("occupancy grid initialization cancelled");
+        error.code = "occupancy_cancelled";
+        throw error;
+      }
+      this._occupancyGrid = grid;
+      return grid;
+    })();
+
+    this._occupancyGridInit = init;
+    try {
+      return await init;
+    } catch (err) {
+      if (err?.code === "occupancy_cancelled") throw err;
+      this._emitError({
+        scope: "occupancy_grid",
+        code: "initialize_failed",
+        message: err?.message || String(err),
+        cause: err,
+      });
+      throw err;
+    } finally {
+      if (this._occupancyGridInit === init) this._occupancyGridInit = null;
+    }
+  }
+
+  closeOccupancyGrid() {
+    this._occupancyGridGeneration += 1;
+    this._occupancyGrid?.close();
+    this._occupancyGrid = null;
+    this._occupancyGridInit = null;
+  }
+
+  clearOccupancyGrid() {
+    return this._occupancyGrid?.clear() || null;
+  }
+
+  occupancyGridStats() {
+    return this._occupancyGrid?.stats() || null;
+  }
+
+  isOccupancyGridEnabled() {
+    return !!this._occupancyGrid;
+  }
+
+  _handleOccupancyGridUpdate(update) {
+    this._emit("occupancy_grid", update);
+    if (this._hasListeners("any")) this._emitAny({ type: "occupancy_grid", data: update });
   }
 
   _subscribe(key, cb) {

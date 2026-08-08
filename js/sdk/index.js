@@ -10,8 +10,10 @@ export {
   rectifyImageToDepth,
 } from "./depth.js";
 export {
+  DEFAULT_ALGORITHMS_MODULE_URL,
   DEFAULT_ALGORITHMS_WASM_URL,
   NativeLoopClosureWasm,
   NativeMapperWasm,
   createAlgorithmsWasmModule,
 } from "./loopclosure-wasm.js";
+export { MightyOccupancyGrid, OCCUPANCY_STATE } from "./occupancy-wasm.js";
