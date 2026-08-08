@@ -16,7 +16,7 @@
 
 #include "cpp/mighty_sdk.h"
 
-namespace loopclosure_sdk_example {
+namespace loopclosure_example {
 
 using mighty_protocol::sdk::LoopClosureEvent;
 using mighty_protocol::sdk::PoseFrame;
@@ -70,11 +70,11 @@ inline void print_usage(const char* argv0) {
       << "\n"
       << "Build example from mighty-protocol root on macOS arm64:\n"
       << "  c++ -arch arm64 -std=c++17 -DMIGHTY_PROTOCOL_ENABLE_LOOPCLOSURE -I. \\\n"
-      << "    -Ilib/loopclosure/macos-arm64-static/include \\\n"
-      << "    examples/cpp/wip/loopclosure_sdk/main.cpp \\\n"
-      << "    lib/loopclosure/macos-arm64-static/lib/libmighty_loopclosure_device.dylib \\\n"
-      << "    -Wl,-rpath,$PWD/lib/loopclosure/macos-arm64-static/lib \\\n"
-      << "    -o /tmp/loopclosure_sdk_example\n";
+      << "    -Ilib/algorithms/current/include \\\n"
+      << "    examples/cpp/wip/loopclosure/main.cpp \\\n"
+      << "    lib/algorithms/current/lib/libmighty_algorithms.dylib \\\n"
+      << "    -Wl,-rpath,$PWD/lib/algorithms/current/lib \\\n"
+      << "    -o /tmp/mighty_loopclosure_example\n";
 }
 
 inline bool parse_args(int argc, char** argv, Options* opts) {
@@ -310,11 +310,11 @@ inline bool write_svg(const Options& opts, const State& state, const std::string
       << width << " " << height << "\" width=\"" << width
       << "\" height=\"" << height
       << "\" role=\"img\" font-family=\"system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif\">\n";
-  out << "<title>Mighty Loop Closure SDK Top-Down View</title>\n";
+  out << "<title>Mighty Loop Closure Top-Down View</title>\n";
   out << "<desc>Raw and optimized top-down trajectories with accepted loop closure linkages.</desc>\n";
   out << "<rect x=\"0\" y=\"0\" width=\"" << width << "\" height=\"" << height << "\" fill=\"#f8f8f4\"/>";
   out << "<g font-size=\"13\" fill=\"#0f172a\">"
-      << "<text x=\"48\" y=\"40\" font-size=\"18\" font-weight=\"700\">Mighty Loop Closure SDK</text>"
+      << "<text x=\"48\" y=\"40\" font-size=\"18\" font-weight=\"700\">Mighty Loop Closure</text>"
       << "<text x=\"48\" y=\"66\">source: " << xml_escape(snapshot.source.empty() ? "unknown" : snapshot.source)
       << " | axes: " << xml_escape(opts.axes)
       << " | keyframes: " << snapshot.keyframes.size()
@@ -381,4 +381,4 @@ inline bool write_svg(const Options& opts, const State& state, const std::string
   return true;
 }
 
-}  // namespace loopclosure_sdk_example
+}  // namespace loopclosure_example

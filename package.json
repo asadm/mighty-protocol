@@ -23,12 +23,12 @@
   "exports": {
     ".": "./js/index.js",
     "./js": "./js/index.js",
-    "./lib/loopclosure/*": "./lib/loopclosure/*",
+    "./lib/algorithms/*": "./lib/algorithms/*",
     "./js/*": "./js/*"
   },
   "files": [
     "js",
-    "lib/loopclosure",
+    "lib/algorithms",
     "cpp",
     "python",
     "README.md",

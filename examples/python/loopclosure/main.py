@@ -18,12 +18,12 @@ from mighty_sdk import MightyClient, MightyWebDevice  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Mighty Python SDK loopclosure example")
+    parser = argparse.ArgumentParser(description="Mighty Python loop-closure example")
     parser.add_argument("--host", default="", help="Device/app base URL, e.g. http://127.0.0.1:18091")
     parser.add_argument("--seconds", type=float, default=120.0, help="Run duration")
     parser.add_argument("--out", default="loopclosure_python.svg", help="Output plot path")
     parser.add_argument("--calibration", default="", help="Calibration YAML file; defaults to device config calib")
-    parser.add_argument("--library", default="", help="Native loopclosure library path override")
+    parser.add_argument("--library", default="", help="Native mighty-algorithms library path override")
     parser.add_argument("--no-start", action="store_true", help="Do not send start_vio")
     return parser.parse_args()
 
@@ -78,7 +78,7 @@ def plot_loopclosure(events: List[Dict[str, object]], keyframes: List[Dict[str, 
                 )
 
     fig.suptitle(
-        f"Mighty Loop Closure SDK | keyframes: {len(keyframes)} | loops: {len(loop_edges)}",
+        f"Mighty Loop Closure | keyframes: {len(keyframes)} | loops: {len(loop_edges)}",
         x=0.02,
         ha="left",
         color="#0f172a",
@@ -125,7 +125,7 @@ def write_svg_fallback(raw_xy, opt_xy, loop_edges, out_path: str) -> None:
     with open(out_path, "w", encoding="utf-8") as out:
         out.write(f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width:g} {height:g}" width="{width:g}" height="{height:g}">')
         out.write(f'<rect width="{width:g}" height="{height:g}" fill="#f8f8f4"/>')
-        out.write(f'<text x="48" y="40" font-family="system-ui" font-size="18" font-weight="700" fill="#0f172a">Mighty Python Loop Closure SDK</text>')
+        out.write(f'<text x="48" y="40" font-family="system-ui" font-size="18" font-weight="700" fill="#0f172a">Mighty Python Loop Closure</text>')
         out.write(f'<text x="48" y="66" font-family="system-ui" font-size="13" fill="#0f172a">keyframes: {len(opt_xy)} | loops: {len(loop_edges)} | install matplotlib for PNG/PDF output</text>')
         for x0, title in ((raw_x, "Unoptimized keyframes"), (opt_x, "Optimized keyframes")):
             out.write(f'<rect x="{x0:g}" y="{header_h:g}" width="{plot_w:g}" height="{plot_h:g}" fill="#fff" stroke="#d4d4ce"/>')

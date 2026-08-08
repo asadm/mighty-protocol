@@ -3,7 +3,7 @@
 Native live mapper example using:
 
 - Mighty protocol C++ SDK for image, pose, and calibration
-- `libmighty_loopclosure_device` from the packaged native SDK for mapping
+- `libmighty_algorithms` from the packaged native SDK
 - Pangolin for a simple viewer
 
 The viewer intentionally draws its own map-update view so we can debug coordinate
@@ -20,8 +20,8 @@ cmake --build build --target mighty_mapper_live -j
 ```
 
 By default CMake uses the bundled native SDK at
-`../../../../lib/loopclosure/macos-arm64-static`. To test another package, set
-`MIGHTY_LOOPCLOSURE_SDK=/path/to/mighty-loopclosure-device-sdk`.
+`../../../../lib/algorithms/current`. To test another package, set
+`MIGHTY_ALGORITHMS_SDK=/path/to/mighty-algorithms-sdk`.
 
 On Apple Silicon, the CMake file defaults to an `arm64` target when using
 Homebrew dependencies from `/opt/homebrew`, including when the invoking shell is
@@ -43,7 +43,7 @@ Then run:
 ./build/mighty_mapper_live --base-url http://127.0.0.1:8084
 ```
 
-The example uses the mapper defaults from `libmighty_loopclosure_device`.
+The example uses the mapper defaults from `libmighty_algorithms`.
 The viewer window stays open after the stream ends so the final map can be
 inspected. Map points use Mighty blue (`#0099ff`) and the pose trajectory uses
 Mighty red (`#ff0055`).

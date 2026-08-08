@@ -1,7 +1,7 @@
-import createMightyLoopClosureModule from "../../../lib/loopclosure/wasm/lib/mighty_loopclosure_device.js";
+import createMightyAlgorithmsModule from "../../../lib/algorithms/wasm/lib/mighty_algorithms.js";
 import {
   NativeMapperWasm,
-  createLoopClosureWasmModule,
+  createAlgorithmsWasmModule,
 } from "mighty-protocol";
 
 const PUMP_INTERVAL_MS = 4;
@@ -71,9 +71,9 @@ async function init() {
     return;
   }
   postStatus("loading wasm");
-  wasmModule = await createLoopClosureWasmModule({
-    moduleFactory: createMightyLoopClosureModule,
-    wasmUrl: `/mighty_loopclosure_device.wasm?v=${WASM_CACHE_BUSTER}`,
+  wasmModule = await createAlgorithmsWasmModule({
+    moduleFactory: createMightyAlgorithmsModule,
+    wasmUrl: `/mighty_algorithms.wasm?v=${WASM_CACHE_BUSTER}`,
     print: (text) => postWasmLog("stdout", text),
     printErr: (text) => postWasmLog("stderr", text),
   });

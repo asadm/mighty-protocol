@@ -24,7 +24,7 @@
 #include <thread>
 #include <vector>
 
-#include "mighty_loopclosure/mighty_loopclosure_device_c.h"
+#include <mighty_algorithms/mighty_algorithms.h>
 #include "mighty_sdk.h"
 
 namespace {
@@ -83,7 +83,7 @@ struct SharedState {
   bool saw_stream_data = false;
   Clock::time_point last_stream_at = Clock::now();
   std::string status = "starting";
-  mmp_device_mapper_t* mapper = nullptr;
+  ma_mapper_stream_t* mapper = nullptr;
   cv::Mat latest_preview_bgr;
   uint64_t latest_preview_timestamp_ns = 0;
 };
@@ -246,8 +246,8 @@ struct FollowCameraState {
 };
 
 struct RenderMap {
-  std::map<int, std::vector<mmp_map_point_t>> frames;
-  std::vector<mmp_pose_sample_t> trajectory;
+  std::map<int, std::vector<ma_mapper_stream_point_t>> frames;
+  std::vector<ma_mapper_stream_pose_t> trajectory;
   uint64_t revision = 0;
   size_t point_count = 0;
 
@@ -258,7 +258,7 @@ struct RenderMap {
     point_count = 0;
   }
 
-  void replace_frame(int frame_id, const mmp_map_point_t* points, size_t count) {
+  void replace_frame(int frame_id, const ma_mapper_stream_point_t* points, size_t count) {
     auto& dst = frames[frame_id];
     point_count -= dst.size();
     dst.assign(points, points + count);
@@ -416,21 +416,21 @@ bool pose_can_drive_mapper(const PoseFrame& pose) {
 
 uint8_t to_mlc_raw_format(uint8_t raw_format) {
   switch (static_cast<RawFormat>(raw_format)) {
-    case RawFormat::kGray8: return MLC_RAW_GRAY8;
-    case RawFormat::kRGB24: return MLC_RAW_RGB24;
-    case RawFormat::kBGR24: return MLC_RAW_BGR24;
-    case RawFormat::kRGBA32: return MLC_RAW_RGBA32;
-    case RawFormat::kBGRA32: return MLC_RAW_BGRA32;
-    case RawFormat::kYUV420SP: return MLC_RAW_YUV420SP;
-    case RawFormat::kYUV420P: return MLC_RAW_YUV420P;
+    case RawFormat::kGray8: return MA_STREAM_PIXEL_GRAY8;
+    case RawFormat::kRGB24: return MA_STREAM_PIXEL_RGB24;
+    case RawFormat::kBGR24: return MA_STREAM_PIXEL_BGR24;
+    case RawFormat::kRGBA32: return MA_STREAM_PIXEL_RGBA32;
+    case RawFormat::kBGRA32: return MA_STREAM_PIXEL_BGRA32;
+    case RawFormat::kYUV420SP: return MA_STREAM_PIXEL_YUV420SP;
+    case RawFormat::kYUV420P: return MA_STREAM_PIXEL_YUV420P;
     case RawFormat::kUnknown:
     default:
-      return MLC_RAW_UNKNOWN;
+      return MA_STREAM_PIXEL_UNKNOWN;
   }
 }
 
-mlc_pose_t to_mlc_pose(const PoseFrame& pose) {
-  mlc_pose_t out{};
+ma_stream_pose_t to_stream_pose(const PoseFrame& pose) {
+  ma_stream_pose_t out{};
   out.timestamp_ns = pose.timestamp_ns.value_or(0);
   out.px = pose.position_m[0];
   out.py = pose.position_m[1];
@@ -444,7 +444,7 @@ mlc_pose_t to_mlc_pose(const PoseFrame& pose) {
   } else {
     out.qw = 1.0;
   }
-  out.frame = pose_is_camera_frame(pose) ? MLC_POSE_FRAME_CAMERA : MLC_POSE_FRAME_BODY;
+  out.frame = pose_is_camera_frame(pose) ? MA_POSE_FRAME_CAMERA : MA_POSE_FRAME_BODY;
   out.confidence = pose.confidence;
   return out;
 }
@@ -470,20 +470,20 @@ void draw_grid(float extent, float step) {
   glEnd();
 }
 
-void apply_map_update(mmp_device_mapper_t* mapper, RenderMap* render_map) {
+void apply_map_update(ma_mapper_stream_t* mapper, RenderMap* render_map) {
   if (!mapper || !render_map) return;
-  mmp_map_update_t update{};
-  const mmp_status_t status =
-      mmp_map_update(mapper, render_map->revision, render_map->trajectory.size(), &update);
-  if (status != MMP_STATUS_OK) {
-    mmp_map_update_destroy(&update);
+  ma_mapper_stream_update_t update{};
+  const ma_status_t status =
+      ma_mapper_stream_map_update(mapper, render_map->revision, render_map->trajectory.size(), &update);
+  if (status != MA_STATUS_OK) {
+    ma_mapper_stream_update_destroy(&update);
     return;
   }
 
   if (update.reset) render_map->reset();
   if (update.frames && update.frame_count > 0) {
     for (size_t i = 0; i < update.frame_count; ++i) {
-      const mmp_map_frame_update_t& frame = update.frames[i];
+      const ma_mapper_stream_frame_update_t& frame = update.frames[i];
       if (frame.remove) {
         render_map->remove_frame(frame.frame_id);
       } else {
@@ -497,7 +497,7 @@ void apply_map_update(mmp_device_mapper_t* mapper, RenderMap* render_map) {
     } else if (update.trajectory_start != render_map->trajectory.size()) {
       render_map->trajectory.clear();
       render_map->revision = 0;
-      mmp_map_update_destroy(&update);
+      ma_mapper_stream_update_destroy(&update);
       return;
     }
     render_map->trajectory.insert(render_map->trajectory.end(),
@@ -505,7 +505,7 @@ void apply_map_update(mmp_device_mapper_t* mapper, RenderMap* render_map) {
                                   update.trajectory + update.trajectory_count);
   }
   render_map->revision = update.revision;
-  mmp_map_update_destroy(&update);
+  ma_mapper_stream_update_destroy(&update);
 }
 
 bool write_map_csv(const RenderMap& map, const std::string& path) {
@@ -531,7 +531,7 @@ bool collect_headless(SharedState* state, const Options& opts, RenderMap* out_ma
   Clock::time_point last_report = start;
   bool reached_target = false;
   while (true) {
-    mmp_device_mapper_t* mapper = nullptr;
+    ma_mapper_stream_t* mapper = nullptr;
     size_t accepted = 0;
     bool saw_stream_data = false;
     bool stop = false;
@@ -644,7 +644,7 @@ void draw_latest_pose_dot(const RenderMap& map) {
   glPopMatrix();
 }
 
-Eigen::Vector3d horizontal_heading_from_pose(const mmp_pose_sample_t& pose) {
+Eigen::Vector3d horizontal_heading_from_pose(const ma_mapper_stream_pose_t& pose) {
   const Eigen::Quaterniond q_odom_from_camera(pose.qw, pose.qx, pose.qy, pose.qz);
   const Eigen::Vector3d camera_forward_odom =
       q_odom_from_camera.normalized() * Eigen::Vector3d(0.0, 0.0, -1.0);
@@ -658,7 +658,7 @@ Eigen::Vector3d lerp_vec3(const Eigen::Vector3d& a, const Eigen::Vector3d& b, do
   return a + (b - a) * std::max(0.0, std::min(1.0, alpha));
 }
 
-void update_follow_camera(const mmp_pose_sample_t& latest,
+void update_follow_camera(const ma_mapper_stream_pose_t& latest,
                           double dt_sec,
                           FollowCameraState* follow,
                           pangolin::OpenGlRenderState* camera) {
@@ -755,7 +755,7 @@ void render_loop(SharedState* state, const Options& opts) {
     const auto render_start = Clock::now();
     const double dt_sec = std::min(0.1, elapsed_ms(last_render_at, render_start) * 0.001);
     last_render_at = render_start;
-    mmp_device_mapper_t* mapper = nullptr;
+    ma_mapper_stream_t* mapper = nullptr;
     std::string status;
     cv::Mat preview_bgr;
     bool should_exit_idle = false;
@@ -877,19 +877,19 @@ int main(int argc, char** argv) {
   auto device = std::make_shared<MightyWebDevice>(device_opts);
   auto client = std::make_shared<MightyClient>(device, MightyClientOptions());
 
-  mmp_options_t mapper_options{};
-  mmp_options_default(&mapper_options);
+  ma_mapper_stream_options_t mapper_options{};
+  ma_mapper_stream_options_default(&mapper_options);
   mapper_options.quiet = opts.quiet ? 1 : 0;
-  mmp_device_mapper_t* mapper = nullptr;
-  mmp_status_t mapper_status = mmp_create(&mapper_options, &mapper);
-  if (mapper_status != MMP_STATUS_OK || !mapper) {
-    std::cerr << "failed to create mapper: " << mmp_status_message(mapper_status) << "\n";
+  ma_mapper_stream_t* mapper = nullptr;
+  ma_status_t mapper_status = ma_mapper_stream_create(&mapper_options, &mapper);
+  if (mapper_status != MA_STATUS_OK || !mapper) {
+    std::cerr << "failed to create mapper: " << ma_status_message(mapper_status) << "\n";
     return 1;
   }
-  mapper_status = mmp_initialize(mapper);
-  if (mapper_status != MMP_STATUS_OK) {
-    std::cerr << "failed to initialize mapper: " << mmp_status_message(mapper_status) << "\n";
-    mmp_destroy(mapper);
+  mapper_status = ma_mapper_stream_initialize(mapper);
+  if (mapper_status != MA_STATUS_OK) {
+    std::cerr << "failed to initialize mapper: " << ma_status_message(mapper_status) << "\n";
+    ma_mapper_stream_destroy(mapper);
     return 1;
   }
   state.mapper = mapper;
@@ -938,7 +938,7 @@ int main(int argc, char** argv) {
       }
     }
 
-    mlc_raw_image_t input{};
+    ma_stream_image_t input{};
     input.timestamp_ns = raw->timestamp_ns;
     input.frame_id = frame_id;
     input.width = raw->width;
@@ -946,11 +946,11 @@ int main(int argc, char** argv) {
     input.format = to_mlc_raw_format(raw->format);
     input.data = raw->data.data();
     input.size_bytes = raw->data.size();
-    mmp_push_result_t result{};
-    const mmp_status_t status = mmp_push_image(mapper, &input, &result);
-    if (status != MMP_STATUS_OK && status != MMP_STATUS_NOT_READY) {
+    ma_mapper_stream_push_result_t result{};
+    const ma_status_t status = ma_mapper_stream_push_image(mapper, &input, &result);
+    if (status != MA_STATUS_OK && status != MA_STATUS_NOT_READY) {
       std::lock_guard<std::mutex> lock(state.mu);
-      state.status = std::string("mapper image: ") + mmp_status_message(status);
+      state.status = std::string("mapper image: ") + ma_status_message(status);
     } else if (result.version != 0) {
       std::lock_guard<std::mutex> lock(state.mu);
       state.accepted_frames = result.frames_processed;
@@ -972,7 +972,7 @@ int main(int argc, char** argv) {
       state.saw_stream_data = true;
       state.last_stream_at = Clock::now();
     }
-    const mlc_pose_t input = to_mlc_pose(pose);
+    const ma_stream_pose_t input = to_stream_pose(pose);
     {
       std::lock_guard<std::mutex> lock(trace_mu);
       if (trace_out) {
@@ -985,11 +985,11 @@ int main(int argc, char** argv) {
                   << input.confidence << "\n";
       }
     }
-    mmp_push_result_t result{};
-    const mmp_status_t status = mmp_push_pose(mapper, &input, &result);
-    if (status != MMP_STATUS_OK && status != MMP_STATUS_NOT_READY) {
+    ma_mapper_stream_push_result_t result{};
+    const ma_status_t status = ma_mapper_stream_push_pose(mapper, &input, &result);
+    if (status != MA_STATUS_OK && status != MA_STATUS_NOT_READY) {
       std::lock_guard<std::mutex> lock(state.mu);
-      state.status = std::string("mapper pose: ") + mmp_status_message(status);
+      state.status = std::string("mapper pose: ") + ma_status_message(status);
     } else if (result.version != 0) {
       std::lock_guard<std::mutex> lock(state.mu);
       state.accepted_frames = result.frames_processed;
@@ -1019,15 +1019,15 @@ int main(int argc, char** argv) {
       }
       auto result = client->config_get_text("calib");
       if (result.ok && result.found) {
-        const mmp_status_t status = mmp_set_calibration_yaml(mapper, result.value.c_str());
-        if (status == MMP_STATUS_OK) {
+        const ma_status_t status = ma_mapper_stream_set_calibration_yaml(mapper, result.value.c_str());
+        if (status == MA_STATUS_OK) {
           std::lock_guard<std::mutex> lock(state.mu);
           state.status = "calib ready";
           state.cv.notify_all();
           break;
         } else {
           std::lock_guard<std::mutex> lock(state.mu);
-          state.status = std::string("calib failed: ") + mmp_status_message(status);
+          state.status = std::string("calib failed: ") + ma_status_message(status);
         }
       }
       std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -1058,8 +1058,8 @@ int main(int argc, char** argv) {
   state.cv.notify_all();
   client->disconnect();
   if (calib_thread.joinable()) calib_thread.join();
-  mmp_finish(mapper);
-  mmp_destroy(mapper);
+  ma_mapper_stream_finish(mapper);
+  ma_mapper_stream_destroy(mapper);
   state.mapper = nullptr;
 
   (void)image_sub;

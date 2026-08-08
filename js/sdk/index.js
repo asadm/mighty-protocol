@@ -10,8 +10,8 @@ export {
   rectifyImageToDepth,
 } from "./depth.js";
 export {
-  DEFAULT_LOOPCLOSURE_WASM_URL,
+  DEFAULT_ALGORITHMS_WASM_URL,
   NativeLoopClosureWasm,
   NativeMapperWasm,
-  createLoopClosureWasmModule,
+  createAlgorithmsWasmModule,
 } from "./loopclosure-wasm.js";

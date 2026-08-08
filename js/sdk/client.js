@@ -1,8 +1,8 @@
 import * as protocol from "../core/protocol.js";
 import {
-  DEFAULT_LOOPCLOSURE_WASM_URL,
+  DEFAULT_ALGORITHMS_WASM_URL,
   NativeLoopClosureWasm,
-  createLoopClosureWasmModule,
+  createAlgorithmsWasmModule,
 } from "./loopclosure-wasm.js";
 import { toU8, encodeText, decodeText, sleep, isAbortError } from "./utils.js";
 import { RgbdSynchronizer } from "./depth.js";
@@ -20,10 +20,10 @@ const DEFAULT_OPTS = {
   emitStatAsStatus: true,
   normalizeChannelAliases: true,
   loopclosure: false,
-  loopclosureWasmUrl: DEFAULT_LOOPCLOSURE_WASM_URL,
+  algorithmsWasmUrl: DEFAULT_ALGORITHMS_WASM_URL,
   loopclosureCalibrationYaml: "",
-  loopclosureWasmModule: null,
-  loopclosureWasmOptions: null,
+  algorithmsWasmModule: null,
+  algorithmsWasmOptions: null,
   loopclosureFailOpen: false,
 };
 
@@ -431,23 +431,23 @@ export class MightyClient {
 
     const init = (async () => {
       const wasmOptions = {
-        ...(this.opts.loopclosureWasmOptions || {}),
+        ...(this.opts.algorithmsWasmOptions || {}),
         ...((options && options.wasm) || {}),
       };
       if (options && Object.prototype.hasOwnProperty.call(options, "wasmUrl")) {
         wasmOptions.wasmUrl = options.wasmUrl;
       } else if (
-        this.opts.loopclosureWasmUrl
+        this.opts.algorithmsWasmUrl
         && !wasmOptions.wasmUrl
         && !wasmOptions.locateFile
         && !wasmOptions.wasmBinary
       ) {
-        wasmOptions.wasmUrl = this.opts.loopclosureWasmUrl;
+        wasmOptions.wasmUrl = this.opts.algorithmsWasmUrl;
       }
 
       const wasmModule = options.module
-        || this.opts.loopclosureWasmModule
-        || await createLoopClosureWasmModule(wasmOptions);
+        || this.opts.algorithmsWasmModule
+        || await createAlgorithmsWasmModule(wasmOptions);
       const loopclosure = new NativeLoopClosureWasm(wasmModule, {
         onEvent: (event) => this._handleLoopclosureEvent(event),
       });
@@ -477,13 +477,13 @@ export class MightyClient {
   _logLoopclosureWasmLoadError(err) {
     if (err && err._mightyLoopclosureLogged) return;
     if (err) err._mightyLoopclosureLogged = true;
-    const wasmUrl = err?.wasmUrl || this.opts.loopclosureWasmUrl || DEFAULT_LOOPCLOSURE_WASM_URL;
+    const wasmUrl = err?.wasmUrl || this.opts.algorithmsWasmUrl || DEFAULT_ALGORITHMS_WASM_URL;
     if (typeof console !== "undefined" && typeof console.error === "function") {
       if (err?.code === "loopclosure_wasm_not_found" || err?.code === "loopclosure_module_not_found") {
         console.error(
           `Mighty SDK loop closure could not load ${wasmUrl}. ` +
-          `Put mighty_loopclosure_device.wasm at ${DEFAULT_LOOPCLOSURE_WASM_URL}, ` +
-          "or pass loopclosureWasmUrl with the URL where your app serves it.",
+          `Put mighty_algorithms.wasm at ${DEFAULT_ALGORITHMS_WASM_URL}, ` +
+          "or pass algorithmsWasmUrl with the URL where your app serves it.",
           err
         );
       } else {

@@ -3,10 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import createMightyLoopClosureModule from "../../lib/loopclosure/wasm/lib/mighty_loopclosure_device.js";
+import createMightyAlgorithmsModule from "../../lib/algorithms/wasm/lib/mighty_algorithms.js";
 import {
   NativeMapperWasm,
-  createLoopClosureWasmModule,
+  createAlgorithmsWasmModule,
 } from "../../js/index.js";
 
 function parseArgs(argv) {
@@ -83,9 +83,9 @@ async function main() {
   const args = parseArgs(process.argv);
   const replayDir = path.resolve(args.replayDir);
   const here = path.dirname(fileURLToPath(import.meta.url));
-  const wasmPath = path.resolve(here, "../../lib/loopclosure/wasm/lib/mighty_loopclosure_device.wasm");
-  const module = await createLoopClosureWasmModule({
-    moduleFactory: createMightyLoopClosureModule,
+  const wasmPath = path.resolve(here, "../../lib/algorithms/wasm/lib/mighty_algorithms.wasm");
+  const module = await createAlgorithmsWasmModule({
+    moduleFactory: createMightyAlgorithmsModule,
     wasmBinary: fs.readFileSync(wasmPath),
   });
   const mapper = new NativeMapperWasm(module, { quiet: true });

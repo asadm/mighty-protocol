@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const loopclosureWasmPath = resolve(here, "../../lib/loopclosure/wasm/lib/mighty_loopclosure_device.wasm");
+const loopclosureWasmPath = resolve(here, "../../lib/algorithms/wasm/lib/mighty_algorithms.wasm");
 
 function loopclosureWasmAsset() {
   return {
@@ -12,7 +12,7 @@ function loopclosureWasmAsset() {
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const url = new URL(req.url || "", "http://localhost");
-        if (req.method !== "GET" || url.pathname !== "/mighty_loopclosure_device.wasm" || !existsSync(loopclosureWasmPath)) {
+        if (req.method !== "GET" || url.pathname !== "/mighty_algorithms.wasm" || !existsSync(loopclosureWasmPath)) {
           next();
           return;
         }
@@ -25,7 +25,7 @@ function loopclosureWasmAsset() {
       if (!existsSync(loopclosureWasmPath)) return;
       this.emitFile({
         type: "asset",
-        fileName: "mighty_loopclosure_device.wasm",
+        fileName: "mighty_algorithms.wasm",
         source: readFileSync(loopclosureWasmPath),
       });
     },

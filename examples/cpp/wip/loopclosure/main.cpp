@@ -6,21 +6,21 @@
 #include <thread>
 
 #include "cpp/mighty_sdk.h"
-#include "examples/cpp/wip/loopclosure_sdk/utils.h"
+#include "examples/cpp/wip/loopclosure/utils.h"
 
 namespace {
 
-using loopclosure_sdk_example::Options;
-using loopclosure_sdk_example::State;
-using loopclosure_sdk_example::parse_args;
-using loopclosure_sdk_example::print_loop_event;
-using loopclosure_sdk_example::print_usage;
-using loopclosure_sdk_example::record_keyframe_pose;
-using loopclosure_sdk_example::record_loop_event;
-using loopclosure_sdk_example::set_error;
-using loopclosure_sdk_example::set_source;
-using loopclosure_sdk_example::set_status;
-using loopclosure_sdk_example::write_svg;
+using loopclosure_example::Options;
+using loopclosure_example::State;
+using loopclosure_example::parse_args;
+using loopclosure_example::print_loop_event;
+using loopclosure_example::print_usage;
+using loopclosure_example::record_keyframe_pose;
+using loopclosure_example::record_loop_event;
+using loopclosure_example::set_error;
+using loopclosure_example::set_source;
+using loopclosure_example::set_status;
+using loopclosure_example::write_svg;
 
 using mighty_protocol::sdk::LoopClosureEvent;
 using mighty_protocol::sdk::MightyClient;

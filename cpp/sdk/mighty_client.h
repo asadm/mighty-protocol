@@ -22,7 +22,7 @@
 #include "../mighty_protocol_consumer.h"
 
 #if defined(MIGHTY_PROTOCOL_ENABLE_LOOPCLOSURE)
-#include "mighty_loopclosure/mighty_loopclosure_device_c.h"
+#include <mighty_algorithms/mighty_algorithms.h>
 #endif
 
 namespace mighty_protocol {
@@ -258,7 +258,7 @@ class MightyClient {
     disconnect();
 #if defined(MIGHTY_PROTOCOL_ENABLE_LOOPCLOSURE)
     if (loopclosure_) {
-      mlc_destroy(loopclosure_);
+      ma_loopclosure_stream_destroy(loopclosure_);
       loopclosure_ = nullptr;
     }
 #endif
@@ -542,9 +542,9 @@ class MightyClient {
     }
     initialize_loopclosure();
     if (!loopclosure_) return false;
-    const mlc_status_t status = mlc_set_calibration_yaml(loopclosure_, yaml.c_str());
-    if (status != MLC_STATUS_OK) {
-      emit_error("loopclosure", "calibration_failed", mlc_status_message(status));
+    const ma_status_t status = ma_loopclosure_stream_set_calibration_yaml(loopclosure_, yaml.c_str());
+    if (status != MA_STATUS_OK) {
+      emit_error("loopclosure", "calibration_failed", ma_status_message(status));
       return false;
     }
     return true;
@@ -552,7 +552,7 @@ class MightyClient {
     (void)yaml;
     emit_error("loopclosure",
                "not_compiled",
-               "MightyClient loopclosure option requires MIGHTY_PROTOCOL_ENABLE_LOOPCLOSURE and the native loop-closure library");
+               "MightyClient loopclosure option requires MIGHTY_PROTOCOL_ENABLE_LOOPCLOSURE and the mighty-algorithms runtime");
     return false;
 #endif
   }
@@ -667,49 +667,49 @@ class MightyClient {
   void initialize_loopclosure() {
 #if defined(MIGHTY_PROTOCOL_ENABLE_LOOPCLOSURE)
     if (loopclosure_initialized_) return;
-    mlc_options_t options{};
-    mlc_options_default(&options);
-    mlc_device_loopclosure_t* next = nullptr;
-    mlc_status_t status = mlc_create(&options, &next);
-    if (status != MLC_STATUS_OK || !next) {
-      emit_error("loopclosure", "create_failed", mlc_status_message(status));
+    ma_loopclosure_stream_options_t options{};
+    ma_loopclosure_stream_options_default(&options);
+    ma_loopclosure_stream_t* next = nullptr;
+    ma_status_t status = ma_loopclosure_stream_create(&options, &next);
+    if (status != MA_STATUS_OK || !next) {
+      emit_error("loopclosure", "create_failed", ma_status_message(status));
       return;
     }
     loopclosure_ = next;
-    mlc_set_event_callback(loopclosure_, &MightyClient::loopclosure_event_trampoline, this);
-    status = mlc_initialize(loopclosure_);
-    if (status != MLC_STATUS_OK) {
-      emit_error("loopclosure", "initialize_failed", mlc_status_message(status));
+    ma_loopclosure_stream_set_event_callback(loopclosure_, &MightyClient::loopclosure_event_trampoline, this);
+    status = ma_loopclosure_stream_initialize(loopclosure_);
+    if (status != MA_STATUS_OK) {
+      emit_error("loopclosure", "initialize_failed", ma_status_message(status));
       return;
     }
     if (!opts_.loopclosure_calibration_yaml.empty()) {
-      status = mlc_set_calibration_yaml(loopclosure_, opts_.loopclosure_calibration_yaml.c_str());
-      if (status != MLC_STATUS_OK) {
-        emit_error("loopclosure", "calibration_failed", mlc_status_message(status));
+      status = ma_loopclosure_stream_set_calibration_yaml(loopclosure_, opts_.loopclosure_calibration_yaml.c_str());
+      if (status != MA_STATUS_OK) {
+        emit_error("loopclosure", "calibration_failed", ma_status_message(status));
       }
     }
     loopclosure_initialized_ = true;
 #else
     emit_error("loopclosure",
                "not_compiled",
-               "MightyClient loopclosure option requires MIGHTY_PROTOCOL_ENABLE_LOOPCLOSURE and the native loop-closure library");
+               "MightyClient loopclosure option requires MIGHTY_PROTOCOL_ENABLE_LOOPCLOSURE and the mighty-algorithms runtime");
 #endif
   }
 
 #if defined(MIGHTY_PROTOCOL_ENABLE_LOOPCLOSURE)
-  static void loopclosure_event_trampoline(const mlc_event_t* event, void* user) {
+  static void loopclosure_event_trampoline(const ma_loopclosure_event_t* event, void* user) {
     if (!event || !user) return;
     static_cast<MightyClient*>(user)->handle_loopclosure_event(*event);
   }
 
   static std::string loopclosure_event_type_name(uint8_t type) {
-    switch (static_cast<mlc_event_type_t>(type)) {
-      case MLC_EVENT_LOOP_CLOSURE: return "loop_closure";
+    switch (static_cast<ma_loopclosure_event_type_t>(type)) {
+      case MA_LOOPCLOSURE_EVENT_CLOSURE: return "loop_closure";
     }
     return "unknown";
   }
 
-  void handle_loopclosure_event(const mlc_event_t& event) {
+  void handle_loopclosure_event(const ma_loopclosure_event_t& event) {
     LoopClosureEvent out;
     out.type = loopclosure_event_type_name(event.type);
     out.timestamp_ns = event.timestamp_ns;
@@ -731,7 +731,7 @@ class MightyClient {
   void push_loopclosure_image(const RawImageFrame& raw) {
     if (!opts_.loopclosure || !loopclosure_initialized_ || !loopclosure_) return;
     if (!is_primary_channel(raw)) return;
-    mlc_raw_image_t image{};
+    ma_stream_image_t image{};
     image.timestamp_ns = raw.timestamp_ns;
     image.frame_id = loopclosure_next_frame_id_.fetch_add(1);
     image.width = raw.width;
@@ -739,9 +739,9 @@ class MightyClient {
     image.format = raw.format;
     image.data = raw.data.data();
     image.size_bytes = raw.data.size();
-    const mlc_status_t status = mlc_push_image(loopclosure_, &image);
-    if (status != MLC_STATUS_OK) {
-      emit_error("loopclosure", "push_image_failed", mlc_status_message(status));
+    const ma_status_t status = ma_loopclosure_stream_push_image(loopclosure_, &image);
+    if (status != MA_STATUS_OK) {
+      emit_error("loopclosure", "push_image_failed", ma_status_message(status));
     }
   }
 
@@ -753,7 +753,7 @@ class MightyClient {
       return;
     }
     const auto& q = *pose.orientation_xyzw;
-    mlc_pose_t raw{};
+    ma_stream_pose_t raw{};
     raw.timestamp_ns = *pose.timestamp_ns;
     raw.px = pose.raw_position_m ? (*pose.raw_position_m)[0] : pose.position_m[0];
     raw.py = pose.raw_position_m ? (*pose.raw_position_m)[1] : pose.position_m[1];
@@ -763,27 +763,27 @@ class MightyClient {
     raw.qy = q[1];
     raw.qz = q[2];
     raw.frame = (pose.pose_type == "camera" || pose.pose_type_raw == 1)
-        ? MLC_POSE_FRAME_CAMERA
-        : MLC_POSE_FRAME_BODY;
+        ? MA_POSE_FRAME_CAMERA
+        : MA_POSE_FRAME_BODY;
     raw.confidence = pose.confidence;
-    const mlc_status_t status = mlc_push_pose(loopclosure_, &raw);
-    if (status != MLC_STATUS_OK) {
-      emit_error("loopclosure", "push_pose_failed", mlc_status_message(status));
+    const ma_status_t status = ma_loopclosure_stream_push_pose(loopclosure_, &raw);
+    if (status != MA_STATUS_OK) {
+      emit_error("loopclosure", "push_pose_failed", ma_status_message(status));
     }
   }
 
   void push_loopclosure_keyframe(const KeyframeEvent& keyframe) {
     if (!opts_.loopclosure || !loopclosure_initialized_ || !loopclosure_) return;
-    mlc_device_keyframe_t raw{};
+    ma_loopclosure_keyframe_t raw{};
     raw.timestamp_ns = keyframe.timestamp_ns;
     raw.frame_id = -1;
     raw.descriptor_type = keyframe.descriptor_type;
     raw.flags = keyframe.flags;
     raw.descriptor = keyframe.descriptor.data();
     raw.descriptor_count = keyframe.descriptor.size();
-    const mlc_status_t status = mlc_push_keyframe(loopclosure_, &raw);
-    if (status != MLC_STATUS_OK) {
-      emit_error("loopclosure", "push_keyframe_failed", mlc_status_message(status));
+    const ma_status_t status = ma_loopclosure_stream_push_keyframe(loopclosure_, &raw);
+    if (status != MA_STATUS_OK) {
+      emit_error("loopclosure", "push_keyframe_failed", ma_status_message(status));
     }
   }
 #else
@@ -1175,7 +1175,7 @@ class MightyClient {
   bool loopclosure_has_correction_ = false;
   std::array<double, 3> loopclosure_translation_correction_{0.0, 0.0, 0.0};
 #if defined(MIGHTY_PROTOCOL_ENABLE_LOOPCLOSURE)
-  mlc_device_loopclosure_t* loopclosure_ = nullptr;
+  ma_loopclosure_stream_t* loopclosure_ = nullptr;
   bool loopclosure_initialized_ = false;
   std::atomic<int> loopclosure_next_frame_id_{0};
 #endif

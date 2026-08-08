@@ -250,7 +250,7 @@ async function ensureClient() {
     autoReconnect: true,
     reconnectDelayMs: 1000,
     loopclosure: true,
-    loopclosureWasmUrl: "/mighty_loopclosure_device.wasm",
+    algorithmsWasmUrl: "/mighty_algorithms.wasm",
   });
   wireClient(client);
   return client;

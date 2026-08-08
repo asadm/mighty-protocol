@@ -1,21 +1,21 @@
 import { RAW_FORMAT } from "../core/protocol.js";
 
-export const DEFAULT_LOOPCLOSURE_WASM_URL = "/mighty_loopclosure_device.wasm";
-const LOOPCLOSURE_MODULE_URL = "../../lib/loopclosure/wasm/lib/mighty_loopclosure_device.js";
+export const DEFAULT_ALGORITHMS_WASM_URL = "/mighty_algorithms.wasm";
+const ALGORITHMS_MODULE_URL = "../../lib/algorithms/wasm/lib/mighty_algorithms.js";
 
-let loopclosureModuleFactoryPromise = null;
+let algorithmsModuleFactoryPromise = null;
 
-async function loadLoopClosureModuleFactory() {
-  if (!loopclosureModuleFactoryPromise) {
-    loopclosureModuleFactoryPromise = (async () => {
+async function loadAlgorithmsModuleFactory() {
+  if (!algorithmsModuleFactoryPromise) {
+    algorithmsModuleFactoryPromise = (async () => {
       try {
-        const moduleUrl = new URL(LOOPCLOSURE_MODULE_URL, import.meta.url).href;
+        const moduleUrl = new URL(ALGORITHMS_MODULE_URL, import.meta.url).href;
         const imported = await import(/* webpackIgnore: true */ moduleUrl);
-        return imported.default || imported.createMightyLoopClosureModule || imported;
+        return imported.default || imported.createMightyAlgorithmsModule || imported;
       } catch (err) {
         const error = new Error(
           "Mighty loop closure module package is not available. " +
-          "Build or install mighty-protocol/lib/loopclosure/wasm before enabling loop closure."
+          "Build or install mighty-protocol/lib/algorithms/wasm before enabling loop closure."
         );
         error.code = "loopclosure_module_not_found";
         error.cause = err;
@@ -23,7 +23,7 @@ async function loadLoopClosureModuleFactory() {
       }
     })();
   }
-  return loopclosureModuleFactoryPromise;
+  return algorithmsModuleFactoryPromise;
 }
 
 const EVENT_NAMES = {
@@ -129,7 +129,7 @@ function readLayout(module) {
   const bytes = LAYOUT_FIELDS.length * 4;
   const ptr = module._malloc(bytes);
   try {
-    module._mlc_abi_layout(ptr);
+    module._ma_stream_abi_layout(ptr);
     const out = {};
     LAYOUT_FIELDS.forEach((name, i) => {
       out[name] = module.getValue(ptr + i * 4, "i32") >>> 0;
@@ -149,8 +149,8 @@ async function fetchWasmBinary(wasmUrl) {
   if (!response.ok) {
     const error = new Error(
       `Mighty loop closure WASM not found at ${wasmUrl} (HTTP ${response.status}). ` +
-      `Put mighty_loopclosure_device.wasm at ${DEFAULT_LOOPCLOSURE_WASM_URL}, ` +
-      "or pass loopclosureWasmUrl with the URL where it is served."
+      `Put mighty_algorithms.wasm at ${DEFAULT_ALGORITHMS_WASM_URL}, ` +
+      "or pass algorithmsWasmUrl with the URL where it is served."
     );
     error.code = "loopclosure_wasm_not_found";
     error.wasmUrl = wasmUrl;
@@ -159,18 +159,18 @@ async function fetchWasmBinary(wasmUrl) {
   return response.arrayBuffer();
 }
 
-export async function createLoopClosureWasmModule(options = {}) {
-  const createMightyLoopClosureModule = options.moduleFactory
+export async function createAlgorithmsWasmModule(options = {}) {
+  const createMightyAlgorithmsModule = options.moduleFactory
     || options.createModule
-    || await loadLoopClosureModuleFactory();
+    || await loadAlgorithmsModuleFactory();
   const wasmUrl = options.wasmUrl || options.url || "";
   const locateFile = options.locateFile || (wasmUrl
-    ? ((name) => (name === "mighty_loopclosure_device.wasm" ? wasmUrl : name))
+    ? ((name) => (name === "mighty_algorithms.wasm" ? wasmUrl : name))
     : null);
   const wasmBinary = options.wasmBinary
     || (wasmUrl && isBrowserRuntime() ? await fetchWasmBinary(wasmUrl) : null);
 
-  return createMightyLoopClosureModule({
+  return createMightyAlgorithmsModule({
     locateFile,
     wasmBinary,
     print: options.print,
@@ -193,8 +193,8 @@ export class NativeLoopClosureWasm {
 
     const outPtr = module._malloc(4);
     try {
-      const status = module._mlc_create(0, outPtr);
-      this._check(status, "mlc_create");
+      const status = module._ma_loopclosure_stream_create(0, outPtr);
+      this._check(status, "ma_loopclosure_stream_create");
       this.handle = module.getValue(outPtr, "*");
     } finally {
       module._free(outPtr);
@@ -204,13 +204,13 @@ export class NativeLoopClosureWasm {
       const event = this._readEvent(eventPtr);
       if (this.onEvent) this.onEvent(event);
     }, "vii");
-    module._mlc_set_event_callback(this.handle, this.callbackPtr, 0);
-    this._check(module._mlc_initialize(this.handle), "mlc_initialize");
+    module._ma_loopclosure_stream_set_event_callback(this.handle, this.callbackPtr, 0);
+    this._check(module._ma_loopclosure_stream_initialize(this.handle), "ma_loopclosure_stream_initialize");
   }
 
   close() {
     if (this.handle) {
-      this.module._mlc_destroy(this.handle);
+      this.module._ma_loopclosure_stream_destroy(this.handle);
       this.handle = 0;
     }
     if (this.callbackPtr) {
@@ -222,8 +222,8 @@ export class NativeLoopClosureWasm {
   setCalibrationYaml(yamlOrPath) {
     const ptr = writeCString(this.module, yamlOrPath);
     try {
-      const status = this.module._mlc_set_calibration_yaml(this.handle, ptr);
-      this._check(status, "mlc_set_calibration_yaml");
+      const status = this.module._ma_loopclosure_stream_set_calibration_yaml(this.handle, ptr);
+      this._check(status, "ma_loopclosure_stream_set_calibration_yaml");
       return true;
     } finally {
       this.module._free(ptr);
@@ -245,7 +245,7 @@ export class NativeLoopClosureWasm {
       this.module.setValue(msgPtr + this.layout.rawImageFormatOffset, raw.format ?? RAW_FORMAT.UNKNOWN, "i8");
       this.module.setValue(msgPtr + this.layout.rawImageDataOffset, dataPtr, "*");
       this.module.setValue(msgPtr + this.layout.rawImageSizeBytesOffset, data.length, "i32");
-      return this.module._mlc_push_image(this.handle, msgPtr) === 0;
+      return this.module._ma_loopclosure_stream_push_image(this.handle, msgPtr) === 0;
     } finally {
       this.module._free(msgPtr);
       this.module._free(dataPtr);
@@ -265,7 +265,7 @@ export class NativeLoopClosureWasm {
       this.module.setValue(ptr + this.layout.poseQwOffset + 24, Number(q[2] || 0), "double");
       this.module.setValue(ptr + this.layout.poseFrameOffset, (pose.poseType || pose.pose_type) === "camera" ? 1 : 0, "i8");
       this.module.setValue(ptr + this.layout.poseConfidenceOffset, Number(pose.confidence ?? 1), "float");
-      return this.module._mlc_push_pose(this.handle, ptr) === 0;
+      return this.module._ma_loopclosure_stream_push_pose(this.handle, ptr) === 0;
     } finally {
       this.module._free(ptr);
     }
@@ -284,7 +284,7 @@ export class NativeLoopClosureWasm {
       this.module.setValue(msgPtr + this.layout.keyframeFlagsOffset, keyframe.flags || 0, "i16");
       this.module.setValue(msgPtr + this.layout.keyframeDescriptorOffset, descPtr, "*");
       this.module.setValue(msgPtr + this.layout.keyframeDescriptorCountOffset, descriptor.length, "i32");
-      return this.module._mlc_push_keyframe(this.handle, msgPtr) === 0;
+      return this.module._ma_loopclosure_stream_push_keyframe(this.handle, msgPtr) === 0;
     } finally {
       this.module._free(msgPtr);
       this.module._free(descPtr);
@@ -319,7 +319,7 @@ export class NativeLoopClosureWasm {
   }
 
   _readTrajectory() {
-    const count = Number(this.module._mlc_trajectory_size(this.handle) || 0);
+    const count = Number(this.module._ma_loopclosure_stream_trajectory_size(this.handle) || 0);
     if (!count) return [];
     const tsPtr = this.module._malloc(8);
     const rawPtr = this.module._malloc(3 * 8);
@@ -327,7 +327,7 @@ export class NativeLoopClosureWasm {
     const out = [];
     try {
       for (let i = 0; i < count; i += 1) {
-        const status = this.module._mlc_trajectory_pose(this.handle, i, tsPtr, rawPtr, optPtr);
+        const status = this.module._ma_loopclosure_stream_trajectory_pose(this.handle, i, tsPtr, rawPtr, optPtr);
         if (status !== 0) continue;
         const raw = [0, 1, 2].map((j) => this.module.getValue(rawPtr + j * 8, "double"));
         const opt = [0, 1, 2].map((j) => this.module.getValue(optPtr + j * 8, "double"));
@@ -390,7 +390,7 @@ export class NativeLoopClosureWasm {
 
   _check(status, op) {
     if (status === 0) return;
-    const msgPtr = this.module._mlc_status_message(status);
+    const msgPtr = this.module._ma_status_message(status);
     const msg = msgPtr ? this.module.UTF8ToString(msgPtr) : "unknown";
     throw new Error(`${op} failed: ${msg}`);
   }
@@ -399,8 +399,8 @@ export class NativeLoopClosureWasm {
 export class NativeMapperWasm {
   constructor(module, options = {}) {
     if (!module) throw new Error("NativeMapperWasm requires an initialized module");
-    if (typeof module._mmp_create !== "function") {
-      throw new Error("Mighty mapper WASM symbols are missing; rebuild lib/loopclosure/wasm");
+    if (typeof module._ma_mapper_stream_create !== "function") {
+      throw new Error("Mighty mapper WASM symbols are missing; rebuild lib/algorithms/wasm");
     }
     this.module = module;
     this.layout = readLayout(module);
@@ -415,14 +415,14 @@ export class NativeMapperWasm {
     const optsPtr = module._malloc(this.mapperLayout.optionsSize);
     const outPtr = module._malloc(4);
     try {
-      module._mmp_options_default(optsPtr);
+      module._ma_mapper_stream_options_default(optsPtr);
       if (Object.prototype.hasOwnProperty.call(options, "quiet")) {
         module.setValue(optsPtr + this.mapperLayout.optionsQuietOffset, options.quiet ? 1 : 0, "i32");
       }
-      const status = module._mmp_create(optsPtr, outPtr);
-      this._check(status, "mmp_create");
+      const status = module._ma_mapper_stream_create(optsPtr, outPtr);
+      this._check(status, "ma_mapper_stream_create");
       this.handle = module.getValue(outPtr, "*");
-      this._check(module._mmp_initialize(this.handle), "mmp_initialize");
+      this._check(module._ma_mapper_stream_initialize(this.handle), "ma_mapper_stream_initialize");
     } finally {
       module._free(outPtr);
       module._free(optsPtr);
@@ -431,16 +431,16 @@ export class NativeMapperWasm {
 
   close() {
     if (!this.handle) return;
-    this.module._mmp_finish(this.handle);
-    this.module._mmp_destroy(this.handle);
+    this.module._ma_mapper_stream_finish(this.handle);
+    this.module._ma_mapper_stream_destroy(this.handle);
     this.handle = 0;
   }
 
   setCalibrationYaml(yamlOrPath) {
     const ptr = writeCString(this.module, yamlOrPath);
     try {
-      const status = this.module._mmp_set_calibration_yaml(this.handle, ptr);
-      this._check(status, "mmp_set_calibration_yaml");
+      const status = this.module._ma_mapper_stream_set_calibration_yaml(this.handle, ptr);
+      this._check(status, "ma_mapper_stream_set_calibration_yaml");
       return true;
     } finally {
       this.module._free(ptr);
@@ -463,7 +463,7 @@ export class NativeMapperWasm {
       this.module.setValue(msgPtr + this.layout.rawImageFormatOffset, raw.format ?? RAW_FORMAT.UNKNOWN, "i8");
       this.module.setValue(msgPtr + this.layout.rawImageDataOffset, dataPtr, "*");
       this.module.setValue(msgPtr + this.layout.rawImageSizeBytesOffset, data.length, "i32");
-      const status = this.module._mmp_push_image(this.handle, msgPtr, resultPtr);
+      const status = this.module._ma_mapper_stream_push_image(this.handle, msgPtr, resultPtr);
       const result = this._readPushResult(resultPtr, status);
       this._emitMapUpdateFromResult(result);
       return result;
@@ -491,7 +491,7 @@ export class NativeMapperWasm {
       this.module.setValue(msgPtr + this.layout.poseQwOffset + 24, Number(q[2] || 0), "double");
       this.module.setValue(msgPtr + this.layout.poseFrameOffset, (pose.poseType || pose.pose_type) === "camera" ? 1 : 0, "i8");
       this.module.setValue(msgPtr + this.layout.poseConfidenceOffset, Number(pose.confidence ?? 1), "float");
-      const status = this.module._mmp_push_pose(this.handle, msgPtr, resultPtr);
+      const status = this.module._ma_mapper_stream_push_pose(this.handle, msgPtr, resultPtr);
       const result = this._readPushResult(resultPtr, status);
       this._emitMapUpdateFromResult(result);
       return result;
@@ -510,11 +510,11 @@ export class NativeMapperWasm {
       for (let i = 0; i < l.mapUpdateSize; i += 4) {
         this.module.setValue(ptr + i, 0, "i32");
       }
-      const status = this.module._mmp_map_update(this.handle, sinceRevision, trajectoryStart, ptr);
-      this._check(status, "mmp_map_update");
+      const status = this.module._ma_mapper_stream_map_update(this.handle, sinceRevision, trajectoryStart, ptr);
+      this._check(status, "ma_mapper_stream_map_update");
       return this._readMapUpdate(ptr, options);
     } finally {
-      this.module._mmp_map_update_destroy(ptr);
+      this.module._ma_mapper_stream_update_destroy(ptr);
       this.module._free(ptr);
     }
   }
@@ -556,7 +556,7 @@ export class NativeMapperWasm {
     this.nextFrameId = 0;
     this.mapRevision = 0;
     this.trajectoryStart = 0;
-    this._check(this.module._mmp_reset(this.handle, 1), "mmp_reset");
+    this._check(this.module._ma_mapper_stream_reset(this.handle, 1), "ma_mapper_stream_reset");
   }
 
   _emitMapUpdateFromResult(result) {
@@ -689,7 +689,7 @@ export class NativeMapperWasm {
   }
 
   _statusMessage(status) {
-    const msgPtr = this.module._mmp_status_message(status);
+    const msgPtr = this.module._ma_status_message(status);
     return msgPtr ? this.module.UTF8ToString(msgPtr) : "unknown";
   }
 

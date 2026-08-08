@@ -35,12 +35,12 @@ Loop closure in a browser:
 ```js
 const client = new MightyClient(device, {
   loopclosure: true,
-  loopclosureWasmUrl: "/mighty_loopclosure_device.wasm",
+  algorithmsWasmUrl: "/mighty_algorithms.wasm",
 });
 ```
 
-`loopclosureWasmUrl` is optional when the file is served from
-`/mighty_loopclosure_device.wasm`. Pass the real public URL if your app places
+`algorithmsWasmUrl` is optional when the file is served from
+`/mighty_algorithms.wasm`. Pass the real public URL if your app places
 the WASM file somewhere else.
 
 Full web dashboard example:

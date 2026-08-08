@@ -68,7 +68,7 @@ function writeSvg(events, keyframes, outPath) {
 
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">`;
   svg += `<rect width="${width}" height="${height}" fill="#f8f8f4"/>`;
-  svg += `<text x="48" y="40" font-family="system-ui" font-size="18" font-weight="700" fill="#0f172a">Mighty Node WASM Loop Closure SDK</text>`;
+  svg += `<text x="48" y="40" font-family="system-ui" font-size="18" font-weight="700" fill="#0f172a">Mighty Node WASM Loop Closure</text>`;
   svg += `<text x="48" y="66" font-family="system-ui" font-size="13" fill="#0f172a">keyframes: ${keyframes.length} | loops: ${loops.length}</text>`;
   svg += `<rect x="${x0}" y="${headerH}" width="${plotW}" height="${plotH}" fill="#fff" stroke="#d4d4ce"/>`;
   for (let i = 1; i < 10; i += 1) {
@@ -94,14 +94,14 @@ function writeSvg(events, keyframes, outPath) {
 async function main() {
   const args = parseArgs(process.argv);
   const here = path.dirname(fileURLToPath(import.meta.url));
-  const wasmDir = path.resolve(here, "../../lib/loopclosure/wasm/lib");
-  const wasmUrl = pathToFileURL(path.join(wasmDir, "mighty_loopclosure_device.wasm")).href;
+  const wasmDir = path.resolve(here, "../../lib/algorithms/wasm/lib");
+  const wasmUrl = pathToFileURL(path.join(wasmDir, "mighty_algorithms.wasm")).href;
 
   const device = args.host ? new MightyWebDevice({ baseUrl: args.host }) : new MightyWebDevice();
   const client = new MightyClient(device, {
     autoReconnect: true,
     loopclosure: true,
-    loopclosureWasmUrl: wasmUrl,
+    algorithmsWasmUrl: wasmUrl,
   });
   const events = [];
   const keyframes = [];

@@ -5,3 +5,4 @@
 #include "sdk/mighty_calibration.h"
 #include "sdk/mighty_client.h"
 #include "sdk/mighty_depth.h"
+#include "sdk/mighty_occupancy_grid.h"

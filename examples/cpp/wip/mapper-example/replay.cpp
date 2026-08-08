@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-#include "mighty_loopclosure/mighty_loopclosure_device_c.h"
+#include <mighty_algorithms/mighty_algorithms.h>
 
 namespace {
 
@@ -21,8 +21,8 @@ struct Options {
 };
 
 struct RenderMap {
-  std::map<int, std::vector<mmp_map_point_t>> frames;
-  std::vector<mmp_pose_sample_t> trajectory;
+  std::map<int, std::vector<ma_mapper_stream_point_t>> frames;
+  std::vector<ma_mapper_stream_pose_t> trajectory;
   uint64_t revision = 0;
   size_t point_count = 0;
 
@@ -33,7 +33,7 @@ struct RenderMap {
     point_count = 0;
   }
 
-  void replace_frame(int frame_id, const mmp_map_point_t* points, size_t count) {
+  void replace_frame(int frame_id, const ma_mapper_stream_point_t* points, size_t count) {
     auto& dst = frames[frame_id];
     point_count -= dst.size();
     dst.assign(points, points + count);
@@ -88,19 +88,19 @@ std::vector<uint8_t> read_binary(const std::filesystem::path& path) {
   return data;
 }
 
-void apply_map_update(mmp_device_mapper_t* mapper, RenderMap* render_map) {
+void apply_map_update(ma_mapper_stream_t* mapper, RenderMap* render_map) {
   if (!mapper || !render_map) return;
-  mmp_map_update_t update{};
-  const mmp_status_t status =
-      mmp_map_update(mapper, render_map->revision, render_map->trajectory.size(), &update);
-  if (status != MMP_STATUS_OK) {
-    mmp_map_update_destroy(&update);
+  ma_mapper_stream_update_t update{};
+  const ma_status_t status =
+      ma_mapper_stream_map_update(mapper, render_map->revision, render_map->trajectory.size(), &update);
+  if (status != MA_STATUS_OK) {
+    ma_mapper_stream_update_destroy(&update);
     return;
   }
   if (update.reset) render_map->reset();
   if (update.frames && update.frame_count > 0) {
     for (size_t i = 0; i < update.frame_count; ++i) {
-      const mmp_map_frame_update_t& frame = update.frames[i];
+      const ma_mapper_stream_frame_update_t& frame = update.frames[i];
       if (frame.remove) {
         render_map->remove_frame(frame.frame_id);
       } else {
@@ -114,7 +114,7 @@ void apply_map_update(mmp_device_mapper_t* mapper, RenderMap* render_map) {
     } else if (update.trajectory_start != render_map->trajectory.size()) {
       render_map->trajectory.clear();
       render_map->revision = 0;
-      mmp_map_update_destroy(&update);
+      ma_mapper_stream_update_destroy(&update);
       return;
     }
     render_map->trajectory.insert(render_map->trajectory.end(),
@@ -122,7 +122,7 @@ void apply_map_update(mmp_device_mapper_t* mapper, RenderMap* render_map) {
                                   update.trajectory + update.trajectory_count);
   }
   render_map->revision = update.revision;
-  mmp_map_update_destroy(&update);
+  ma_mapper_stream_update_destroy(&update);
 }
 
 bool write_map_csv(const RenderMap& map, const std::string& path) {
@@ -183,51 +183,51 @@ int main(int argc, char** argv) {
     return 2;
   }
 
-  mmp_options_t options{};
-  mmp_options_default(&options);
+  ma_mapper_stream_options_t options{};
+  ma_mapper_stream_options_default(&options);
   options.quiet = opts.quiet ? 1 : 0;
-  mmp_device_mapper_t* mapper = nullptr;
-  mmp_status_t status = mmp_create(&options, &mapper);
-  if (status != MMP_STATUS_OK) {
-    std::cerr << "mmp_create failed: " << mmp_status_message(status) << "\n";
+  ma_mapper_stream_t* mapper = nullptr;
+  ma_status_t status = ma_mapper_stream_create(&options, &mapper);
+  if (status != MA_STATUS_OK) {
+    std::cerr << "ma_mapper_stream_create failed: " << ma_status_message(status) << "\n";
     return 1;
   }
-  status = mmp_initialize(mapper);
-  if (status != MMP_STATUS_OK) {
-    std::cerr << "mmp_initialize failed: " << mmp_status_message(status) << "\n";
-    mmp_destroy(mapper);
+  status = ma_mapper_stream_initialize(mapper);
+  if (status != MA_STATUS_OK) {
+    std::cerr << "ma_mapper_stream_initialize failed: " << ma_status_message(status) << "\n";
+    ma_mapper_stream_destroy(mapper);
     return 1;
   }
   const auto calib_path = opts.replay_dir / "calib.yaml";
-  status = mmp_set_calibration_yaml(mapper, calib_path.string().c_str());
-  if (status != MMP_STATUS_OK) {
-    std::cerr << "mmp_set_calibration_yaml failed: " << mmp_status_message(status) << "\n";
-    mmp_finish(mapper);
-    mmp_destroy(mapper);
+  status = ma_mapper_stream_set_calibration_yaml(mapper, calib_path.string().c_str());
+  if (status != MA_STATUS_OK) {
+    std::cerr << "ma_mapper_stream_set_calibration_yaml failed: " << ma_status_message(status) << "\n";
+    ma_mapper_stream_finish(mapper);
+    ma_mapper_stream_destroy(mapper);
     return 1;
   }
 
   std::ifstream events(opts.replay_dir / "events.csv");
   if (!events) {
     std::cerr << "failed to open events.csv\n";
-    mmp_finish(mapper);
-    mmp_destroy(mapper);
+    ma_mapper_stream_finish(mapper);
+    ma_mapper_stream_destroy(mapper);
     return 1;
   }
   std::string line;
   std::getline(events, line);
 
   RenderMap map;
-  mmp_push_result_t last_result{};
+  ma_mapper_stream_push_result_t last_result{};
   size_t pushed_events = 0;
   while (std::getline(events, line)) {
     if (line.empty()) continue;
     const auto row = split_csv_line(line);
     if (row.size() < 17) continue;
-    mmp_push_result_t result{};
+    ma_mapper_stream_push_result_t result{};
     if (row[0] == "image") {
       const std::vector<uint8_t> data = read_binary(opts.replay_dir / row[7]);
-      mlc_raw_image_t image{};
+      ma_stream_image_t image{};
       image.frame_id = int_or_zero(row[2]);
       image.timestamp_ns = u64_or_zero(row[3]);
       image.width = static_cast<uint32_t>(int_or_zero(row[4]));
@@ -235,9 +235,9 @@ int main(int argc, char** argv) {
       image.format = static_cast<uint8_t>(int_or_zero(row[6]));
       image.data = data.data();
       image.size_bytes = data.size();
-      status = mmp_push_image(mapper, &image, &result);
+      status = ma_mapper_stream_push_image(mapper, &image, &result);
     } else if (row[0] == "pose") {
-      mlc_pose_t pose{};
+      ma_stream_pose_t pose{};
       pose.timestamp_ns = u64_or_zero(row[3]);
       pose.px = double_or_zero(row[8]);
       pose.py = double_or_zero(row[9]);
@@ -248,13 +248,13 @@ int main(int argc, char** argv) {
       pose.qw = row[14].empty() ? 1.0 : std::stod(row[14]);
       pose.frame = static_cast<uint8_t>(int_or_zero(row[15]));
       pose.confidence = float_or_one(row[16]);
-      status = mmp_push_pose(mapper, &pose, &result);
+      status = ma_mapper_stream_push_pose(mapper, &pose, &result);
     } else {
       continue;
     }
     pushed_events += 1;
-    if (status != MMP_STATUS_OK && status != MMP_STATUS_NOT_READY && status != MMP_STATUS_LOST) {
-      std::cerr << "push failed at event " << pushed_events << ": " << mmp_status_message(status) << "\n";
+    if (status != MA_STATUS_OK && status != MA_STATUS_NOT_READY && status != MA_STATUS_LOST) {
+      std::cerr << "push failed at event " << pushed_events << ": " << ma_status_message(status) << "\n";
       break;
     }
     if (result.version != 0) last_result = result;
@@ -264,8 +264,8 @@ int main(int argc, char** argv) {
   apply_map_update(mapper, &map);
 
   const bool wrote_map = write_map_csv(map, opts.dump_map_path);
-  mmp_finish(mapper);
-  mmp_destroy(mapper);
+  ma_mapper_stream_finish(mapper);
+  ma_mapper_stream_destroy(mapper);
 
   std::cout << "native replay events=" << pushed_events
             << " processed=" << last_result.frames_processed
