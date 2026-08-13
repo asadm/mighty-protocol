@@ -28,6 +28,11 @@ def assert_contains(text, needle, where):
         raise AssertionError(f"missing snippet in {where}: {needle}")
 
 
+def assert_not_contains(text, needle, where):
+    if needle in text:
+        raise AssertionError(f"obsolete snippet in {where}: {needle}")
+
+
 def main():
     protocol_doc = read_text(os.path.join(ROOT, "docs", "sdk", "protocol.mdx"))
     for snippet in REQUIRED_DOC_SNIPPETS:
@@ -43,8 +48,25 @@ def main():
         "cpp/sdk/mighty_calibration.h",
         "body_from_camera",
         "bodyFromCamera",
+        "setLoopClosureEnabled(enabled: boolean)",
+        "set_loop_closure_enabled(enabled: bool)",
+        'kind === "loop_closure"',
+        "matchedTimestampNs",
+        "orientationXyzw",
+        "callbacks already use the corrected output frame",
     ):
         assert_contains(api_reference, snippet, "docs/sdk/api-reference.mdx")
+    for snippet in (
+        "setKeyframesEnabled",
+        "set_keyframes_enabled",
+        "keyframesStatus",
+        "keyframes_status",
+        "onKeyframe",
+        "on_keyframe",
+        "KeyframeEvent",
+        "CosPlace",
+    ):
+        assert_not_contains(api_reference, snippet, "docs/sdk/api-reference.mdx")
 
     cpp_example_path = os.path.join(ROOT, "examples", "cpp", "dashboard", "main.cpp")
     cpp_example_label = "examples/cpp/dashboard/main.cpp"

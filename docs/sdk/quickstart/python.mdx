@@ -22,7 +22,12 @@ device = MightyWebDevice()
 client = MightyClient(device, auto_reconnect=True)
 
 client.on_pose(lambda p: print("pose", p["position_m"], p["confidence"]))
-client.on_keyframe(lambda k: print("keyframe", k["timestamp_ns"], k["descriptor_dim"]))
+
+def on_event(event):
+    if event["kind"] == "loop_closure":
+        print("loop closed", event["data"])
+
+client.on_event(on_event)
 
 def on_image(img):
     if img["kind"] == "stereo_raw":
@@ -36,6 +41,7 @@ client.on_image(on_image)
 client.on_error(lambda e: print("error:", e))
 
 client.connect()
+print(client.set_loop_closure_enabled(True))
 print(client.start_vio())
 
 try:

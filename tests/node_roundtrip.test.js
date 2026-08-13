@@ -82,8 +82,15 @@ const SAMPLE = {
   ],
   status: 'STATUS_OK',
   event: {
-    kind: "apriltag_relocalize",
-    data: { tagId: 42, correctionM: 0.25 },
+    kind: "loop_closure",
+    data: {
+      timestampNs: "123456789",
+      matchedTimestampNs: "98765432",
+      pose: {
+        positionM: [1, 2, 3],
+        orientationXyzw: [0, 0, 0, 1],
+      },
+    },
   },
   fea3: [
     { id: 1, x: 0.1, y: 0.2, z: 0.3 },
@@ -326,8 +333,10 @@ function verifyFrame(frame, index) {
     case proto.TYPE.EVNT: {
       const event = proto.decodeEventPayload(payload);
       assert.strictEqual(event.kind, SAMPLE.event.kind);
-      assert.strictEqual(event.data.tagId, SAMPLE.event.data.tagId);
-      assert(almost(event.data.correctionM, SAMPLE.event.data.correctionM));
+      assert.strictEqual(event.data.timestampNs, SAMPLE.event.data.timestampNs);
+      assert.strictEqual(event.data.matchedTimestampNs, SAMPLE.event.data.matchedTimestampNs);
+      assert.deepStrictEqual(event.data.pose.positionM, SAMPLE.event.data.pose.positionM);
+      assert.deepStrictEqual(event.data.pose.orientationXyzw, SAMPLE.event.data.pose.orientationXyzw);
       break;
     }
     case proto.TYPE.VSTA: {

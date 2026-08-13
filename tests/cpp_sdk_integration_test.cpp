@@ -108,6 +108,11 @@ int main() {
   packets.push_back(make_packet(build_imu_payload(imu), TYPE_IMU));
   packets.push_back(make_packet(build_vio_state_payload(vsta), TYPE_VSTA));
   packets.push_back(make_packet(build_status_payload("hello"), TYPE_STAT));
+  packets.push_back(make_packet(
+      build_event_payload(
+          "loop_closure",
+          R"({"timestampNs":"14","matchedTimestampNs":"10","pose":{"positionM":[1,2,3],"orientationXyzw":[0,0,0,1]}})"),
+      TYPE_EVNT));
 
   for (const auto& pkt : packets) {
     const size_t mid = pkt.size() / 2;
@@ -149,12 +154,12 @@ int main() {
       return;
     }
 
-    if (cmd.name == "keyframes") {
+    if (cmd.name == "loop_closure") {
       const std::string action(cmd.data.begin(), cmd.data.end());
       CommandResponse cres;
       cres.req_id = cmd.req_id;
       cres.status = 0;
-      cres.message = action == "status" ? "keyframes disabled" : "keyframes " + action;
+      cres.message = action == "status" ? "loop closure disabled" : "loop closure " + action;
       const auto body = build_command_response_payload(cres);
       res.set_content(reinterpret_cast<const char*>(body.data()), body.size(), "application/octet-stream");
       return;
@@ -287,6 +292,7 @@ int main() {
       std::atomic<int> imu{0};
       std::atomic<int> vsta{0};
       std::atomic<int> status{0};
+      std::atomic<int> event{0};
       std::atomic<int> reset{0};
       std::atomic<int> any{0};
       std::atomic<int> error{0};
@@ -294,6 +300,7 @@ int main() {
     Seen seen;
     std::optional<PoseFrame> last_pose;
     std::optional<VioStateFrame> last_vsta;
+    std::optional<DeviceEvent> last_event;
 
     client.on_image([&](const ImageFrame&) { seen.image.fetch_add(1); });
     client.on_pose([&](const PoseFrame& p) {
@@ -306,6 +313,10 @@ int main() {
       last_vsta = v;
     });
     client.on_status([&](const StatusEvent&) { seen.status.fetch_add(1); });
+    client.on_event([&](const DeviceEvent& event) {
+      seen.event.fetch_add(1);
+      last_event = event;
+    });
     client.on_reset([&](const ResetEvent&) { seen.reset.fetch_add(1); });
     client.on_any([&](const AnyEvent&) { seen.any.fetch_add(1); });
     client.on_error([&](const MightyErrorEvent& e) {
@@ -314,8 +325,8 @@ int main() {
     });
 
     client.connect();
-    wait_until([&]() { return seen.any.load() >= 6 || seen.error.load() > 0; }, 3000);
-    assert(seen.any.load() >= 6);
+    wait_until([&]() { return seen.any.load() >= 7 || seen.error.load() > 0; }, 3000);
+    assert(seen.any.load() >= 7);
 
     assert(seen.image.load() >= 1);
     assert(seen.pose.load() >= 1);
@@ -332,6 +343,11 @@ int main() {
            (kDegradedLowTranslationObservability | kDegradedLowParallaxPoseHold |
             kStaticTranslationConstrained | kRotationOnly3Dof));
     assert(seen.status.load() >= 1);
+    assert(seen.event.load() >= 1);
+    assert(last_event.has_value());
+    assert(last_event->kind == "loop_closure");
+    assert(last_event->json.find("\"timestampNs\":\"14\"") != std::string::npos);
+    assert(last_event->json.find("\"matchedTimestampNs\":\"10\"") != std::string::npos);
     assert(seen.reset.load() >= 1);
     assert(last_pose.has_value());
     assert(last_pose->is_public);
@@ -356,13 +372,13 @@ int main() {
     CommandResult cmd = client.start_vio();
     assert(cmd.ok);
 
-    CommandResult keyframes_on = client.set_keyframes_enabled(true);
-    assert(keyframes_on.ok);
-    assert(keyframes_on.message == "keyframes on");
+    CommandResult loop_closure_on = client.set_loop_closure_enabled(true);
+    assert(loop_closure_on.ok);
+    assert(loop_closure_on.message == "loop closure on");
 
-    CommandResult keyframes_status = client.keyframes_status();
-    assert(keyframes_status.ok);
-    assert(keyframes_status.message == "keyframes disabled");
+    CommandResult loop_closure_status = client.loop_closure_status();
+    assert(loop_closure_status.ok);
+    assert(loop_closure_status.message == "loop closure disabled");
 
     CommandResult depth_on = client.set_depth_estimation_enabled(true);
     assert(depth_on.ok);

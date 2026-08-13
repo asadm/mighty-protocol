@@ -92,11 +92,11 @@ class MightyClient:
             self._loop_thread = threading.Thread(target=self._transport_loop, name="MightyClientLoop", daemon=True)
             self._loop_thread.start()
         if self._loopclosure:
-            self.set_keyframes_enabled(True)
+            self.set_loop_closure_enabled(True)
 
     def disconnect(self) -> None:
         if self._loopclosure:
-            self.set_keyframes_enabled(False)
+            self.set_loop_closure_enabled(False)
         with self._state_lock:
             self._running = False
         try:
@@ -331,11 +331,11 @@ class MightyClient:
         payload = mp.build_reset_vio_pose_payload(position_m, orientation_xyzw)
         return self.command("reset_vio_pose", payload)
 
-    def set_keyframes_enabled(self, enabled: bool) -> Dict[str, Any]:
-        return self.command("keyframes", b"on" if enabled else b"off")
+    def set_loop_closure_enabled(self, enabled: bool) -> Dict[str, Any]:
+        return self.command("loop_closure", b"on" if enabled else b"off")
 
-    def keyframes_status(self) -> Dict[str, Any]:
-        return self.command("keyframes", b"status")
+    def loop_closure_status(self) -> Dict[str, Any]:
+        return self.command("loop_closure", b"status")
 
     def set_loopclosure_calibration_yaml(self, yaml_or_path: str) -> bool:
         if not self._loopclosure:

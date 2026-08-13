@@ -33,11 +33,14 @@ int main() {
     (void)f;
   });
 
-  auto keyframe_sub = client.on_keyframe([](const KeyframeEvent& k) {
-    (void)k;
+  auto event_sub = client.on_event([](const DeviceEvent& event) {
+    if (event.kind == "loop_closure") {
+      // Parse event.json with your application's JSON library.
+    }
   });
 
   client.connect();
+  client.set_loop_closure_enabled(true);
   client.start_vio();
   client.disconnect();
   return 0;

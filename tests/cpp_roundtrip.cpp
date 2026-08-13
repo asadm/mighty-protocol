@@ -174,8 +174,10 @@ struct SampleData {
       {620.0f, 390.0f, 0.75f, {-0.4f, 0.5f, 0.6f}},
     };
 
-    event.kind = "apriltag_relocalize";
-    event.json = "{\"tagId\":42,\"correctionM\":0.25}";
+    event.kind = "loop_closure";
+    event.json =
+        "{\"timestampNs\":\"123456789\",\"matchedTimestampNs\":\"98765432\","
+        "\"pose\":{\"positionM\":[1,2,3],\"orientationXyzw\":[0,0,0,1]}}";
 
     cfgq.version = 1;
     cfgq.op = static_cast<uint8_t>(ConfigOp::kSet);

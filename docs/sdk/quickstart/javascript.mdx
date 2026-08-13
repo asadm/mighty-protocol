@@ -18,7 +18,11 @@ const device = new MightyWebDevice();
 const client = new MightyClient(device, { autoReconnect: true, reconnectDelayMs: 500 });
 
 client.onPose((pose) => console.log("pose", pose.positionM, pose.confidence));
-client.onKeyframe((keyframe) => console.log("keyframe", keyframe.timestampNs, keyframe.descriptorDim));
+client.onEvent((event) => {
+  if (event.kind === "loop_closure") {
+    console.log("loop closed", event.data);
+  }
+});
 client.onImage((img) => {
   const decoded = decodeRawToRgb(img);
   console.log("image", decoded?.width ?? img.width, decoded?.height ?? img.height);
@@ -26,22 +30,9 @@ client.onImage((img) => {
 client.onError((e) => console.error(e));
 
 await client.connect();
-await client.setKeyframesEnabled(true);
+await client.setLoopClosureEnabled(true);
 await client.startVio();
 ```
-
-Loop closure in a browser:
-
-```js
-const client = new MightyClient(device, {
-  loopclosure: true,
-  algorithmsWasmUrl: "/mighty_algorithms.wasm",
-});
-```
-
-`algorithmsWasmUrl` is optional when the file is served from
-`/mighty_algorithms.wasm`. Pass the real public URL if your app places
-the WASM file somewhere else.
 
 Full web dashboard example:
 - [`examples/web/dashboard/main.js`](https://github.com/asadm/mighty-protocol/blob/main/examples/web/dashboard/main.js)

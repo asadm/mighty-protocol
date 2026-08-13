@@ -34,7 +34,6 @@ Bulk-frame CRC compatibility rule:
 - `DPT `: calibrated metric depth image
 - `POSE`: canonical public body pose (`T_odom_body`)
 - `UPOS`: reserved/internal pose stream (not part of public API)
-- `LCON`: loop constraints / line segments
 - `VIZ `: visualization payload (subtyped)
 - `IMU `: IMU samples batch
 - `STAT`: textual status
@@ -42,7 +41,6 @@ Bulk-frame CRC compatibility rule:
 - `RSET`: reset event
 - `FEA3`: 3D features
 - `PCLD`: point cloud
-- `KEYF`: keyframe descriptor event
 - `CMD `: command request
 - `CRES`: command response
 - `CFGQ`: config request payload
@@ -207,40 +205,6 @@ Version 5 appends:
 - `static_init_reason_code` (u8)
 - `dynamic_init_reason_code` (u8)
 
-### 3.5 Keyframe Descriptor (`KEYF`)
-
-`KEYF` carries learned global and local descriptors for a VIO keyframe. The
-producer emits one packet only after all descriptors for that version have
-been computed.
-
-The version 1 prefix remains unchanged, big-endian:
-
-- `version` (u8), `1` or `2`
-- `descriptor_type` (u8), currently `1` for float32
-- `flags` (u16); bit 0 means local features are present
-- `timestamp_ns` (u64), matching the VIO/image timestamp of the keyframe
-- `descriptor_dim` (u32)
-- `descriptor` (`f32[descriptor_dim]`), the global CosPlace descriptor
-
-Version 2 appends:
-
-- `image_width` (u32), original keyframe width
-- `image_height` (u32), original keyframe height
-- `feature_count` (u32)
-- `feature_descriptor_dim` (u16)
-- `feature_descriptor_type` (u8), currently `1` for float32
-- `reserved` (u8), currently `0`
-- `features` (`feature_count` records), each containing:
-  - `x` (f32), x coordinate in original-image pixels
-  - `y` (f32), y coordinate in original-image pixels
-  - `score` (f32), producer-defined XFeat detection/ranking score
-  - `descriptor` (`f32[feature_descriptor_dim]`), the local XFeat descriptor
-
-Coordinates are mapped back from the model input to the original image. A
-version 2 consumer can therefore use them directly with the source keyframe;
-it must not apply the XFeat resize scale again. Version 1 remains valid for
-global-descriptor-only producers and fallback behavior.
-
 Version 6 appends:
 - `memory_total_bytes` (u64)
 - `memory_used_bytes` (u64)
@@ -288,8 +252,19 @@ Recommended init reason mapping:
 - event kind length (u8) + UTF-8 kind
 - JSON length (u32) + UTF-8 JSON payload
 - Known kind: `apriltag_relocalize`, emitted after device-side AprilTag relocalization updates the output pose alignment. JSON includes `tagId`, `outputAlignment`, `timestampNs`, `targetPositionM`, `cameraToTagM`, `correctionM`, and `elapsedMs`.
+- Known kind: `loop_closure`, emitted once when the device closes a loop and
+  atomically rebases subsequent public `POSE` output. Its JSON contains only:
+  - `timestampNs`: decimal string for the newer observation
+  - `matchedTimestampNs`: decimal string for the earlier matched observation
+  - `pose`: the corrected public body pose at `timestampNs`, with
+    `positionM` and `orientationXyzw` using the same frame convention as
+    `POSE`
 
-### 3.6 Viz / Constraints / Point Cloud
+  The decimal-string timestamps preserve the full u64 nanosecond values in
+  JSON clients. Matcher scores, keyframe identifiers, descriptors, and graph
+  state are intentionally not part of the public event.
+
+### 3.6 Viz / Point Cloud
 
 #### `VIZ `
 - subtype-based payload:
@@ -300,9 +275,6 @@ Recommended init reason mapping:
 - Tracker results use subtype `1` with label `Tracker`. `VIZ ` itself is not
   timestamped, so the device emits each tracker rectangle immediately after its
   matching image on the same ordered stream.
-
-#### `LCON`
-- constraint segments (type + start/end 3D points)
 
 #### `PCLD`
 - points: `(x,y,z,r,g,b)`
@@ -332,7 +304,10 @@ Standard command names:
 - `tracker_status`: returns the current tracker state and latest rectangle in
   the `CRES` message.
 - `reset_vio_pose`: rebases the public `POSE` output stream to a requested body pose by applying an output alignment transform on top of VIO. It does not mutate the internal VIO estimator state. Data uses the same binary layout as `POSE`: `poseType=0`, `positionM` is required, and `orientationXyzw` is optional through `poseFlags` bit 0. If orientation is omitted, firmware keeps the current output orientation and only jumps output position.
-- `keyframes` / `keyframe`: controls device-side `KEYF` descriptor generation. Data is UTF-8 text: `on`/`enable`/`1`/`true`, `off`/`disable`/`0`/`false`, `toggle`, or `status`/`get`. Devices should default this off and only schedule keyframe descriptor work while enabled.
+- `loop_closure`: controls device-side loop closure. Data is UTF-8 text:
+  `on`/`enable`/`1`/`true`, `off`/`disable`/`0`/`false`, `toggle`, or
+  `status`/`get`. Devices default this off. When enabled, accepted loops emit
+  the single `loop_closure` event above and rebase subsequent `POSE` output.
 
 #### `CFGQ`
 - `version` (u8)

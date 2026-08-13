@@ -94,8 +94,8 @@ Command/config:
 - `stopTracker(): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
 - `trackerStatus(): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
 - `resetVioPose(pose?: { positionM?: [number, number, number]; orientationXyzw?: [number, number, number, number] | null } | [number, number, number]): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
-- `setKeyframesEnabled(enabled: boolean): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
-- `keyframesStatus(): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
+- `setLoopClosureEnabled(enabled: boolean): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
+- `loopClosureStatus(): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
 - `setDepthEstimationEnabled(enabled: boolean): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
 - `depthEstimationStatus(): Promise<{ ok: boolean; reqId: number; status: number; message: string; data: Uint8Array }>`
 
@@ -151,11 +151,9 @@ Subscriptions (each returns `() => void` to unsubscribe):
 - `onVioState(cb)`
 - `onViz(cb)`
 - `onPointCloud(cb)`
-- `onLcon(cb)`
-- `onConstraints(cb)`
-- `onKeyframe(cb)`
 - `onStatus(cb)`
 - `onLuaLog(cb)`
+- `onEvent(cb)`
 - `onReset(cb)`
 - `onAny(cb)`
 - `onError(cb)`
@@ -326,31 +324,32 @@ type VizEvent =
   | { subtype: "unknown"; rawSubtype: number; rawPayload: Uint8Array };
 ```
 
-`onKeyframe`:
+`onEvent`:
 
 ```ts
-type KeyframeFeature = {
-  x: number; // original-image pixels
-  y: number; // original-image pixels
-  score: number;
-  descriptor: Float32Array;
+type DeviceEvent = {
+  version: number;
+  kind: string;
+  json: string;
+  data: unknown;
 };
 
-type KeyframeEvent = {
-  timestampNs: bigint;
-  descriptor: Float32Array; // global CosPlace descriptor
-  descriptorDim: number;
-  descriptorType: number; // 1 = float32
-  flags: number;
-  version: 1 | 2;
-  imageWidth: number; // 0 for version 1
-  imageHeight: number; // 0 for version 1
-  featureCount: number; // 0 for version 1
-  featureDescriptorDim: number; // 0 for version 1
-  featureDescriptorType: number; // 1 = float32
-  features: KeyframeFeature[]; // empty for version 1
+type LoopClosureData = {
+  timestampNs: string;
+  matchedTimestampNs: string;
+  pose: {
+    positionM: [number, number, number];
+    orientationXyzw: [number, number, number, number];
+  };
 };
 ```
+
+For `kind === "loop_closure"`, `data` is `LoopClosureData`. Both timestamps
+are decimal strings so nanosecond `uint64` values remain exact in JavaScript.
+The event is emitted once for an accepted closure. Its `pose` is the corrected
+public body pose at `timestampNs`; the normal `onPose` stream switches to the
+same corrected output frame immediately. Do not apply an additional transform
+to `onPose` values.
 
 `onStatus`:
 
@@ -374,8 +373,8 @@ type AnyEvent =
   | { type: "imu"; data: ImuEvent }
   | { type: "vio_state"; data: VioStateEvent }
   | { type: "viz"; data: VizEvent }
-  | { type: "keyframe"; data: KeyframeEvent }
   | { type: "status"; data: StatusEvent }
+  | { type: "event"; data: DeviceEvent }
   | { type: "reset"; data: ResetEvent }
   | { type: "unknown"; rawType: string; payload: Uint8Array };
 ```
@@ -475,8 +474,8 @@ Command/config:
 - `stop_tracker() -> dict[str, Any]`
 - `tracker_status() -> dict[str, Any]`
 - `reset_vio_pose(position_m=(0.0, 0.0, 0.0), orientation_xyzw=None) -> dict[str, Any]`
-- `set_keyframes_enabled(enabled: bool) -> dict[str, Any]`
-- `keyframes_status() -> dict[str, Any]`
+- `set_loop_closure_enabled(enabled: bool) -> dict[str, Any]`
+- `loop_closure_status() -> dict[str, Any]`
 
 ### Python calibration
 
@@ -518,10 +517,8 @@ Subscriptions (each returns `Callable[[], None]` unsubscribe):
 - `on_imu(cb)`
 - `on_vio_state(cb)`
 - `on_viz(cb)`
-- `on_lcon(cb)`
-- `on_constraints(cb)`
-- `on_keyframe(cb)`
 - `on_status(cb)`
+- `on_event(cb)`
 - `on_reset(cb)`
 - `on_any(cb)`
 - `on_error(cb)`
@@ -697,18 +694,33 @@ or out-of-bounds samples.
 {"subtype": "unknown", "raw_subtype": int, "raw": bytes}
 ```
 
-`on_keyframe`:
+`on_event`:
 
 ```python
 {
-  "timestamp_ns": int,
-  "descriptor": list[float],
-  "descriptor_dim": int,
-  "descriptor_type": int,  # 1 = float32
-  "flags": int,
   "version": int,
+  "kind": str,
+  "json": str,
+  "data": object,
 }
 ```
+
+For `kind == "loop_closure"`, `data` has this shape:
+
+```python
+{
+  "timestampNs": str,
+  "matchedTimestampNs": str,
+  "pose": {
+    "positionM": list[float],       # length 3
+    "orientationXyzw": list[float],# length 4
+  },
+}
+```
+
+The embedded JSON keeps its wire-level camel-case names in every language.
+The event is emitted once for an accepted closure, and subsequent `on_pose`
+callbacks already use the corrected output frame.
 
 `on_status`: `{"text": str}`
 
@@ -826,10 +838,8 @@ Subscriptions:
 - `Subscription on_imu(ImuHandler cb)`
 - `Subscription on_vio_state(VioStateHandler cb)`
 - `Subscription on_viz(VizHandler cb)`
-- `Subscription on_lcon(LconHandler cb)`
-- `Subscription on_constraints(LconHandler cb)`
-- `Subscription on_keyframe(KeyframeHandler cb)`
 - `Subscription on_status(StatusHandler cb)`
+- `Subscription on_event(EventHandler cb)`
 - `Subscription on_reset(ResetHandler cb)`
 - `Subscription on_any(AnyHandler cb)`
 - `Subscription on_error(ErrorHandler cb)`
@@ -849,8 +859,8 @@ Command/config:
 - `CommandResult stop_tracker()`
 - `CommandResult tracker_status()`
 - `CommandResult reset_vio_pose(const std::array<double, 3>& position_m, const std::optional<std::array<double, 4>>& orientation_xyzw = std::nullopt)`
-- `CommandResult set_keyframes_enabled(bool enabled)`
-- `CommandResult keyframes_status()`
+- `CommandResult set_loop_closure_enabled(bool enabled)`
+- `CommandResult loop_closure_status()`
 - `CommandResult set_depth_estimation_enabled(bool enabled)`
 - `CommandResult depth_estimation_status()`
 
@@ -920,10 +930,8 @@ struct Subscription {
     kImu,
     kVioState,
     kViz,
-    kLcon,
-    kKeyframe,
-    kLoopClosure,
     kStatus,
+    kEvent,
     kReset,
     kAny,
     kError,
@@ -1033,10 +1041,15 @@ struct VizFrame {
 };
 
 struct StatusEvent { std::string text; };
+struct DeviceEvent {
+  uint8_t version = 1;
+  std::string kind;
+  std::string json;
+};
 struct ResetEvent { uint64_t received_at_ms = 0; };
 
 struct AnyEvent {
-  std::string type;      // image|depth|pose|imu|vio_state|viz|lcon|keyframe|status|reset|unknown
+  std::string type;      // image|depth|pose|imu|vio_state|viz|status|event|reset|unknown
   std::string raw_type;  // set for unknown
   std::vector<uint8_t> payload; // set for unknown
 };
@@ -1047,6 +1060,13 @@ struct MightyErrorEvent {
   std::string message;
 };
 ```
+
+For `DeviceEvent::kind == "loop_closure"`, `json` contains exactly the
+`LoopClosureData` object shown in the JavaScript section. Timestamps are decimal
+strings. The SDK deliberately leaves JSON parsing to the application's JSON
+library. The regular `on_pose` stream has already switched to the corrected
+public output frame; the event pose is a one-time notification, not an extra
+transform to apply.
 
 Command/config result structs:
 

@@ -125,6 +125,17 @@ class IntegrationState:
             ])),
             mp.make_packet(mp.TYPE["VSTA"], build_vsta_payload()),
             mp.make_packet(mp.TYPE["STAT"], b"hello"),
+            mp.make_packet(mp.TYPE["EVNT"], mp.build_event_payload(
+                "loop_closure",
+                data={
+                    "timestampNs": "14",
+                    "matchedTimestampNs": "10",
+                    "pose": {
+                        "positionM": [1.0, 2.0, 3.0],
+                        "orientationXyzw": [0.0, 0.0, 0.0, 1.0],
+                    },
+                },
+            )),
         ]
 
 
@@ -178,9 +189,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send_octet(payload)
             return
 
-        if cmd["name"] == "keyframes":
+        if cmd["name"] == "loop_closure":
             action = bytes(cmd["data"]).decode("utf-8")
-            message = "keyframes disabled" if action == "status" else f"keyframes {action}"
+            message = "loop closure disabled" if action == "status" else f"loop closure {action}"
             payload = mp.build_command_response_payload(cmd["req_id"], 0, message, b"")
             self._send_octet(payload)
             return
@@ -276,22 +287,25 @@ def main():
             "imu": 0,
             "vsta": 0,
             "status": 0,
+            "event": 0,
             "reset": 0,
             "any": 0,
         }
         last_pose = {"value": None}
         last_vsta = {"value": None}
+        last_event = {"value": None}
 
         client.on_image(lambda _: seen.__setitem__("image", seen["image"] + 1))
         client.on_pose(lambda p: (seen.__setitem__("pose", seen["pose"] + 1), last_pose.__setitem__("value", p)))
         client.on_imu(lambda _: seen.__setitem__("imu", seen["imu"] + 1))
         client.on_vio_state(lambda v: (seen.__setitem__("vsta", seen["vsta"] + 1), last_vsta.__setitem__("value", v)))
         client.on_status(lambda _: seen.__setitem__("status", seen["status"] + 1))
+        client.on_event(lambda event: (seen.__setitem__("event", seen["event"] + 1), last_event.__setitem__("value", event)))
         client.on_reset(lambda _: seen.__setitem__("reset", seen["reset"] + 1))
         client.on_any(lambda _: seen.__setitem__("any", seen["any"] + 1))
 
         client.connect()
-        assert wait_until(lambda: seen["any"] >= 6)
+        assert wait_until(lambda: seen["any"] >= 7)
 
         assert seen["image"] >= 1
         assert seen["pose"] >= 1
@@ -307,6 +321,11 @@ def main():
             mp.VIO_DEGRADED_REASON["ROTATION_ONLY_3DOF"]
         )
         assert seen["status"] >= 1
+        assert seen["event"] >= 1
+        assert last_event["value"]["kind"] == "loop_closure"
+        assert last_event["value"]["data"]["timestampNs"] == "14"
+        assert last_event["value"]["data"]["matchedTimestampNs"] == "10"
+        assert last_event["value"]["data"]["pose"]["positionM"] == [1.0, 2.0, 3.0]
         assert seen["reset"] >= 1
         assert last_pose["value"] is not None
         p = last_pose["value"]
@@ -330,13 +349,13 @@ def main():
         cmd = client.start_vio()
         assert cmd["ok"]
 
-        keyframes_on = client.set_keyframes_enabled(True)
-        assert keyframes_on["ok"]
-        assert keyframes_on["message"] == "keyframes on"
+        loop_closure_on = client.set_loop_closure_enabled(True)
+        assert loop_closure_on["ok"]
+        assert loop_closure_on["message"] == "loop closure on"
 
-        keyframes_status = client.keyframes_status()
-        assert keyframes_status["ok"]
-        assert keyframes_status["message"] == "keyframes disabled"
+        loop_closure_status = client.loop_closure_status()
+        assert loop_closure_status["ok"]
+        assert loop_closure_status["message"] == "loop closure disabled"
 
         cfg_get = client.config_get("calib", as_text=True)
         assert cfg_get["ok"]

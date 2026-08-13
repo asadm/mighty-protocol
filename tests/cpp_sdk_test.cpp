@@ -89,12 +89,12 @@ class MockDevice : public MightyDeviceIO {
       return true;
     }
 
-    if (cmd.name == "keyframes") {
+    if (cmd.name == "loop_closure") {
       const std::string action(cmd.data.begin(), cmd.data.end());
       CommandResponse ok;
       ok.req_id = cmd.req_id;
       ok.status = 0;
-      ok.message = action == "status" ? "keyframes disabled" : "keyframes " + action;
+      ok.message = action == "status" ? "loop closure disabled" : "loop closure " + action;
       if (response_payload) *response_payload = build_command_response_payload(ok);
       return true;
     }
@@ -234,6 +234,7 @@ int main() {
     std::atomic<int> lcon{0};
     std::atomic<int> keyframe{0};
     std::atomic<int> status{0};
+    std::atomic<int> event{0};
     std::atomic<int> reset{0};
     std::atomic<int> any{0};
   };
@@ -243,6 +244,7 @@ int main() {
   std::optional<PoseFrame> last_pose;
   std::optional<VioStateFrame> last_vsta;
   std::optional<KeyframeEvent> last_keyframe;
+  std::optional<DeviceEvent> last_event;
 
   client.on_image([&](const ImageFrame& f) {
     seen.image.fetch_add(1);
@@ -263,6 +265,10 @@ int main() {
     last_keyframe = k;
   });
   client.on_status([&](const StatusEvent&) { seen.status.fetch_add(1); });
+  client.on_event([&](const DeviceEvent& event) {
+    seen.event.fetch_add(1);
+    last_event = event;
+  });
   client.on_reset([&](const ResetEvent&) { seen.reset.fetch_add(1); });
   client.on_any([&](const AnyEvent&) { seen.any.fetch_add(1); });
 
@@ -352,10 +358,15 @@ int main() {
   device->emit_packet(make_packet(build_keyframe_payload(keyframe), TYPE_KEYF));
 
   device->emit_packet(make_packet(build_status_payload("hello"), TYPE_STAT));
+  device->emit_packet(make_packet(
+      build_event_payload(
+          "loop_closure",
+          R"({"timestampNs":"14","matchedTimestampNs":"10","pose":{"positionM":[1,2,3],"orientationXyzw":[0,0,0,1]}})"),
+      TYPE_EVNT));
   device->emit_packet(make_packet(nullptr, 0, TYPE_RSET));
   device->emit_packet(make_packet(std::vector<uint8_t>{0xAA}, "ZZZZ"));
 
-  assert(wait_until([&]() { return seen.any.load() >= 9; }, 2000));
+  assert(wait_until([&]() { return seen.any.load() >= 10; }, 2000));
 
   assert(seen.image.load() == 1);
   assert(last_image.has_value());
@@ -419,6 +430,10 @@ int main() {
   assert(approx(last_keyframe->features[0].y, 380.0));
   assert(approx(last_keyframe->features[0].score, 0.8));
   assert(seen.status.load() == 1);
+  assert(seen.event.load() == 1);
+  assert(last_event.has_value());
+  assert(last_event->kind == "loop_closure");
+  assert(last_event->json.find("matchedTimestampNs") != std::string::npos);
   assert(seen.reset.load() == 1);
 
   CommandResult cmd = client.start_vio();
@@ -438,13 +453,13 @@ int main() {
   assert(device->last_reset_pose->orientation_xyzw.has_value());
   assert(approx(device->last_reset_pose->orientation_xyzw->at(3), 1.0));
 
-  CommandResult keyframes_on = client.set_keyframes_enabled(true);
-  assert(keyframes_on.ok);
-  assert(keyframes_on.message == "keyframes on");
+  CommandResult loop_closure_on = client.set_loop_closure_enabled(true);
+  assert(loop_closure_on.ok);
+  assert(loop_closure_on.message == "loop closure on");
 
-  CommandResult keyframes_status = client.keyframes_status();
-  assert(keyframes_status.ok);
-  assert(keyframes_status.message == "keyframes disabled");
+  CommandResult loop_closure_status = client.loop_closure_status();
+  assert(loop_closure_status.ok);
+  assert(loop_closure_status.message == "loop closure disabled");
 
   CommandResult depth_on = client.set_depth_estimation_enabled(true);
   assert(depth_on.ok);

@@ -75,12 +75,12 @@ class MockDevice {
       });
     }
 
-    if (cmd.name === "keyframes") {
+    if (cmd.name === "loop_closure") {
       const action = Buffer.from(cmd.data || new Uint8Array()).toString("utf8");
       return proto.buildCommandResponsePayload({
         reqId: cmd.reqId,
         status: 0,
-        message: `keyframes ${action === "status" ? "disabled" : action}`,
+        message: `loop closure ${action === "status" ? "disabled" : action}`,
         data: new Uint8Array(),
       });
     }
@@ -238,6 +238,7 @@ async function main() {
     pcld: 0,
     lcon: 0,
     keyframe: 0,
+    event: 0,
     reset: 0,
     status: 0,
     any: 0,
@@ -248,6 +249,7 @@ async function main() {
   let lastVsta = null;
   let lastPointCloud = null;
   let lastKeyframe = null;
+  let lastEvent = null;
 
   client.onImage((f) => {
     seen.image += 1;
@@ -270,6 +272,10 @@ async function main() {
   client.onKeyframe((k) => {
     seen.keyframe += 1;
     lastKeyframe = k;
+  });
+  client.onEvent((event) => {
+    seen.event += 1;
+    lastEvent = event;
   });
   client.onReset(() => { seen.reset += 1; });
   client.onStatus(() => { seen.status += 1; });
@@ -349,6 +355,17 @@ async function main() {
     ],
   })));
   device.emitPacket(proto.makePacket(proto.TYPE.STAT, proto.buildStatusPayload("hello")));
+  device.emitPacket(proto.makePacket(proto.TYPE.EVNT, proto.buildEventPayload({
+    kind: "loop_closure",
+    data: {
+      timestampNs: "14",
+      matchedTimestampNs: "10",
+      pose: {
+        positionM: [1, 2, 3],
+        orientationXyzw: [0, 0, 0, 1],
+      },
+    },
+  })));
   device.emitPacket(proto.makePacket(proto.TYPE.RSET));
   device.emitPacket(proto.makePacket("ZZZZ", Buffer.from([0xaa])));
 
@@ -458,8 +475,14 @@ async function main() {
   assert.ok(almost(lastKeyframe.features[0].y, 380));
   assert.ok(almost(lastKeyframe.features[0].score, 0.8));
   assert.strictEqual(seen.status, 1);
+  assert.strictEqual(seen.event, 1);
+  assert.strictEqual(lastEvent.kind, "loop_closure");
+  assert.strictEqual(lastEvent.data.timestampNs, "14");
+  assert.strictEqual(lastEvent.data.matchedTimestampNs, "10");
+  assert.deepStrictEqual(lastEvent.data.pose.positionM, [1, 2, 3]);
+  assert.deepStrictEqual(lastEvent.data.pose.orientationXyzw, [0, 0, 0, 1]);
   assert.strictEqual(seen.reset, 1);
-  assert.ok(seen.any >= 10);
+  assert.ok(seen.any >= 11);
 
   const cmdRes = await client.startVio();
   assert.strictEqual(cmdRes.ok, true);
@@ -477,13 +500,13 @@ async function main() {
   assert.deepStrictEqual(device.lastResetPose.positionM, [1, 2, 3]);
   assert.deepStrictEqual(device.lastResetPose.orientationXyzw, [0, 0, 0, 1]);
 
-  const keyframesOn = await client.setKeyframesEnabled(true);
-  assert.strictEqual(keyframesOn.ok, true);
-  assert.strictEqual(keyframesOn.message, "keyframes on");
+  const loopClosureOn = await client.setLoopClosureEnabled(true);
+  assert.strictEqual(loopClosureOn.ok, true);
+  assert.strictEqual(loopClosureOn.message, "loop closure on");
 
-  const keyframesStatus = await client.keyframesStatus();
-  assert.strictEqual(keyframesStatus.ok, true);
-  assert.strictEqual(keyframesStatus.message, "keyframes disabled");
+  const loopClosureStatus = await client.loopClosureStatus();
+  assert.strictEqual(loopClosureStatus.ok, true);
+  assert.strictEqual(loopClosureStatus.message, "loop closure disabled");
 
   const depthOn = await client.setDepthEstimationEnabled(true);
   assert.strictEqual(depthOn.ok, true);

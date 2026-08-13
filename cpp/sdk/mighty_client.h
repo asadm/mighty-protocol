@@ -159,12 +159,18 @@ struct StatusEvent {
   std::string text;
 };
 
+struct DeviceEvent {
+  uint8_t version = 1;
+  std::string kind;
+  std::string json;
+};
+
 struct ResetEvent {
   uint64_t received_at_ms = 0;
 };
 
 struct AnyEvent {
-  std::string type;      // image|depth|pose|imu|vio_state|viz|lcon|status|reset|unknown
+  std::string type;      // image|depth|pose|imu|vio_state|viz|event|status|reset|unknown
   std::string raw_type;  // only for unknown
   std::vector<uint8_t> payload; // only for unknown
 };
@@ -218,6 +224,7 @@ class MightyClient {
   using KeyframeHandler = std::function<void(const KeyframeEvent&)>;
   using LoopClosureHandler = std::function<void(const LoopClosureEvent&)>;
   using StatusHandler = std::function<void(const StatusEvent&)>;
+  using EventHandler = std::function<void(const DeviceEvent&)>;
   using ResetHandler = std::function<void(const ResetEvent&)>;
   using AnyHandler = std::function<void(const AnyEvent&)>;
   using ErrorHandler = std::function<void(const MightyErrorEvent&)>;
@@ -235,6 +242,7 @@ class MightyClient {
       kKeyframe,
       kLoopClosure,
       kStatus,
+      kEvent,
       kReset,
       kAny,
       kError,
@@ -279,14 +287,14 @@ class MightyClient {
 
     if (opts_.loopclosure) {
       initialize_loopclosure();
-      set_keyframes_enabled(true);
+      set_loop_closure_enabled(true);
     }
   }
 
   void disconnect() {
     const bool was_running = running_.exchange(false);
     if (was_running && opts_.loopclosure) {
-      set_keyframes_enabled(false);
+      set_loop_closure_enabled(false);
     }
     if (device_) {
       device_->disconnect();
@@ -319,6 +327,7 @@ class MightyClient {
   Subscription on_keyframe(KeyframeHandler cb) { return subscribe(keyframe_handlers_, Subscription::Kind::kKeyframe, std::move(cb)); }
   Subscription on_loopclosure(LoopClosureHandler cb) { return subscribe(loopclosure_handlers_, Subscription::Kind::kLoopClosure, std::move(cb)); }
   Subscription on_status(StatusHandler cb) { return subscribe(status_handlers_, Subscription::Kind::kStatus, std::move(cb)); }
+  Subscription on_event(EventHandler cb) { return subscribe(event_handlers_, Subscription::Kind::kEvent, std::move(cb)); }
   Subscription on_reset(ResetHandler cb) { return subscribe(reset_handlers_, Subscription::Kind::kReset, std::move(cb)); }
   Subscription on_any(AnyHandler cb) { return subscribe(any_handlers_, Subscription::Kind::kAny, std::move(cb)); }
   Subscription on_error(ErrorHandler cb) { return subscribe(error_handlers_, Subscription::Kind::kError, std::move(cb)); }
@@ -336,6 +345,7 @@ class MightyClient {
       case Subscription::Kind::kKeyframe: keyframe_handlers_.remove(sub.id); break;
       case Subscription::Kind::kLoopClosure: loopclosure_handlers_.remove(sub.id); break;
       case Subscription::Kind::kStatus: status_handlers_.remove(sub.id); break;
+      case Subscription::Kind::kEvent: event_handlers_.remove(sub.id); break;
       case Subscription::Kind::kReset: reset_handlers_.remove(sub.id); break;
       case Subscription::Kind::kAny: any_handlers_.remove(sub.id); break;
       case Subscription::Kind::kError: error_handlers_.remove(sub.id); break;
@@ -507,14 +517,14 @@ class MightyClient {
                    build_reset_vio_pose_payload(position_m, orientation_xyzw));
   }
 
-  CommandResult set_keyframes_enabled(bool enabled) {
+  CommandResult set_loop_closure_enabled(bool enabled) {
     const std::string action = enabled ? "on" : "off";
-    return command("keyframes", std::vector<uint8_t>(action.begin(), action.end()));
+    return command("loop_closure", std::vector<uint8_t>(action.begin(), action.end()));
   }
 
-  CommandResult keyframes_status() {
+  CommandResult loop_closure_status() {
     const std::string action = "status";
-    return command("keyframes", std::vector<uint8_t>(action.begin(), action.end()));
+    return command("loop_closure", std::vector<uint8_t>(action.begin(), action.end()));
   }
 
   CommandResult set_depth_estimation_enabled(bool enabled) {
@@ -1079,6 +1089,21 @@ class MightyClient {
         return;
       }
 
+      if (type == "EVNT") {
+        if (event_handlers_.empty() && !wants_any) return;
+        EventPayload decoded;
+        if (!decode_event_payload(frame.payload, decoded)) {
+          throw std::runtime_error("EVNT decode failed");
+        }
+        DeviceEvent evt;
+        evt.version = decoded.version;
+        evt.kind = std::move(decoded.kind);
+        evt.json = std::move(decoded.json);
+        emit(event_handlers_, evt);
+        if (wants_any) emit_any(AnyEvent{"event", "", {}});
+        return;
+      }
+
       if (type == "RSET") {
         if (reset_handlers_.empty() && !wants_any) return;
         ResetEvent evt;
@@ -1167,6 +1192,7 @@ class MightyClient {
   ListenerSet<KeyframeHandler> keyframe_handlers_;
   ListenerSet<LoopClosureHandler> loopclosure_handlers_;
   ListenerSet<StatusHandler> status_handlers_;
+  ListenerSet<EventHandler> event_handlers_;
   ListenerSet<ResetHandler> reset_handlers_;
   ListenerSet<AnyHandler> any_handlers_;
   ListenerSet<ErrorHandler> error_handlers_;

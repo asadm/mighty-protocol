@@ -126,32 +126,40 @@ const res = await client.resetVioPose({ positionM: [0, 0, 0] });
 auto res = client.reset_vio_pose({0.0, 0.0, 0.0});
 ```
 
-## Enable Device Keyframes
+## Enable Device Loop Closure
 
-`KEYF` descriptor generation is off by default. Enable it only while a client is
-actively consuming keyframe descriptors, then disable it when the view or tool
-closes.
+Loop closure is off by default. When enabled, accepted loops emit one
+`loop_closure` event and the normal public `POSE` stream jumps into the
+corrected output frame. No descriptor, matcher, or graph messages are exposed.
 
 ```python
-res = client.set_keyframes_enabled(True)
+res = client.set_loop_closure_enabled(True)
 if not res["ok"]:
-    print("keyframes failed:", res["message"])
+    print("loop closure failed:", res["message"])
 ```
 
 ```js
-const res = await client.setKeyframesEnabled(true);
-if (!res.ok) console.error("keyframes failed:", res.message);
+const res = await client.setLoopClosureEnabled(true);
+if (!res.ok) console.error("loop closure failed:", res.message);
 ```
 
 ```cpp
-auto res = client.set_keyframes_enabled(true);
+auto res = client.set_loop_closure_enabled(true);
 if (!res.ok) {
-  std::cerr << "keyframes failed: " << res.message << std::endl;
+  std::cerr << "loop closure failed: " << res.message << std::endl;
 }
 ```
 
-Why use it: learned descriptor generation can be expensive, so devices should
-only schedule keyframe work while a client explicitly requests `KEYF` events.
+Subscribe to the generic device event stream to learn which two observations
+matched and receive the corrected pose once:
+
+```js
+client.onEvent((event) => {
+  if (event.kind !== "loop_closure") return;
+  const { timestampNs, matchedTimestampNs, pose } = event.data;
+  console.log("loop closed", matchedTimestampNs, timestampNs, pose);
+});
+```
 
 ## Subscribe To Pose
 

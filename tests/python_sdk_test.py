@@ -151,9 +151,9 @@ class MockDevice:
             self.last_reset_pose = mp.decode_reset_vio_pose_payload(cmd["data"])
             return mp.build_command_response_payload(cmd["req_id"], 0, "pose reset", b"")
 
-        if name == "keyframes":
+        if name == "loop_closure":
             action = bytes(cmd["data"]).decode("utf-8")
-            message = "keyframes disabled" if action == "status" else f"keyframes {action}"
+            message = "loop closure disabled" if action == "status" else f"loop closure {action}"
             return mp.build_command_response_payload(cmd["req_id"], 0, message, b"")
 
         if name == "config":
@@ -218,13 +218,14 @@ def main():
         "vsta": 0,
         "lcon": 0,
         "keyframe": 0,
+        "event": 0,
         "status": 0,
         "reset": 0,
         "any": 0,
         "error": 0,
     }
 
-    last = {"image": None, "pose": None, "vsta": None, "keyframe": None}
+    last = {"image": None, "pose": None, "vsta": None, "keyframe": None, "event": None}
 
     client.on_image(lambda v: (seen.__setitem__("image", seen["image"] + 1), last.__setitem__("image", v)))
     client.on_pose(lambda v: (seen.__setitem__("pose", seen["pose"] + 1), last.__setitem__("pose", v)))
@@ -232,6 +233,7 @@ def main():
     client.on_vio_state(lambda v: (seen.__setitem__("vsta", seen["vsta"] + 1), last.__setitem__("vsta", v)))
     client.on_lcon(lambda _: seen.__setitem__("lcon", seen["lcon"] + 1))
     client.on_keyframe(lambda v: (seen.__setitem__("keyframe", seen["keyframe"] + 1), last.__setitem__("keyframe", v)))
+    client.on_event(lambda v: (seen.__setitem__("event", seen["event"] + 1), last.__setitem__("event", v)))
     client.on_status(lambda _: seen.__setitem__("status", seen["status"] + 1))
     client.on_reset(lambda _: seen.__setitem__("reset", seen["reset"] + 1))
     client.on_any(lambda _: seen.__setitem__("any", seen["any"] + 1))
@@ -281,10 +283,21 @@ def main():
     )))
 
     device.emit_packet(mp.make_packet(mp.TYPE["STAT"], b"hello"))
+    device.emit_packet(mp.make_packet(mp.TYPE["EVNT"], mp.build_event_payload(
+        "loop_closure",
+        data={
+            "timestampNs": "14",
+            "matchedTimestampNs": "10",
+            "pose": {
+                "positionM": [1.0, 2.0, 3.0],
+                "orientationXyzw": [0.0, 0.0, 0.0, 1.0],
+            },
+        },
+    )))
     device.emit_packet(mp.make_packet(mp.TYPE["RSET"]))
     device.emit_packet(mp.make_packet(b"ZZZZ", b"\xaa"))
 
-    assert wait_until(lambda: seen["any"] >= 9)
+    assert wait_until(lambda: seen["any"] >= 10)
 
     assert seen["image"] == 1
     assert seen["pose"] == 1
@@ -312,6 +325,12 @@ def main():
     assert abs(float(last["keyframe"]["features"][0]["y"]) - 380.0) < 1e-6
     assert abs(float(last["keyframe"]["features"][0]["score"]) - 0.8) < 1e-6
     assert seen["status"] == 1
+    assert seen["event"] == 1
+    assert last["event"]["kind"] == "loop_closure"
+    assert last["event"]["data"]["timestampNs"] == "14"
+    assert last["event"]["data"]["matchedTimestampNs"] == "10"
+    assert last["event"]["data"]["pose"]["positionM"] == [1.0, 2.0, 3.0]
+    assert last["event"]["data"]["pose"]["orientationXyzw"] == [0.0, 0.0, 0.0, 1.0]
     assert seen["reset"] == 1
     assert last["image"]["kind"] == "raw"
     assert last["image"]["channel"] == "cam0"
@@ -400,13 +419,13 @@ def main():
     assert device.last_reset_pose["position_m"] == (1.0, 2.0, 3.0)
     assert device.last_reset_pose["orientation_xyzw"] == (0.0, 0.0, 0.0, 1.0)
 
-    keyframes_on = client.set_keyframes_enabled(True)
-    assert keyframes_on["ok"]
-    assert keyframes_on["message"] == "keyframes on"
+    loop_closure_on = client.set_loop_closure_enabled(True)
+    assert loop_closure_on["ok"]
+    assert loop_closure_on["message"] == "loop closure on"
 
-    keyframes_status = client.keyframes_status()
-    assert keyframes_status["ok"]
-    assert keyframes_status["message"] == "keyframes disabled"
+    loop_closure_status = client.loop_closure_status()
+    assert loop_closure_status["ok"]
+    assert loop_closure_status["message"] == "loop closure disabled"
 
     cfg_get = client.config_get("calib", as_text=True)
     assert cfg_get["ok"]

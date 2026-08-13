@@ -68,6 +68,17 @@ SAMPLE = {
         {"timestamp_ns": 2000, "ax": 0.4, "ay": 0.5, "az": 0.6, "gx": 1.4, "gy": 1.5, "gz": 1.6},
     ],
     "status": "STATUS_OK",
+    "event": {
+        "kind": "loop_closure",
+        "data": {
+            "timestampNs": "123456789",
+            "matchedTimestampNs": "98765432",
+            "pose": {
+                "positionM": [1.0, 2.0, 3.0],
+                "orientationXyzw": [0.0, 0.0, 0.0, 1.0],
+            },
+        },
+    },
     "fea3": [
         {"id": 1, "x": 0.1, "y": 0.2, "z": 0.3},
         {"id": 2, "x": 1.1, "y": 1.2, "z": 1.3},
@@ -143,6 +154,8 @@ def build_packets():
     pkts.append(mp.make_packet(mp.TYPE["VIZ"], struct_viz(SAMPLE["viz2"])))
     pkts.append(mp.make_packet(mp.TYPE["IMU"], struct_imu()))
     pkts.append(mp.make_packet(mp.TYPE["STAT"], SAMPLE["status"].encode()))
+    pkts.append(mp.make_packet(mp.TYPE["EVNT"], mp.build_event_payload(
+        SAMPLE["event"]["kind"], data=SAMPLE["event"]["data"])))
     pkts.append(mp.make_packet(mp.TYPE["VSTA"], struct_vsta()))
     pkts.append(mp.make_packet(mp.TYPE["FEA3"], struct_fea3()))
     pkts.append(mp.make_packet(mp.TYPE["PCLD"], struct_pcld()))
@@ -321,7 +334,7 @@ def main():
     stream = b"".join(build_packets())
     frames, rest = mp.parse_frames(stream)
     assert not rest
-    assert len(frames) == 17
+    assert len(frames) == 18
 
     idx = 0
     assert frames[idx]["type"] == "RSET"; idx += 1
@@ -372,6 +385,11 @@ def main():
     assert len(imu) == len(SAMPLE["imu"])
     stat = mp.decode_status_payload(frames[idx]["payload"]); idx += 1
     assert stat == SAMPLE["status"]
+    event = mp.decode_event_payload(frames[idx]["payload"]); idx += 1
+    assert event["kind"] == SAMPLE["event"]["kind"]
+    assert event["data"]["timestampNs"] == SAMPLE["event"]["data"]["timestampNs"]
+    assert event["data"]["matchedTimestampNs"] == SAMPLE["event"]["data"]["matchedTimestampNs"]
+    assert event["data"]["pose"] == SAMPLE["event"]["data"]["pose"]
     vsta = mp.decode_vio_state_payload(frames[idx]["payload"]); idx += 1
     assert vsta["version"] == SAMPLE["vsta"]["version"]
     assert vsta["state"] == SAMPLE["vsta"]["state"]
@@ -420,7 +438,7 @@ def main():
     d = FrameDispatcher(lambda f: seen.append(f["type"]))
     chunked = stream[:20] + stream[20:]  # two chunks
     d.feed(chunked)
-    assert len(seen) == 17
+    assert len(seen) == 18
 
     # Decoded dispatcher sanity
     from decoded_dispatcher import DecodedDispatcher

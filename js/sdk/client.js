@@ -165,12 +165,12 @@ export class MightyClient {
     this._running = true;
     this._loopTask = this._runTransportLoop();
     if (this._loopclosure) {
-      const res = await this.setKeyframesEnabled(true);
+      const res = await this.setLoopClosureEnabled(true);
       if (!res.ok) {
         this._emitError({
           scope: "loopclosure",
-          code: "keyframes_failed",
-          message: res.message || "failed to enable keyframes",
+          code: "command_failed",
+          message: res.message || "failed to enable loop closure",
         });
       }
     }
@@ -178,10 +178,10 @@ export class MightyClient {
 
   async disconnect() {
     if (this._loopclosure) {
-      await this.setKeyframesEnabled(false).catch((err) => {
+      await this.setLoopClosureEnabled(false).catch((err) => {
         this._emitError({
           scope: "loopclosure",
-          code: "keyframes_failed",
+          code: "command_failed",
           message: err?.message || String(err),
           cause: err,
         });
@@ -437,12 +437,12 @@ export class MightyClient {
     return this.command("reset_vio_pose", payload);
   }
 
-  async setKeyframesEnabled(enabled) {
-    return this.command("keyframes", encodeText(enabled ? "on" : "off"));
+  async setLoopClosureEnabled(enabled) {
+    return this.command("loop_closure", encodeText(enabled ? "on" : "off"));
   }
 
-  async keyframesStatus() {
-    return this.command("keyframes", encodeText("status"));
+  async loopClosureStatus() {
+    return this.command("loop_closure", encodeText("status"));
   }
 
   async setDepthEstimationEnabled(enabled) {
