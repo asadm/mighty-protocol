@@ -8,9 +8,9 @@ independently of the ARM vision process, so it is a good place for LEDs, button
 policy, serial protocols, small state machines, and reactions to public device
 events.
 
-Edit `/build/user.lua` from the device `/code` page. `Save + Reload` installs
-the program and starts a fresh Lua state. `RESET` restores the shipped default
-program. It does not factory-reset the device.
+Edit `/build/userdata/mcu/user.lua` from the device `/code` page.
+`Save + Reload` installs the program and starts a fresh Lua state. `RESET`
+restores the shipped default program. It does not factory-reset the device.
 
 Depth images, camera images, keyframes, descriptors, point clouds, and full
 configuration payloads are intentionally not exposed to MCU Lua.
