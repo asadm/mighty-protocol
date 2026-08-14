@@ -519,8 +519,8 @@ struct VioState {
   uint64_t memory_total_bytes = 0;
   uint64_t memory_used_bytes = 0;
   uint64_t memory_free_bytes = 0;
-  float light_level01 = 1.0f;
-  float light_required01 = 1.0f;
+  float light_level01 = std::numeric_limits<float>::quiet_NaN();
+  float light_required01 = std::numeric_limits<float>::quiet_NaN();
   float translation_confidence01 = 1.0f;
   float translation_observability01 = 1.0f;
   uint32_t degraded_reason_flags = 0;

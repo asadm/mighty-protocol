@@ -1,296 +1,466 @@
 ---
-title: On-Device Lua
-description: Write small Lua programs that customize device behavior.
+title: On-Device Lua API
+description: Write bounded Lua programs that react to VIO, IMU, loop closure, tracking, recording, and device state.
 ---
 
-Mighty can run a sandboxed Lua program directly on the device. Use it to define
-custom behavior such as LED policies, button handling, serial messages, simple
-state machines, and reactions to the latest VIO state.
+Mighty runs a sandboxed Lua 5.4 program on the RV1106 MCU. Lua stays alive
+independently of the ARM vision process, so it is a good place for LEDs, button
+policy, serial protocols, small state machines, and reactions to public device
+events.
 
-Lua code is edited from `/code` and stored on the device at `/build/user.lua`.
-Saving code reloads the on-device Lua program. A fresh device starts from a
-default Lua program.
+Edit `/build/user.lua` from the device `/code` page. `Save + Reload` installs
+the program and starts a fresh Lua state. `RESET` restores the shipped default
+program. It does not factory-reset the device.
 
-## Quickstart: Code Editor
+Depth images, camera images, keyframes, descriptors, point clouds, and full
+configuration payloads are intentionally not exposed to MCU Lua.
 
-Open the [Code editor](/code) while connected to a Mighty device.
-
-1. Connect to the device. The default USB address is `http://192.168.7.1`.
-2. Click `Load` to read the current `/build/user.lua`.
-3. Edit the Lua program.
-4. Click `Save + Reload` to write the program to the device and restart the
-   on-device Lua program.
-5. Watch the output panel for reload status and `print()` messages.
-
-`Clear` only clears the output panel. It does not change the program on the
-device. `RESET` restores the default Lua program, saves it as `/build/user.lua`,
-and reloads it.
-
-## Program Shape
-
-User code follows the same shape as many embedded sketches:
+## Program shape
 
 ```lua
 function setup()
-  -- Called once after the program is loaded.
+  -- Called once after a successful load.
 end
 
 function loop(dt_ms)
-  -- Called repeatedly while the program is running.
+  -- Called repeatedly. Keep this short and non-blocking.
 end
 ```
 
-`setup()` is optional. `loop(dt_ms)` is optional, but most useful programs define
-it. `dt_ms` is the elapsed time in milliseconds since the previous `loop()` call,
-clamped by the runtime after long pauses.
+Globals persist until the next reload. `dt_ms` is elapsed device time since the
+previous call and is clamped after long pauses.
 
-Global variables persist for the lifetime of the loaded program:
+The runtime provides selected base, table, string, and math functions. It does
+not provide `io`, `os`, `package`, `debug`, `dofile`, `loadfile`, unrestricted
+`load`, or filesystem access. The Lua heap is fixed at 256 KiB.
+
+## Snapshot and command model
+
+Snapshot calls such as `Mighty.pose()`, `Mighty.imu()`, and `Mighty.state()` are
+non-blocking reads. They never run vision work on the MCU. ARM publishes small,
+fixed-size snapshots through shared memory:
+
+- Pose is refreshed with public pose output.
+- IMU is refreshed from the latest received sample.
+- Runtime, tracker, identity, and configuration summaries refresh at low rate.
+- `arm_connected` becomes false when ARM publication is more than two seconds
+  old, rather than leaving stale state marked as connected.
+
+All nanosecond timestamps and 64-bit counters are Lua strings. This preserves
+their exact values on the 32-bit MCU. Convert them only if your application can
+tolerate loss of integer precision.
+
+Control calls normally block until ARM acknowledges the command or the timeout
+expires. The asynchronous command API is available when `loop()` must never
+wait.
+
+## Time
 
 ```lua
-local elapsed = 0
-
-function loop(dt_ms)
-  elapsed = elapsed + dt_ms
-  if elapsed >= 1000 then
-    print("one second")
-    elapsed = 0
-  end
-end
+millis()          -- monotonic milliseconds
+Mighty.time_ns() -- monotonic nanoseconds as a decimal string
 ```
 
-## Runtime Model
+ARM periodically aligns the MCU clock. The MCU extrapolates between alignment
+updates, so `millis()` continues to advance even during a short ARM stall.
 
-- Lua runs on-device, separate from your browser or host application.
-- `print()` appears in the `/code` output panel.
-- There is no filesystem access from Lua.
-- The sandbox exposes selected base, table, string, and math functions.
-- `io`, `os`, `package`, `debug`, `dofile`, `loadfile`, and unrestricted `load`
-  are not available.
-- Memory is limited. Keep scripts small and avoid allocating new tables in tight
-  loops unless needed.
-- Commands such as `Mighty.start_vio()` block until the device handles the
-  command or the timeout expires.
-
-## Core API
-
-### `print(...)`
-
-Writes a log line to `/code`.
+## Device identity and capabilities
 
 ```lua
-print("lua ready")
-print("confidence", Mighty.pose().confidence)
+local info = Mighty.info()
 ```
 
-Recipe: log a heartbeat without flooding the UI:
+`info` contains:
 
 ```lua
-local ticks = 0
-
-function loop()
-  ticks = ticks + 1
-  if ticks % 200 == 0 then
-    print("alive", ticks)
-  end
-end
+{
+  valid = true,
+  device_id = "...",
+  build_version = "Mighty v....",
+  usb_range_octet = 7,
+  active_vio_config = "polaris/config.yaml",
+  active_recording_path = "/mnt/sdcard/rec-000123.bag",
+  capabilities = {
+    vio = true,
+    full_recording = true,
+    imu_recording = true,
+    loop_closure = true,
+    pose_reset = true,
+    tracker = true,
+    camera_sync = true,
+    imu_snapshot = true,
+    events = true,
+    config_summary = true,
+    apriltag_relocalize = true,
+  },
+  config = {
+    calibration_present = true,
+    noise_present = true,
+    apriltags_present = false,
+    vio_present = true,
+  },
+}
 ```
 
-### `millis()`
+Capability values describe the running build and device. Check them before
+showing or invoking an optional feature. Configuration fields expose presence
+and the selected path only; YAML contents remain on ARM.
 
-Returns device time in milliseconds.
+## Runtime state
+
+The compact helpers are:
 
 ```lua
-local started = 0
-
-function setup()
-  started = millis()
-end
-
-function loop()
-  if millis() - started > 5000 then
-    print("five seconds since setup")
-    started = millis()
-  end
-end
+Mighty.arm_connected()
+Mighty.recording()
+Mighty.preview_mode()
+Mighty.initializing()
+Mighty.vio_state() -- returns name, numeric code
 ```
 
-## Mighty API
+`Mighty.vio_state()` names are `off`, `initializing`, `tracking`, `degraded`,
+`lost`, `low_light`, and `recovering`.
 
-`Mighty` gives Lua access to VIO state, pose snapshots, and blocking control
-commands.
-
-### State
+`Mighty.state()` returns the full low-rate status:
 
 ```lua
-Mighty.arm_connected()  -- true when the device app is publishing state
-Mighty.recording()      -- true while recording
-Mighty.preview_mode()   -- true when VIO is stopped / previewing
-Mighty.initializing()   -- true while VIO is initializing
-Mighty.vio_state()      -- "off", "initializing", "tracking", "degraded", "lost", "low_light", "recovering"
-Mighty.state()          -- table containing the same app-state fields
+local s = Mighty.state()
+
+-- Connection and app mode
+s.arm_connected
+s.arm_age_ms
+s.recording
+s.recording_mode       -- "none", "full", or "imu_only"
+s.preview_mode
+s.initializing
+s.vio_state
+s.vio_state_code
+s.led_state
+s.led_state_code
+
+-- VIO health
+s.timestamp_ns
+s.age_ms
+s.fps_current
+s.fps_average
+s.imu_hz_current
+s.imu_hz_average
+s.pose_confidence
+s.tracking_rate
+s.translation_confidence
+s.translation_observability
+s.feature_count
+s.loop_closures
+s.flags
+
+-- Initialization and degradation diagnosis
+s.init_reason
+s.init_reason_code
+s.static_init_reason
+s.static_init_reason_code
+s.dynamic_init_reason
+s.dynamic_init_reason_code
+s.degraded_reason_flags
+s.degraded_reasons      -- array of stable snake_case names
+
+-- Other bounded summaries
+s.memory.total_bytes    -- decimal string
+s.memory.used_bytes
+s.memory.free_bytes
+s.build_version
+s.loop_closure.available
+s.loop_closure.enabled
+s.camera_sync.available
+s.camera_sync.enabled
+s.camera_sync.applied
+s.camera_sync.pending_restart
 ```
 
-Recipe: print state changes:
+`degraded_reasons` can contain `low_tracking`,
+`low_translation_observability`, `low_parallax_pose_hold`,
+`stationary_pose_hold`, `high_velocity_low_parallax`, `init_uncertain`,
+`static_translation_constrained`, and `rotation_only_3dof`.
+
+Recipe: react only to state changes:
 
 ```lua
-local last = nil
+local previous = nil
 
 function loop()
   local state = Mighty.vio_state()
-  if state ~= last then
+  if state ~= previous then
     print("vio", state)
-    last = state
+    previous = state
   end
 end
 ```
 
-Recipe: choose an LED mode from app state:
-
-```lua
-function loop()
-  if Mighty.recording() then
-    LED.write(true)
-  elseif Mighty.preview_mode() then
-    LED.write(false)
-  elseif Mighty.vio_state() == "tracking" then
-    LED.write(true)
-  end
-end
-```
-
-### Pose
+## Public pose
 
 ```lua
 local pose = Mighty.pose()
 ```
 
-`pose` contains:
+The snapshot has the same corrected public body pose and kinematics as the
+device `POSE` stream:
 
 ```lua
 {
   valid = true,
   timestamp_ns = "1234567890",
+  age_ms = 12.4,
+  sequence = 42,
   confidence = 0.92,
+  stream = "output",
+  pose_type = "body",
+  parent_frame = "odom",
+  child_frame = "base_link",
   position = { x = 0, y = 0, z = 0 },
   orientation_xyzw = { x = 0, y = 0, z = 0, w = 1 },
+  linear_velocity_body = { x = 0, y = 0, z = 0 },
+  angular_velocity_body = { x = 0, y = 0, z = 0 },
+  linear_acceleration_body = { x = 0, y = 0, z = 0 },
+  angular_acceleration_body = { x = 0, y = 0, z = 0 },
 }
 ```
 
-When VIO is not running or no valid pose has been published yet, the pose is
-zero/identity with `valid = false` and `confidence = 0`.
+When VIO is unavailable or the ARM snapshot is stale, `valid` is false and the
+pose is zero/identity. There is deliberately no `unoptimized_pose()` API:
+internal estimator coordinates are not a public stream.
 
-`confidence` is an ordinal pose-usability value, not a probability of absolute
-accuracy:
+Pose confidence is an ordinal usability signal:
 
-- `>= 0.5`: full 6DoF pose is available.
-- `>= 0.2` and `< 0.5`: use orientation only; translation is held.
-- `< 0.2`: do not use full 6DoF. If `Mighty.vio_state()` is `"recovering"`,
-  keep the device still.
+- `>= 0.5`: full 6DoF output is available.
+- `>= 0.2` and `< 0.5`: orientation is usable; translation is held.
+- `< 0.2`: do not consume full 6DoF output.
 
-Recipe: send pose confidence over serial:
-
-```lua
-function setup()
-  Serial.begin(115200)
-end
-
-function loop()
-  local pose = Mighty.pose()
-  Serial.println("confidence=" .. tostring(pose.confidence))
-end
-```
-
-Recipe: only act on a full-6DoF pose:
+Loop closure, AprilTag relocalization, and explicit pose reset rebase the public
+output alignment. `Mighty.pose()` and the normal `POSE` stream therefore jump
+together on the next publication; the internal estimator state is not mutated.
 
 ```lua
 function loop()
-  local pose = Mighty.pose()
-  if pose.valid and pose.confidence >= 0.5 then
-    print("x", pose.position.x, "y", pose.position.y, "z", pose.position.z)
+  local p = Mighty.pose()
+  if p.valid and p.confidence >= 0.5 then
+    Serial.println(string.format("%.3f,%.3f,%.3f",
+      p.position.x, p.position.y, p.position.z))
   end
 end
 ```
 
-### Time
+## Latest IMU sample
 
 ```lua
-Mighty.time_ns() -- device timestamp string in nanoseconds
+local imu = Mighty.imu()
 ```
 
-Recipe: timestamp serial packets:
+```lua
+{
+  valid = true,
+  timestamp_ns = "1234567890",
+  age_ms = 2.1,
+  sequence = 100,
+  frame = "imu",
+  linear_acceleration = { x = 0, y = 0, z = 9.81 },
+  angular_velocity = { x = 0, y = 0, z = 0 },
+}
+```
+
+This is a latest-value snapshot, not a lossless IMU queue. Use ARM recording or
+the protocol IMU stream when every sample matters.
+
+## Public event queue
 
 ```lua
-function setup()
-  Serial.begin(115200)
-end
+local event = Mighty.next_event() -- event table, or nil immediately
+```
 
+The queue is non-blocking and bounded to eight events. If Lua falls behind,
+the oldest events are dropped. A newly loaded script starts with events emitted
+after that load.
+
+Public event kinds are:
+
+```lua
+-- A newer observation matched an earlier observation and output was corrected.
+{
+  kind = "loop_closure",
+  timestamp_ns = "...",
+  matched_timestamp_ns = "...",
+  pose = {
+    parent_frame = "odom",
+    child_frame = "base_link",
+    position = { x = 0, y = 0, z = 0 },
+    orientation_xyzw = { x = 0, y = 0, z = 0, w = 1 },
+  },
+}
+
+-- AprilTag relocalization changed public output alignment.
+{ kind = "apriltag_relocalize", timestamp_ns = "...", tag_id = 7, pose = {...} }
+
+-- An explicit reset_vio_pose command changed public output alignment.
+{ kind = "pose_reset", timestamp_ns = "...", pose = {...} }
+
+-- Public tracker lifecycle/results.
+{ kind = "tracker_update", timestamp_ns = "...",
+  rect = { x = 10, y = 20, width = 80, height = 60 } }
+{ kind = "tracker_lost", timestamp_ns = "0" }
+{ kind = "tracker_stopped", timestamp_ns = "0" }
+```
+
+Loop-closure events intentionally contain no keyframe IDs, place-recognition
+scores, descriptors, graph state, or implementation names.
+
+Drain all currently queued events once per loop:
+
+```lua
 function loop()
-  Serial.println(Mighty.time_ns() .. ",hello")
+  while true do
+    local event = Mighty.next_event()
+    if not event then break end
+    if event.kind == "loop_closure" then
+      print("loop", event.timestamp_ns, event.matched_timestamp_ns)
+    elseif event.kind == "tracker_lost" then
+      LED.on()
+    end
+  end
 end
 ```
 
-### Commands
+## Commands
 
-Commands block until the device handles the request or the timeout expires. Each
-command returns `ok, result`.
-
-```lua
-local ok, result = Mighty.start_vio([timeout_ms])
-local ok, result = Mighty.stop_vio([timeout_ms])
-local ok, result = Mighty.start_recording([directory], [timeout_ms])
-local ok, result = Mighty.stop_recording([timeout_ms])
-```
-
-`result` is a table:
+Blocking commands return `ok, result`:
 
 ```lua
 {
   id = 12,
-  status = "ok",       -- or "error" / "timeout"
-  message = "started", -- on success
-  error = "...",       -- on failure
+  status = "ok",       -- "ok", "error", "timeout", or "busy"
+  message = "started", -- success
+  error = "...",       -- failure
 }
 ```
 
-Recipe: start VIO from preview:
+Timeouts default to 5000 ms and are clamped to 1–30000 ms.
+
+### VIO
 
 ```lua
-function loop()
-  if Mighty.preview_mode() then
-    local ok, result = Mighty.start_vio()
-    if not ok then print("start_vio failed", result.error) end
-  end
-end
+local ok, result = Mighty.start_vio([timeout_ms])
+local ok, result = Mighty.stop_vio([timeout_ms])
 ```
 
-Recipe: record to the SD card:
+### Recording
+
+Recording is available in preview mode, not while VIO is active.
 
 ```lua
-function loop()
-  if not Mighty.recording() and Mighty.preview_mode() then
-    local ok, result = Mighty.start_recording("/mnt/sdcard")
-    print(ok and result.message or result.error)
-  end
-end
+local ok, result = Mighty.start_recording([directory], [timeout_ms])
+local ok, result = Mighty.start_imu_recording([directory], [timeout_ms])
+local ok, result = Mighty.stop_recording([timeout_ms])
+
+local status = Mighty.recording_status()
+-- { active=true, mode="full"|"imu_only"|"none", path="...", arm_connected=true }
 ```
 
-Recipe: fire a named command through the generic command API:
+The default directory is `/mnt/sdcard`. IMU-only recording omits camera frames
+but keeps calibration/noise metadata when available.
+
+### Loop closure
 
 ```lua
-local ok, result = Mighty.command("stop_vio", 2000)
-if not ok then print(result.error) end
+local ok, result = Mighty.set_loop_closure_enabled(true, [timeout_ms])
+local status = Mighty.loop_closure_status()
+-- { available=true, enabled=true, closures=2 }
 ```
 
-Supported generic command names:
+The toggle controls the same device-side loop-closure worker as the protocol
+and SDK command. Enabling it does not run loop closure on the MCU; Lua only
+controls and observes the lower-priority ARM/NPU pipeline.
+
+### Public pose reset
+
+```lua
+local ok, result = Mighty.reset_vio_pose({
+  position = { x = 0, y = 0, z = 0 },
+  -- Optional. Omit to keep the current output orientation.
+  orientation_xyzw = { x = 0, y = 0, z = 0, w = 1 },
+}, [timeout_ms])
+```
+
+This rebases public output only. A successful call produces one `pose_reset`
+event and subsequent pose snapshots use the new alignment.
+
+### Object tracker
+
+The tracker and VIO are mutually exclusive. Stop VIO before starting tracking.
+
+```lua
+local ok, result = Mighty.start_tracker({
+  x = 100, y = 80, width = 120, height = 90,
+}, [timeout_ms])
+
+local tracker = Mighty.tracker()       -- same as Mighty.tracker_status()
+local ok, result = Mighty.stop_tracker([timeout_ms])
+```
+
+The tracker snapshot contains `available`, `active`, `state`, `timestamp_ns`,
+`rect`, string counters for submitted/processed/dropped frames, `frame_count`,
+and an optional `error`. State is `stopped`, `waiting`, `tracking`, or `error`.
+
+### Camera sync
+
+```lua
+local ok, result = Mighty.set_camera_sync_enabled(true, [timeout_ms])
+local status = Mighty.camera_sync_status()
+-- { available=true, enabled=true, applied=true, pending_restart=false }
+```
+
+`enabled` is the persisted requested mode. `applied` describes the current
+camera datasource. Check `pending_restart` rather than assuming a command took
+effect immediately.
+
+### Generic command whitelist
+
+`Mighty.command(name, [argument], [timeout_ms])` is a convenience wrapper, not
+an unrestricted ARM command channel. Supported names are:
 
 - `start_vio`
 - `stop_vio`
 - `start_recording`
+- `start_imu_recording`
 - `stop_recording`
+- `recording_status`
+- `loop_closure_status`
+- `stop_tracker`
+- `tracker_status`
+- `camera_sync_status`
+
+Use typed functions for boolean controls, pose payloads, and tracker
+rectangles.
+
+### Asynchronous commands
+
+Only one asynchronous command can be outstanding:
+
+```lua
+local request_id, error = Mighty.command_async("start_vio")
+
+function loop()
+  if request_id then
+    local ok, result = Mighty.command_result(request_id)
+    if ok ~= nil then
+      print(ok and result.message or result.error)
+      request_id = nil
+    end
+  end
+end
+```
+
+`Mighty.command_result()` returns `nil` while pending. A blocking command returns
+`busy` until the asynchronous result has been collected. The asynchronous API
+uses the same generic whitelist.
 
 ## LED API
-
-The built-in status LED is available through the `LED` API.
 
 ```lua
 LED.begin()
@@ -299,127 +469,32 @@ LED.off()
 LED.write(true)
 LED.toggle()
 LED.read()
-```
 
-Arduino-style aliases are also available for the built-in LED only:
-
-```lua
 pinMode(LED_BUILTIN, OUTPUT)
 digitalWrite(LED_BUILTIN, HIGH)
 digitalRead(LED_BUILTIN)
 ```
 
-Recipe: blink every half second:
-
-```lua
-local t = 0
-
-function setup()
-  LED.begin()
-end
-
-function loop(dt_ms)
-  t = t + dt_ms
-  if t >= 500 then
-    LED.toggle()
-    t = 0
-  end
-end
-```
-
-Recipe: status LED:
-
-```lua
-function setup()
-  LED.begin()
-end
-
-function loop()
-  if Mighty.recording() then
-    LED.write(true)
-  elseif Mighty.preview_mode() then
-    LED.write(false)
-  else
-    LED.write(Mighty.vio_state() == "tracking")
-  end
-end
-```
+Arduino-style pin calls support the built-in LED only.
 
 ## Button API
 
-The device button is debounced before Lua sees events.
-
 ```lua
 Button.begin()
-Button.down()          -- true while held
-Button.pressed()       -- true once after a press edge
-Button.released()      -- true once after a release edge
-Button.held_ms()       -- current hold duration, or last released duration
-Button.held(ms)        -- true once when this press crosses ms
-Button.is_held(ms)     -- true continuously while held at/above ms
+Button.down()
+Button.pressed()       -- one-shot edge
+Button.released()      -- one-shot edge
+Button.held_ms()
+Button.held(ms)        -- one-shot threshold crossing
+Button.is_held(ms)     -- continuous level
 ```
 
-The 10 second recovery hold is reserved by the device and is not exposed to Lua.
-Holding the button for 10 seconds always resets the USB IP range, resets the
-camera sync marker, and reboots.
-
-Recipe: short press toggles VIO:
-
-```lua
-function setup()
-  Button.begin()
-end
-
-function loop()
-  if Button.released() and Button.held_ms() < 1200 then
-    if Mighty.preview_mode() then
-      Mighty.start_vio()
-    else
-      Mighty.stop_vio()
-    end
-  end
-end
-```
-
-Recipe: hold for 1.2 seconds to record:
-
-```lua
-local recording_started = false
-
-function setup()
-  Button.begin()
-end
-
-function loop()
-  if Button.held(1200) and Mighty.preview_mode() and not Mighty.recording() then
-    local ok = Mighty.start_recording()
-    recording_started = ok
-  end
-
-  if Button.released() and recording_started then
-    recording_started = false
-  elseif Button.released() and Mighty.recording() then
-    Mighty.stop_recording()
-  end
-end
-```
-
-Recipe: game-controller style checks:
-
-```lua
-function loop()
-  if Button.pressed() then print("button down") end
-  if Button.is_held(250) then LED.on() end
-  if Button.released() then
-    print("released after", Button.held_ms(), "ms")
-    LED.off()
-  end
-end
-```
+The protected 10-second recovery hold cannot be overridden by Lua. It resets
+the USB IP range and camera-sync marker, then reboots.
 
 ## Serial API
 
-`Serial` is fixed to UART2 M1. Pin selection is intentionally not exposed.
+`Serial` is fixed to UART2 M1. Pin selection is not exposed.
 
 ```lua
 Serial.begin(115200)
@@ -427,94 +502,88 @@ Serial.available()
 Serial.read()             -- byte integer or nil
 Serial.readBytes(n)       -- binary Lua string
 Serial.write("hello")
-Serial.writeBytes("\x01\x02\x03")
+Serial.writeBytes("\x01\x02")
 Serial.print(value)
 Serial.println(value)
 Serial.flush()
 ```
 
-Recipe: send hello and print received bytes:
+## Product-style example
+
+This example uses snapshots and events without blocking the normal loop. A
+short press toggles VIO, a 1.2-second hold starts IMU-only recording, and the
+LED reflects corrected VIO health.
 
 ```lua
+local pending = nil
+local held_action = false
+local last_blink_ms = 0
+
 function setup()
-  Serial.begin(115200)
-  Serial.println("hello")
-end
-
-function loop()
-  local available = Serial.available()
-  if available > 0 then
-    local rx = Serial.readBytes(available)
-    print("rx", rx)
-  end
-end
-```
-
-Recipe: echo bytes:
-
-```lua
-function setup()
+  LED.begin()
+  Button.begin()
   Serial.begin(115200)
 end
 
-function loop()
-  while Serial.available() > 0 do
-    local b = Serial.read()
-    if b then Serial.writeBytes(string.char(b)) end
-  end
-end
-```
-
-Recipe: send binary packets:
-
-```lua
-function setup()
-  Serial.begin(115200)
+local function request(name)
+  local id, err = Mighty.command_async(name)
+  if id then pending = id else print("command", err) end
 end
 
 function loop()
-  local pose = Mighty.pose()
-  local confidence = math.floor(pose.confidence * 255)
-  Serial.writeBytes(string.char(0xAA, confidence, 0x55))
-end
-```
+  local state = Mighty.state()
 
-Recipe: simple line protocol:
-
-```lua
-function setup()
-  Serial.begin(115200)
-end
-
-function loop()
-  if Mighty.recording() then
-    Serial.println("state=recording")
-  elseif Mighty.preview_mode() then
-    Serial.println("state=preview")
+  if state.recording then
+    LED.on()
+  elseif state.vio_state == "tracking" then
+    LED.on()
+  elseif state.vio_state == "degraded" or state.vio_state == "low_light" then
+    if millis() - last_blink_ms >= 500 then
+      LED.toggle()
+      last_blink_ms = millis()
+    end
   else
-    Serial.println("state=" .. Mighty.vio_state())
+    LED.off()
+  end
+
+  if Button.held(1200) and state.preview_mode and not state.recording then
+    request("start_imu_recording")
+    held_action = true
+  elseif Button.released() then
+    if state.recording then
+      request("stop_recording")
+    elseif not held_action then
+      request(state.preview_mode and "start_vio" or "stop_vio")
+    end
+    held_action = false
+  end
+
+  if pending then
+    local ok, result = Mighty.command_result(pending)
+    if ok ~= nil then
+      print(ok and result.message or result.error)
+      pending = nil
+    end
+  end
+
+  while true do
+    local event = Mighty.next_event()
+    if not event then break end
+    if event.kind == "loop_closure" then
+      Serial.println("loop=" .. event.timestamp_ns .. "," ..
+                     event.matched_timestamp_ns)
+    end
   end
 end
 ```
 
-## Default Program
+## Operational guidance
 
-The shipped default program combines the LED, Button, and Mighty APIs:
-
-- LED shows preview, recording, starting, tracking, degraded, and lost states.
-- Short button release starts or stops VIO.
-- Holding the button for `1200 ms` starts recording.
-- Releasing while already recording stops recording.
-- The protected 10 second recovery hold cannot be changed by user code.
-
-## Tips
-
-- Keep `loop()` short. Do not busy-wait in Lua.
-- Use `dt_ms` or `millis()` for timing instead of long loops.
-- Prefer `Button.held(ms)` for one-shot threshold actions.
-- Prefer `Button.is_held(ms)` for continuous behavior while a button is held.
-- Check command return values when behavior matters.
-- Avoid repeated `Mighty.pose()` calls in the same `loop()` iteration; store the
-  returned table in a local variable.
-- Use `/code` output for debugging, then reduce noisy `print()` calls once the
-  script works.
+- Keep `loop()` short; do not busy-wait.
+- Store a snapshot in a local variable instead of calling it repeatedly in one
+  iteration.
+- Use `next_event()` in a drain loop because it is non-blocking.
+- Use asynchronous commands for latency-sensitive MCU behavior.
+- Check `arm_connected`, snapshot `valid`, and optional capability flags.
+- Avoid creating large temporary strings or tables in tight loops.
+- Use `/code` logs while developing, then reduce noisy `print()` calls.

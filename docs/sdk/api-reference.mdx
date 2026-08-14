@@ -1,9 +1,50 @@
 ---
 title: API Reference
-description: Complete SDK reference for JavaScript, Python, and C++ clients.
+description: Complete reference for on-device Lua and JavaScript, Python, and C++ clients.
 ---
 
 This page documents the SDK surface area for all supported languages.
+
+## On-device Lua
+
+MCU Lua is a device-local API rather than a network SDK. Its complete data
+shapes, event payloads, constraints, and runnable examples are in the
+[On-Device Lua API](/docs/lua).
+
+Non-blocking snapshots:
+
+- `Mighty.info()`
+- `Mighty.state()` and the compact state helpers
+- `Mighty.pose()`
+- `Mighty.imu()`
+- `Mighty.tracker()` / `Mighty.tracker_status()`
+- `Mighty.recording_status()`
+- `Mighty.loop_closure_status()`
+- `Mighty.camera_sync_status()`
+- `Mighty.next_event()`
+
+Typed controls:
+
+- `Mighty.start_vio([timeout_ms])`
+- `Mighty.stop_vio([timeout_ms])`
+- `Mighty.start_recording([directory], [timeout_ms])`
+- `Mighty.start_imu_recording([directory], [timeout_ms])`
+- `Mighty.stop_recording([timeout_ms])`
+- `Mighty.set_loop_closure_enabled(enabled, [timeout_ms])`
+- `Mighty.reset_vio_pose(pose, [timeout_ms])`
+- `Mighty.start_tracker(rect, [timeout_ms])`
+- `Mighty.stop_tracker([timeout_ms])`
+- `Mighty.set_camera_sync_enabled(enabled, [timeout_ms])`
+
+Bounded generic controls:
+
+- `Mighty.command(name, [argument], [timeout_ms])`
+- `Mighty.command_async(name, [argument])`
+- `Mighty.command_result([request_id])`
+
+The generic command functions use a fixed whitelist; they are not an
+unrestricted protocol or shell bridge. Depth and large vision/configuration
+payloads are not exposed to MCU Lua.
 
 ## JavaScript SDK
 
@@ -311,6 +352,9 @@ type VioStateEvent = {
   memoryFreeBytes?: bigint;
   lightLevel01?: number;
   lightRequired01?: number;
+  translationConfidence01?: number;
+  translationObservability01?: number;
+  degradedReasonFlags?: number;
 };
 ```
 
@@ -320,6 +364,7 @@ type VioStateEvent = {
 type VizEvent =
   | { subtype: "features"; features: Array<{ x: number; y: number; status: number; id: number }>; rawPayload: Uint8Array }
   | { subtype: "detections"; detections: Array<{ x1: number; y1: number; x2: number; y2: number; label: string }>; rawPayload: Uint8Array }
+  | { subtype: "tracker"; timestampNs: bigint; detections: Array<{ x1: number; y1: number; x2: number; y2: number; label: string }>; rawPayload: Uint8Array }
   | { subtype: "matches"; matches: Array<{ x1: number; y1: number; x2: number; y2: number; confidence: number }>; rawPayload: Uint8Array }
   | { subtype: "unknown"; rawSubtype: number; rawPayload: Uint8Array };
 ```
@@ -657,6 +702,9 @@ or out-of-bounds samples.
   "memory_free_bytes": int,
   "light_level01": float,
   "light_required01": float,
+  "translation_confidence01": float,
+  "translation_observability01": float,
+  "degraded_reason_flags": int,
 }
 ```
 
@@ -1028,12 +1076,16 @@ struct VioStateFrame {
   std::optional<uint64_t> memory_free_bytes;
   std::optional<float> light_level01;
   std::optional<float> light_required01;
+  std::optional<float> translation_confidence01;
+  std::optional<float> translation_observability01;
+  std::optional<uint32_t> degraded_reason_flags;
   VioInitReasonCode init_reason = VioInitReasonCode::kNone;
 };
 
 struct VizFrame {
-  std::string subtype; // features | detections | matches | unknown
+  std::string subtype; // features | detections | matches | tracker | unknown
   uint8_t raw_subtype = 255;
+  uint64_t timestamp_ns = 0; // tracker subtype
   std::vector<VizFeature> features;
   std::vector<VizDetection> detections;
   std::vector<VizMatch> matches;

@@ -211,8 +211,16 @@ Version 6 appends:
 - `memory_free_bytes` (u64)
 
 Version 7 appends:
-- `light_level01` (f32): producer-defined raw image-quality actual value; Mighty VIO on Rockchip currently sends an AE-derived darkness/exposure-stress proxy, or `NaN` when unavailable
-- `light_required01` (f32): producer-defined raw requirement/limit value; Mighty VIO on Rockchip currently sends the darkness-proxy limit, or `NaN` when unavailable
+- `light_level01` (f32): producer-defined raw image-quality actual value, or
+  `NaN` when unavailable. Mighty VIO currently sends `NaN`; it does not invent
+  a nominal light value.
+- `light_required01` (f32): producer-defined requirement/limit, or `NaN` when
+  unavailable. Mighty VIO currently sends `NaN`.
+
+Version 8 appends:
+- `translation_confidence01` (f32)
+- `translation_observability01` (f32)
+- `degraded_reason_flags` (u32), using the `VioDegradedReasonFlag` bits
 
 Recommended state mapping:
 - `0=OFF, 1=INITIALIZING, 2=TRACKING, 3=DEGRADED, 4=LOST, 5=LOW_LIGHT, 6=RECOVERING`
@@ -272,9 +280,10 @@ Recommended init reason mapping:
   - `1`: detections (`x1`, `y1`, `x2`, `y2` as u16 image pixels, followed by a length-prefixed UTF-8 label)
   - `2`: matches
   - `3`: AprilTags (`id`, `hamming`, center, four corners)
-- Tracker results use subtype `1` with label `Tracker`. `VIZ ` itself is not
-  timestamped, so the device emits each tracker rectangle immediately after its
-  matching image on the same ordered stream.
+  - `4`: timestamped detections; an additional u64 timestamp precedes the
+    detection list
+- Tracker results use subtype `4` with label `Tracker`, so each rectangle carries
+  the timestamp of its matching primary-camera frame.
 
 #### `PCLD`
 - points: `(x,y,z,r,g,b)`
@@ -295,6 +304,7 @@ Recommended init reason mapping:
 
 Standard command names:
 - `device_id` / `device-id`: returns the device's stable permanent identifier as UTF-8 text in both the `CRES` message and data fields.
+- `start_vio` / `stop_vio`: start a fresh VIO session or return to preview.
 - `start_tracker`: starts the object tracker in preview mode. Data is exactly 8 bytes,
   four big-endian u16 values in primary-image pixels: `x`, `y`, `width`,
   `height`. The rectangle is clipped to the next primary camera frame and must
@@ -308,6 +318,12 @@ Standard command names:
   `on`/`enable`/`1`/`true`, `off`/`disable`/`0`/`false`, `toggle`, or
   `status`/`get`. Devices default this off. When enabled, accepted loops emit
   the single `loop_closure` event above and rebase subsequent `POSE` output.
+- `sync` / `camera_sync`: controls persisted camera synchronization. Data is
+  `on`, `off`, `toggle`, `status`, or `get`. Status distinguishes the requested
+  marker from the currently applied datasource mode and reports when restart is
+  pending.
+- `high_rate_imu`: controls high-rate pose propagation where supported. Data is
+  `on`, `off`, `toggle`, `status`, or `get`.
 
 #### `CFGQ`
 - `version` (u8)
