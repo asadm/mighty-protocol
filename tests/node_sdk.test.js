@@ -223,9 +223,39 @@ async function testLoopclosureConnectFailurePolicy() {
   }
 }
 
+async function testDefaultAlgorithmsModuleUrl() {
+  const originalLocation = Object.getOwnPropertyDescriptor(globalThis, "location");
+  Object.defineProperty(globalThis, "location", {
+    configurable: true,
+    value: {
+      origin: "https://device.test",
+      href: "https://device.test/viz",
+    },
+  });
+
+  try {
+    await assert.rejects(
+      proto.createAlgorithmsWasmModule(),
+      (error) => {
+        assert.strictEqual(error.code, "algorithms_module_not_found");
+        assert.strictEqual(error.moduleUrl, "https://device.test/mighty_algorithms.js");
+        return true;
+      },
+    );
+  } finally {
+    if (originalLocation) {
+      Object.defineProperty(globalThis, "location", originalLocation);
+    } else {
+      delete globalThis.location;
+    }
+  }
+}
+
 async function main() {
   assert.strictEqual(typeof proto.MightyClient, "function");
   assert.strictEqual(typeof proto.MightyWebDevice, "function");
+
+  await testDefaultAlgorithmsModuleUrl();
 
   const device = new MockDevice();
   const client = new proto.MightyClient(device, { autoReconnect: false });

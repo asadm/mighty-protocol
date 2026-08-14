@@ -2,7 +2,6 @@ import { RAW_FORMAT } from "../core/protocol.js";
 
 export const DEFAULT_ALGORITHMS_WASM_URL = "/mighty_algorithms.wasm";
 export const DEFAULT_ALGORITHMS_MODULE_URL = "/mighty_algorithms.js";
-const PACKAGED_ALGORITHMS_MODULE_URL = "../../lib/algorithms/wasm/lib/mighty_algorithms.js";
 
 const algorithmsModuleFactoryPromises = new Map();
 
@@ -22,9 +21,14 @@ function resolveRuntimeUrl(requestedUrl) {
 }
 
 async function loadAlgorithmsModuleFactory(requestedUrl = "") {
-  const moduleUrl = requestedUrl
-    ? resolveRuntimeUrl(requestedUrl)
-    : new URL(PACKAGED_ALGORITHMS_MODULE_URL, import.meta.url).href;
+  // Load the public runtime asset by default. A package-relative `new URL(...)`
+  // makes bundlers resolve the generated lib/algorithms tree during their
+  // build, even when an application supplies algorithmsModuleUrl at runtime.
+  // Source checkouts intentionally ignore that generated tree; callers that
+  // package it elsewhere can continue to provide moduleUrl or moduleFactory.
+  const moduleUrl = resolveRuntimeUrl(
+    requestedUrl || DEFAULT_ALGORITHMS_MODULE_URL,
+  );
   if (!algorithmsModuleFactoryPromises.has(moduleUrl)) {
     algorithmsModuleFactoryPromises.set(moduleUrl, (async () => {
       try {
