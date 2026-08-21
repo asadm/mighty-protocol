@@ -285,6 +285,24 @@ Recommended init reason mapping:
 - Tracker results use subtype `4` with label `Tracker`, so each rectangle carries
   the timestamp of its matching primary-camera frame.
 
+Tracker subtype `4` may append this 16-byte telemetry trailer after the
+detection list. The trailer is optional so older producers and consumers remain
+wire-compatible; existing decoders can ignore the trailing bytes.
+
+```text
+bytes[4] magic = "TRKR"
+u8       version = 1
+u8       state (0=STOPPED, 1=WAITING, 2=TRACKING, 3=ERROR, 4=LOST, 255=UNKNOWN)
+u16      flags (bit 0 = target reacquired on this result)
+f32      confidence01
+f32      search_scale (1.0 during normal tracking, >=1.0 while searching)
+```
+
+The JavaScript, C++, and Python SDKs expose this as tracker VIZ metadata with
+`state`, `confidence`, `searchScale` / `search_scale`, and `reacquired`. A LOST
+update normally has no detection rectangle; consumers can retain the last
+TRACKING rectangle if they want to visualize the last known location.
+
 #### `PCLD`
 - points: `(x,y,z,r,g,b)`
 - optional `point_size`
@@ -309,8 +327,8 @@ Standard command names:
   four big-endian u16 values in primary-image pixels: `x`, `y`, `width`,
   `height`. The rectangle is clipped to the next primary camera frame and must
   retain at least 2x2 pixels. Tracker mode and VIO are mutually exclusive.
-- `stop_tracker`: stops the object tracker and emits an empty detections `VIZ ` payload
-  to clear the current rectangle.
+- `stop_tracker`: stops the object tracker and emits a tracker `VIZ ` payload
+  with state `STOPPED` and no rectangle, clearing the current target.
 - `tracker_status`: returns the current tracker state and latest rectangle in
   the `CRES` message.
 - `reset_vio_pose`: rebases the public `POSE` output stream to a requested body pose by applying an output alignment transform on top of VIO. It does not mutate the internal VIO estimator state. Data uses the same binary layout as `POSE`: `poseType=0`, `positionM` is required, and `orientationXyzw` is optional through `poseFlags` bit 0. If orientation is omitted, firmware keeps the current output orientation and only jumps output position.

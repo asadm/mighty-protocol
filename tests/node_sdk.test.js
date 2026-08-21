@@ -265,6 +265,7 @@ async function main() {
     pose: 0,
     imu: 0,
     vsta: 0,
+    viz: 0,
     pcld: 0,
     lcon: 0,
     keyframe: 0,
@@ -277,6 +278,7 @@ async function main() {
   let lastImage = null;
   let lastPose = null;
   let lastVsta = null;
+  let lastViz = null;
   let lastPointCloud = null;
   let lastKeyframe = null;
   let lastEvent = null;
@@ -293,6 +295,10 @@ async function main() {
   client.onVioState((v) => {
     seen.vsta += 1;
     lastVsta = v;
+  });
+  client.onViz((viz) => {
+    seen.viz += 1;
+    lastViz = viz;
   });
   client.onPointCloud((p) => {
     seen.pcld += 1;
@@ -364,6 +370,17 @@ async function main() {
       proto.VIO_DEGRADED_REASON.LOW_PARALLAX_POSE_HOLD |
       proto.VIO_DEGRADED_REASON.STATIC_TRANSLATION_CONSTRAINED |
       proto.VIO_DEGRADED_REASON.ROTATION_ONLY_3DOF,
+  })));
+
+  device.emitPacket(proto.makePacket(proto.TYPE.VIZ, proto.buildVizPayload({
+    subtype: 4,
+    timestampNs: 14n,
+    detections: [],
+    tracker: {
+      state: "lost",
+      confidence: 0.27,
+      searchScale: 2.5,
+    },
   })));
 
   device.emitPacket(proto.makePacket(proto.TYPE.LCON, proto.buildConstraintsPayload([
@@ -489,6 +506,14 @@ async function main() {
       proto.VIO_DEGRADED_REASON.STATIC_TRANSLATION_CONSTRAINED |
       proto.VIO_DEGRADED_REASON.ROTATION_ONLY_3DOF,
   );
+  assert.strictEqual(seen.viz, 1);
+  assert.strictEqual(lastViz.subtype, "tracker");
+  assert.strictEqual(lastViz.timestampNs, 14n);
+  assert.strictEqual(lastViz.state, "lost");
+  assert.strictEqual(lastViz.stateCode, proto.TRACKER_STATE.LOST);
+  assert.ok(almost(lastViz.confidence, 0.27));
+  assert.ok(almost(lastViz.searchScale, 2.5));
+  assert.strictEqual(lastViz.reacquired, false);
   assert.strictEqual(seen.pcld, 1);
   assert.ok(Array.isArray(lastPointCloud.points));
   assert.strictEqual(lastPointCloud.points.length, 1);

@@ -354,6 +354,34 @@ struct VizAprilTag {
   std::array<float, 8> corners{};
 };
 
+enum class TrackerStateCode : uint8_t {
+  kStopped = 0,
+  kWaiting = 1,
+  kTracking = 2,
+  kError = 3,
+  kLost = 4,
+  kUnknown = 255,
+};
+
+inline const char* tracker_state_name(TrackerStateCode state) {
+  switch (state) {
+    case TrackerStateCode::kStopped: return "stopped";
+    case TrackerStateCode::kWaiting: return "waiting";
+    case TrackerStateCode::kTracking: return "tracking";
+    case TrackerStateCode::kError: return "error";
+    case TrackerStateCode::kLost: return "lost";
+    default: return "unknown";
+  }
+}
+
+struct TrackerTelemetry {
+  uint8_t version = 1;
+  TrackerStateCode state = TrackerStateCode::kUnknown;
+  float confidence = 0.0f;
+  float search_scale = 1.0f;
+  bool reacquired = false;
+};
+
 struct VizPayload {
   uint8_t subtype = 0; // 0=features,1=detections,2=matches,3=apriltags,4=timestamped tracker
   uint64_t timestamp_ns = 0;
@@ -361,6 +389,7 @@ struct VizPayload {
   std::vector<VizDetection> detections;
   std::vector<VizMatch> matches;
   std::vector<VizAprilTag> apriltags;
+  std::optional<TrackerTelemetry> tracker;
 };
 
 struct CommandRequest {
@@ -796,10 +825,15 @@ inline std::vector<uint8_t> build_constraints_payload(const std::vector<PoseCons
 }
 
 inline std::vector<uint8_t> build_viz_payload(const VizPayload& in) {
+  constexpr uint8_t kTrackerMagic[4] = {'T', 'R', 'K', 'R'};
+  constexpr size_t kTrackerTelemetryBytes = 16;
   std::vector<uint8_t> payload;
   payload.reserve(3 + (in.subtype == 4 ? 8 : 0) +
                   8 * (in.features.size() + in.detections.size() + in.matches.size()) +
-                  45 * in.apriltags.size());
+                  45 * in.apriltags.size() +
+                  ((in.subtype == 4 && in.tracker.has_value())
+                       ? kTrackerTelemetryBytes
+                       : 0));
   payload.push_back(in.subtype);
   uint8_t buf[8];
   const uint16_t count = (in.subtype == 0) ? static_cast<uint16_t>(in.features.size()) :
@@ -836,6 +870,26 @@ inline std::vector<uint8_t> build_viz_payload(const VizPayload& in) {
       const uint8_t ll = static_cast<uint8_t>(std::min<size_t>(255, d.label.size()));
       payload.push_back(ll);
       payload.insert(payload.end(), d.label.data(), d.label.data() + ll);
+    }
+    if (in.subtype == 4 && in.tracker.has_value()) {
+      const TrackerTelemetry& tracker = *in.tracker;
+      payload.insert(payload.end(), kTrackerMagic,
+                     kTrackerMagic + sizeof(kTrackerMagic));
+      payload.push_back(tracker.version == 0 ? 1 : tracker.version);
+      payload.push_back(static_cast<uint8_t>(tracker.state));
+      write_u16_be(buf, tracker.reacquired ? 1u : 0u);
+      payload.insert(payload.end(), buf, buf + 2);
+      float confidence = tracker.confidence;
+      if (!std::isfinite(confidence)) confidence = 0.0f;
+      confidence = std::clamp(confidence, 0.0f, 1.0f);
+      write_f32_be(buf, confidence);
+      payload.insert(payload.end(), buf, buf + 4);
+      float search_scale = tracker.search_scale;
+      if (!std::isfinite(search_scale) || search_scale < 1.0f) {
+        search_scale = 1.0f;
+      }
+      write_f32_be(buf, search_scale);
+      payload.insert(payload.end(), buf, buf + 4);
     }
   } else if (in.subtype == 2) {
     for (const auto& m : in.matches) {
@@ -1564,10 +1618,13 @@ inline bool decode_constraints_payload(const std::vector<uint8_t>& payload,
 }
 
 inline bool decode_viz_payload(const std::vector<uint8_t>& payload, VizPayload& out) {
+  constexpr uint8_t kTrackerMagic[4] = {'T', 'R', 'K', 'R'};
+  constexpr size_t kTrackerTelemetryBytes = 16;
   if (payload.size() < 3) return false;
   size_t off = 0;
   out.subtype = payload[off++];
   out.timestamp_ns = 0;
+  out.tracker.reset();
   uint16_t count = read_u16_be(payload.data() + off); off += 2;
   if (out.subtype == 0) {
     const size_t bytes_per = 2 + 2 + 1 + 2;
@@ -1601,6 +1658,26 @@ inline bool decode_viz_payload(const std::vector<uint8_t>& payload, VizPayload& 
       det.label.assign(reinterpret_cast<const char*>(payload.data() + off), ll);
       off += ll;
       out.detections.push_back(det);
+    }
+    if (out.subtype == 4 && off + kTrackerTelemetryBytes <= payload.size() &&
+        std::memcmp(payload.data() + off, kTrackerMagic,
+                    sizeof(kTrackerMagic)) == 0) {
+      TrackerTelemetry tracker;
+      tracker.version = payload[off + 4];
+      const uint8_t state_code = payload[off + 5];
+      tracker.state = state_code <= static_cast<uint8_t>(TrackerStateCode::kLost)
+                          ? static_cast<TrackerStateCode>(state_code)
+                          : TrackerStateCode::kUnknown;
+      const uint16_t flags = read_u16_be(payload.data() + off + 6);
+      tracker.reacquired = (flags & 1u) != 0;
+      tracker.confidence = read_f32_be(payload.data() + off + 8);
+      if (!std::isfinite(tracker.confidence)) tracker.confidence = 0.0f;
+      tracker.confidence = std::clamp(tracker.confidence, 0.0f, 1.0f);
+      tracker.search_scale = read_f32_be(payload.data() + off + 12);
+      if (!std::isfinite(tracker.search_scale) || tracker.search_scale < 1.0f) {
+        tracker.search_scale = 1.0f;
+      }
+      out.tracker = tracker;
     }
   } else if (out.subtype == 2) {
     const size_t bytes_per = 2 + 2 + 2 + 2 + 1;

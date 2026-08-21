@@ -536,6 +536,39 @@ int main(int argc, char** argv) {
       return 11;
     }
   }
+  {
+    VizPayload tracker_viz;
+    tracker_viz.subtype = 4;
+    tracker_viz.timestamp_ns = 1234567890123ull;
+    tracker_viz.detections.push_back(VizDetection{20, 30, 120, 90, "Tracker"});
+    TrackerTelemetry telemetry;
+    telemetry.state = TrackerStateCode::kLost;
+    telemetry.confidence = 0.27f;
+    telemetry.search_scale = 2.5f;
+    telemetry.reacquired = false;
+    tracker_viz.tracker = telemetry;
+
+    VizPayload decoded;
+    if (!decode_viz_payload(build_viz_payload(tracker_viz), decoded) ||
+        decoded.subtype != 4 ||
+        decoded.timestamp_ns != tracker_viz.timestamp_ns ||
+        decoded.detections.size() != 1 ||
+        !decoded.tracker.has_value() ||
+        decoded.tracker->state != TrackerStateCode::kLost ||
+        !approx(decoded.tracker->confidence, 0.27f, 1e-6) ||
+        !approx(decoded.tracker->search_scale, 2.5f, 1e-6) ||
+        decoded.tracker->reacquired) {
+      std::cerr << "tracker telemetry payload mismatch\n";
+      return 12;
+    }
+
+    tracker_viz.tracker.reset();
+    if (!decode_viz_payload(build_viz_payload(tracker_viz), decoded) ||
+        decoded.tracker.has_value()) {
+      std::cerr << "legacy tracker payload compatibility failed\n";
+      return 13;
+    }
+  }
   const auto outbound = build_sample_packets(sample);
 
   int server_fd = create_server(port);

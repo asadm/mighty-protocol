@@ -127,6 +127,7 @@ struct VizFrame {
   std::vector<VizFeature> features;
   std::vector<VizDetection> detections;
   std::vector<VizMatch> matches;
+  std::optional<TrackerTelemetry> tracker;
   std::vector<uint8_t> raw;
 };
 
@@ -1029,6 +1030,7 @@ class MightyClient {
             evt.subtype = "tracker";
             evt.timestamp_ns = decoded.timestamp_ns;
             evt.detections = std::move(decoded.detections);
+            evt.tracker = decoded.tracker;
           } else {
             evt.subtype = "unknown";
             evt.raw = frame.payload;

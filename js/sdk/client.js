@@ -13,6 +13,7 @@ import { parseCalibrationYaml } from "./calibration.js";
 export const VIO_STATE = protocol.VIO_STATE;
 export const VIO_DEGRADED_REASON = protocol.VIO_DEGRADED_REASON;
 export const VIO_INIT_REASON = protocol.VIO_INIT_REASON;
+export const TRACKER_STATE = protocol.TRACKER_STATE;
 
 const DEFAULT_OPTS = {
   commandTimeoutMs: 2000,
@@ -1016,6 +1017,12 @@ export class MightyClient {
             timestampNs: v.timestampNs ?? 0n,
             timestamp_ns: v.timestampNs ?? 0n,
             detections: v.detections || [],
+            tracker: v.tracker || null,
+            state: v.tracker?.state || "unknown",
+            stateCode: v.tracker?.stateCode ?? protocol.TRACKER_STATE.UNKNOWN,
+            confidence: v.tracker?.confidence ?? null,
+            searchScale: v.tracker?.searchScale ?? 1,
+            reacquired: !!v.tracker?.reacquired,
             rawPayload: toU8(frame.payload)
           };
           else mapped = { subtype: "unknown", rawSubtype: v.subtype, rawPayload: toU8(frame.payload) };

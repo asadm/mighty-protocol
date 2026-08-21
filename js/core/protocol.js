@@ -81,6 +81,41 @@ const VIO_STATE = {
   RECOVERING: 6,
 };
 
+const TRACKER_STATE = {
+  STOPPED: 0,
+  WAITING: 1,
+  TRACKING: 2,
+  ERROR: 3,
+  LOST: 4,
+  UNKNOWN: 255,
+};
+
+const TRACKER_TELEMETRY_MAGIC = new Uint8Array([0x54, 0x52, 0x4b, 0x52]); // TRKR
+const TRACKER_TELEMETRY_BYTES = 16;
+
+function trackerStateName(stateCode) {
+  switch (Number(stateCode)) {
+    case TRACKER_STATE.STOPPED: return "stopped";
+    case TRACKER_STATE.WAITING: return "waiting";
+    case TRACKER_STATE.TRACKING: return "tracking";
+    case TRACKER_STATE.ERROR: return "error";
+    case TRACKER_STATE.LOST: return "lost";
+    default: return "unknown";
+  }
+}
+
+function trackerStateCode(value) {
+  if (Number.isInteger(value)) {
+    return value >= TRACKER_STATE.STOPPED && value <= TRACKER_STATE.LOST
+      ? value
+      : TRACKER_STATE.UNKNOWN;
+  }
+  const key = String(value || "").trim().toUpperCase();
+  return Object.prototype.hasOwnProperty.call(TRACKER_STATE, key)
+    ? TRACKER_STATE[key]
+    : TRACKER_STATE.UNKNOWN;
+}
+
 const VIO_DEGRADED_REASON = {
   LOW_TRACKING: 1 << 0,
   LOW_TRANSLATION_OBSERVABILITY: 1 << 1,
@@ -544,6 +579,9 @@ function buildConstraintsPayload(segments = []) {
 
 function buildVizPayload(viz) {
   const subtype = viz.subtype ?? 0;
+  const tracker = subtype === 4 && viz.tracker && typeof viz.tracker === "object"
+    ? viz.tracker
+    : null;
   let body = new Uint8Array();
   if (subtype === 0) {
     body = new Uint8Array(viz.features.length * (2 + 2 + 1 + 2));
@@ -557,7 +595,7 @@ function buildVizPayload(viz) {
     }
   } else if (subtype === 1 || subtype === 4) {
     const parts = [];
-    let total = subtype === 4 ? 8 : 0;
+    let total = (subtype === 4 ? 8 : 0) + (tracker ? TRACKER_TELEMETRY_BYTES : 0);
     for (const d of viz.detections) {
       const lbl = (textEncoder || new TextEncoder()).encode(d.label || "");
       const ll = Math.min(255, lbl.length);
@@ -581,6 +619,26 @@ function buildVizPayload(viz) {
       off = 8;
     }
     for (const p of parts) { body.set(p, off); off += p.length; }
+    if (tracker) {
+      body.set(TRACKER_TELEMETRY_MAGIC, off);
+      const dv = new DataView(body.buffer, body.byteOffset, body.byteLength);
+      dv.setUint8(off + 4, Math.max(1, Math.min(255, Number(tracker.version) || 1)));
+      dv.setUint8(
+        off + 5,
+        trackerStateCode(tracker.stateCode ?? tracker.state_code ?? tracker.state),
+      );
+      dv.setUint16(off + 6, tracker.reacquired ? 1 : 0, false);
+      const rawConfidence = Number(tracker.confidence ?? tracker.score ?? 0);
+      const confidence = Number.isFinite(rawConfidence)
+        ? Math.max(0, Math.min(1, rawConfidence))
+        : 0;
+      dv.setFloat32(off + 8, confidence, false);
+      const rawSearchScale = Number(tracker.searchScale ?? tracker.search_scale ?? 1);
+      const searchScale = Number.isFinite(rawSearchScale) && rawSearchScale >= 1
+        ? rawSearchScale
+        : 1;
+      dv.setFloat32(off + 12, searchScale, false);
+    }
   } else if (subtype === 2) {
     body = new Uint8Array(viz.matches.length * (2 + 2 + 2 + 2 + 1));
     const dv = new DataView(body.buffer, body.byteOffset, body.byteLength);
@@ -1242,8 +1300,40 @@ function decodeVizPayload(payload) {
       const label = (textDecoder || new TextDecoder()).decode(u8.subarray(off, off + ll)); off += ll;
       detections.push({ x1, y1, x2, y2, label });
     }
+    let tracker = null;
+    if (
+      subtype === 4
+      && off + TRACKER_TELEMETRY_BYTES <= u8.length
+      && arraysEqual(
+        u8.subarray(off, off + TRACKER_TELEMETRY_MAGIC.length),
+        TRACKER_TELEMETRY_MAGIC,
+      )
+    ) {
+      const version = readU8(u8, off + 4);
+      const rawStateCode = readU8(u8, off + 5);
+      const stateCode = trackerStateCode(rawStateCode);
+      const flags = readU16BE(u8, off + 6);
+      const rawConfidence = readF32BE(u8, off + 8);
+      const rawSearchScale = readF32BE(u8, off + 12);
+      tracker = {
+        version,
+        state: trackerStateName(stateCode),
+        stateCode,
+        state_code: stateCode,
+        confidence: Number.isFinite(rawConfidence)
+          ? Math.max(0, Math.min(1, rawConfidence))
+          : 0,
+        searchScale: Number.isFinite(rawSearchScale) && rawSearchScale >= 1
+          ? rawSearchScale
+          : 1,
+        search_scale: Number.isFinite(rawSearchScale) && rawSearchScale >= 1
+          ? rawSearchScale
+          : 1,
+        reacquired: (flags & 1) !== 0,
+      };
+    }
     return subtype === 4
-      ? { subtype, timestampNs, timestamp_ns: timestampNs, detections }
+      ? { subtype, timestampNs, timestamp_ns: timestampNs, detections, tracker }
       : { subtype, detections };
   }
   if (subtype === 2) {
@@ -1647,9 +1737,11 @@ const api = {
   DEPTH_FLAG_RECTIFIED,
   CONFIG_OP,
   VIO_STATE,
+  TRACKER_STATE,
   VIO_DEGRADED_REASON,
   VIO_INIT_REASON,
   KEYFRAME_FLAG_LOCAL_FEATURES,
+  trackerStateName,
   HEADER_MAGIC,
   FOOTER_MAGIC,
   makePacket,
@@ -1709,9 +1801,11 @@ export {
   DEPTH_FLAG_RECTIFIED,
   CONFIG_OP,
   VIO_STATE,
+  TRACKER_STATE,
   VIO_DEGRADED_REASON,
   VIO_INIT_REASON,
   KEYFRAME_FLAG_LOCAL_FEATURES,
+  trackerStateName,
   HEADER_MAGIC,
   FOOTER_MAGIC,
   makePacket,

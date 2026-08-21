@@ -8,9 +8,10 @@ HERE = os.path.dirname(__file__)
 sys.path.append(os.path.join(HERE, "..", "python"))
 
 import mighty_protocol as mp  # noqa: E402
-from mighty_sdk import MightyClient  # noqa: E402
+from mighty_sdk import MightyClient, TRACKER_STATE  # noqa: E402
 
 assert mp.VIO_STATE["RECOVERING"] == 6
+assert TRACKER_STATE["LOST"] == 4
 
 
 def build_pose_payload(
@@ -216,6 +217,7 @@ def main():
         "pose": 0,
         "imu": 0,
         "vsta": 0,
+        "viz": 0,
         "lcon": 0,
         "keyframe": 0,
         "event": 0,
@@ -225,12 +227,13 @@ def main():
         "error": 0,
     }
 
-    last = {"image": None, "pose": None, "vsta": None, "keyframe": None, "event": None}
+    last = {"image": None, "pose": None, "vsta": None, "viz": None, "keyframe": None, "event": None}
 
     client.on_image(lambda v: (seen.__setitem__("image", seen["image"] + 1), last.__setitem__("image", v)))
     client.on_pose(lambda v: (seen.__setitem__("pose", seen["pose"] + 1), last.__setitem__("pose", v)))
     client.on_imu(lambda _: seen.__setitem__("imu", seen["imu"] + 1))
     client.on_vio_state(lambda v: (seen.__setitem__("vsta", seen["vsta"] + 1), last.__setitem__("vsta", v)))
+    client.on_viz(lambda v: (seen.__setitem__("viz", seen["viz"] + 1), last.__setitem__("viz", v)))
     client.on_lcon(lambda _: seen.__setitem__("lcon", seen["lcon"] + 1))
     client.on_keyframe(lambda v: (seen.__setitem__("keyframe", seen["keyframe"] + 1), last.__setitem__("keyframe", v)))
     client.on_event(lambda v: (seen.__setitem__("event", seen["event"] + 1), last.__setitem__("event", v)))
@@ -267,6 +270,13 @@ def main():
 
     device.emit_packet(mp.make_packet(mp.TYPE["VSTA"], build_vsta_payload()))
 
+    tracker_payload = (
+        struct.pack(">BHQ", 4, 0, 14)
+        + b"TRKR"
+        + struct.pack(">BBHff", 1, mp.TRACKER_STATE["LOST"], 0, 0.27, 2.5)
+    )
+    device.emit_packet(mp.make_packet(mp.TYPE["VIZ"], tracker_payload))
+
     device.emit_packet(mp.make_packet(mp.TYPE["LCON"], build_lcon_payload()))
 
     device.emit_packet(mp.make_packet(mp.TYPE["KEYF"], mp.build_keyframe_payload(
@@ -297,7 +307,7 @@ def main():
     device.emit_packet(mp.make_packet(mp.TYPE["RSET"]))
     device.emit_packet(mp.make_packet(b"ZZZZ", b"\xaa"))
 
-    assert wait_until(lambda: seen["any"] >= 10)
+    assert wait_until(lambda: seen["any"] >= 11)
 
     assert seen["image"] == 1
     assert seen["pose"] == 1
@@ -312,6 +322,13 @@ def main():
         mp.VIO_DEGRADED_REASON["STATIC_TRANSLATION_CONSTRAINED"] |
         mp.VIO_DEGRADED_REASON["ROTATION_ONLY_3DOF"]
     )
+    assert seen["viz"] == 1
+    assert last["viz"]["subtype"] == "tracker"
+    assert last["viz"]["timestamp_ns"] == 14
+    assert last["viz"]["state"] == "lost"
+    assert last["viz"]["state_code"] == mp.TRACKER_STATE["LOST"]
+    assert abs(float(last["viz"]["confidence"]) - 0.27) < 1e-6
+    assert abs(float(last["viz"]["search_scale"]) - 2.5) < 1e-6
     assert seen["lcon"] == 1
     assert seen["keyframe"] == 1
     assert last["keyframe"]["timestamp_ns"] == 14

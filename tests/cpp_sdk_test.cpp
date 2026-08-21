@@ -231,6 +231,7 @@ int main() {
     std::atomic<int> pose{0};
     std::atomic<int> imu{0};
     std::atomic<int> vsta{0};
+    std::atomic<int> viz{0};
     std::atomic<int> lcon{0};
     std::atomic<int> keyframe{0};
     std::atomic<int> status{0};
@@ -243,6 +244,7 @@ int main() {
   std::optional<ImageFrame> last_image;
   std::optional<PoseFrame> last_pose;
   std::optional<VioStateFrame> last_vsta;
+  std::optional<VizFrame> last_viz;
   std::optional<KeyframeEvent> last_keyframe;
   std::optional<DeviceEvent> last_event;
 
@@ -258,6 +260,10 @@ int main() {
   client.on_vio_state([&](const VioStateFrame& v) {
     seen.vsta.fetch_add(1);
     last_vsta = v;
+  });
+  client.on_viz([&](const VizFrame& viz) {
+    seen.viz.fetch_add(1);
+    last_viz = viz;
   });
   client.on_lcon([&](const LconFrame&) { seen.lcon.fetch_add(1); });
   client.on_keyframe([&](const KeyframeEvent& k) {
@@ -339,6 +345,16 @@ int main() {
       kStaticTranslationConstrained | kRotationOnly3Dof;
   device->emit_packet(make_packet(build_vio_state_payload(vsta), TYPE_VSTA));
 
+  VizPayload tracker_viz;
+  tracker_viz.subtype = 4;
+  tracker_viz.timestamp_ns = 14;
+  TrackerTelemetry tracker_telemetry;
+  tracker_telemetry.state = TrackerStateCode::kLost;
+  tracker_telemetry.confidence = 0.27f;
+  tracker_telemetry.search_scale = 2.5f;
+  tracker_viz.tracker = tracker_telemetry;
+  device->emit_packet(make_packet(build_viz_payload(tracker_viz), TYPE_VIZ));
+
   PoseConstraintSegment seg;
   seg.type = 1;
   seg.start[0] = 0.0f; seg.start[1] = 0.0f; seg.start[2] = 0.0f;
@@ -366,7 +382,7 @@ int main() {
   device->emit_packet(make_packet(nullptr, 0, TYPE_RSET));
   device->emit_packet(make_packet(std::vector<uint8_t>{0xAA}, "ZZZZ"));
 
-  assert(wait_until([&]() { return seen.any.load() >= 10; }, 2000));
+  assert(wait_until([&]() { return seen.any.load() >= 11; }, 2000));
 
   assert(seen.image.load() == 1);
   assert(last_image.has_value());
@@ -416,6 +432,14 @@ int main() {
   assert(last_vsta->degraded_reason_flags.value() ==
          (kDegradedLowTranslationObservability | kDegradedLowParallaxPoseHold |
           kStaticTranslationConstrained | kRotationOnly3Dof));
+  assert(seen.viz.load() == 1);
+  assert(last_viz.has_value());
+  assert(last_viz->subtype == "tracker");
+  assert(last_viz->timestamp_ns == 14);
+  assert(last_viz->tracker.has_value());
+  assert(last_viz->tracker->state == TrackerStateCode::kLost);
+  assert(approx(last_viz->tracker->confidence, 0.27f, 1e-6));
+  assert(approx(last_viz->tracker->search_scale, 2.5f, 1e-6));
   assert(seen.lcon.load() == 1);
   assert(seen.keyframe.load() == 1);
   assert(last_keyframe.has_value());

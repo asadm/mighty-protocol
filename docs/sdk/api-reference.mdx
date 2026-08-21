@@ -46,6 +46,90 @@ The generic command functions use a fixed whitelist; they are not an
 unrestricted protocol or shell bridge. Depth and large vision/configuration
 payloads are not exposed to MCU Lua.
 
+## Tracker telemetry and LOST behavior
+
+The JavaScript, Python, and C++ network SDKs deliver tracker telemetry through
+the VIZ subscription. State values are stable across the three SDKs:
+
+| Code | State | Meaning |
+| ---: | --- | --- |
+| `0` | `stopped` | No tracker session is active. |
+| `1` | `waiting` | Start was accepted; the tracker is waiting for its first camera result. |
+| `2` | `tracking` | A current target rectangle is available. |
+| `3` | `error` | Tracking stopped because initialization, inference, or frame validation failed. |
+| `4` | `lost` | Inference continues, but no candidate is trusted as the target. |
+| `255` | `unknown` | The state is unavailable or not recognized. |
+
+Current Mighty NanoTrack firmware uses this default state machine on both host
+ONNX and device RKNN paths:
+
+1. Initialization extracts ORB features from a centered ellipse inside the
+   selected box. If at least 12 are available, ORB becomes the identity gate.
+2. While TRACKING, NanoTrack runs on every frame. Two consecutive low raw
+   scores enter LOST without running ORB.
+3. Every 10 high-score proposals, ORB checks the box against the latest trusted
+   appearance plus a bounded bank. A verified sample is retained; a high Nano
+   score alone never updates the bank. Low-texture samples cast no identity
+   vote. Two failed periodic identity checks enter LOST and freeze the last
+   accepted box; unchecked frames do not clear that failure streak. Tracking
+   samples use a 300-feature, four-level extractor; the 2,000-feature,
+   eight-level full-frame extractor is reserved for LOST.
+4. LOST runs image-wide ORB detection with up to 2,000 features and matches all
+   retained views using Hamming distance, nearest/second ratio, mutual-nearest,
+   and affine-RANSAC checks. Two geometrically consistent detections are
+   required to reacquire.
+5. On reacquisition, Mighty refreshes NanoTrack's model template at the found
+   rectangle, retains the new ORB view, resumes TRACKING, and sets `reacquired`
+   for that result only.
+6. If the initial box is too textureless for ORB, or ORB is disabled, the
+   previous NanoTrack-score and expanding-local-search policy remains the
+   fallback.
+
+ORB is best suited to textured, mostly rigid targets. Deformable, textureless,
+or strongly viewpoint-changing targets may remain LOST and may require a
+learned verifier.
+
+Tracker VIZ fields have these semantics:
+
+- `confidence` is normally NanoTrack's raw positive-class score during
+  TRACKING. On a periodic ORB check it is the ORB identity quality, or zero for
+  a definite identity mismatch. During LOST it is nonzero only when the
+  full-frame search has a geometrically valid candidate. None of these forms
+  is a calibrated probability that identity is correct. A UI percentage is
+  `round(confidence * 100)`.
+- `searchScale` / `search_scale` is the crop scale used for that result. It is
+  `1.0` in ORB-gated mode because LOST search is image-wide. It grows only in
+  the NanoTrack-only fallback mode.
+- `reacquired` is a one-result pulse, not a persistent state.
+- `detections` contains the current `Tracker` rectangle while TRACKING. It is
+  empty for WAITING, LOST, ERROR, and STOPPED. Applications may retain the last
+  TRACKING rectangle solely to visualize the last known location.
+- LOST updates continue on every processed inference result, carrying the
+  latest confidence and search scale. The device-local `tracker_lost` lifecycle
+  event is emitted only when entering LOST.
+- Older subtype-4 producers may omit structured tracker telemetry. In that
+  case JavaScript/Python expose `tracker: null` and an `unknown` convenience
+  state; C++ leaves `VizFrame::tracker` empty.
+
+The thresholds and search behavior are firmware-side settings, not SDK calls.
+Their environment overrides are `MIGHTY_TRACKER_LOST_CONFIDENCE`,
+`MIGHTY_TRACKER_REACQUIRE_CONFIDENCE`, `MIGHTY_TRACKER_LOST_FRAMES`,
+`MIGHTY_TRACKER_REACQUIRE_FRAMES`, `MIGHTY_TRACKER_SEARCH_EXPAND_STEP`,
+`MIGHTY_TRACKER_MAX_SEARCH_SCALE`, and
+`MIGHTY_TRACKER_LOST_WINDOW_INFLUENCE`. ORB re-detection is controlled by
+`MIGHTY_TRACKER_ORB_REACQUIRE`, `MIGHTY_TRACKER_ORB_MAX_FEATURES`,
+`MIGHTY_TRACKER_ORB_FAST_THRESHOLD`, `MIGHTY_TRACKER_ORB_SCAN_INTERVAL`,
+`MIGHTY_TRACKER_ORB_TEMPLATE_INTERVAL`,
+`MIGHTY_TRACKER_ORB_TRACKING_FAILURES`, `MIGHTY_TRACKER_ORB_MAX_TEMPLATES`,
+`MIGHTY_TRACKER_ORB_MIN_TEMPLATE_FEATURES`,
+`MIGHTY_TRACKER_ORB_MIN_MATCHES`, `MIGHTY_TRACKER_ORB_MIN_INLIERS`,
+`MIGHTY_TRACKER_ORB_CONFIRM_DETECTIONS`, `MIGHTY_TRACKER_ORB_RATIO_TEST`,
+`MIGHTY_TRACKER_ORB_MAX_HAMMING`,
+`MIGHTY_TRACKER_ORB_MIN_INLIER_RATIO`, `MIGHTY_TRACKER_ORB_RANSAC_PX`,
+`MIGHTY_TRACKER_ORB_MIN_INLIER_SPAN`, `MIGHTY_TRACKER_ORB_MIN_SCALE`,
+`MIGHTY_TRACKER_ORB_MAX_SCALE`, and
+`MIGHTY_TRACKER_ORB_MIN_VISIBLE_FRACTION`.
+
 ## JavaScript SDK
 
 ```js
@@ -53,6 +137,7 @@ import {
   MightyClient,
   MightyWebDevice,
   DEFAULT_BASE_URLS,
+  TRACKER_STATE,
   decodeRawToRgb,
   depthAtMeters,
   parseCalibrationYaml,
@@ -65,6 +150,7 @@ import {
 - `MightyClient`
 - `MightyWebDevice`
 - `DEFAULT_BASE_URLS: string[]`
+- `TRACKER_STATE: { STOPPED: 0, WAITING: 1, TRACKING: 2, ERROR: 3, LOST: 4, UNKNOWN: 255 }`
 - `decodeRawToRgb(frame, rawFormat?)`
 - `depthAtMeters(depth, x, y)`
 - `parseCalibrationYaml(yaml)`
@@ -364,7 +450,26 @@ type VioStateEvent = {
 type VizEvent =
   | { subtype: "features"; features: Array<{ x: number; y: number; status: number; id: number }>; rawPayload: Uint8Array }
   | { subtype: "detections"; detections: Array<{ x1: number; y1: number; x2: number; y2: number; label: string }>; rawPayload: Uint8Array }
-  | { subtype: "tracker"; timestampNs: bigint; detections: Array<{ x1: number; y1: number; x2: number; y2: number; label: string }>; rawPayload: Uint8Array }
+  | {
+      subtype: "tracker";
+      timestampNs: bigint;
+      timestamp_ns: bigint;
+      detections: Array<{ x1: number; y1: number; x2: number; y2: number; label: string }>;
+      tracker: {
+        version: number;
+        state: "stopped" | "waiting" | "tracking" | "error" | "lost" | "unknown";
+        stateCode: number;
+        confidence: number;
+        searchScale: number;
+        reacquired: boolean;
+      } | null;
+      state: string;
+      stateCode: number;
+      confidence: number | null;
+      searchScale: number;
+      reacquired: boolean;
+      rawPayload: Uint8Array;
+    }
   | { subtype: "matches"; matches: Array<{ x1: number; y1: number; x2: number; y2: number; confidence: number }>; rawPayload: Uint8Array }
   | { subtype: "unknown"; rawSubtype: number; rawPayload: Uint8Array };
 ```
@@ -450,11 +555,15 @@ decodeRawToRgb(
 from mighty_sdk import (
     MightyClient,
     MightyWebDevice,
+    TRACKER_STATE,
     depth_at_meters,
     parse_calibration_yaml,
     rectify_image_to_depth,
 )
 ```
+
+`TRACKER_STATE` maps `STOPPED`, `WAITING`, `TRACKING`, `ERROR`, `LOST`, and
+`UNKNOWN` to the stable numeric values documented above.
 
 ### `MightyWebDevice`
 
@@ -734,6 +843,26 @@ or out-of-bounds samples.
 
 # subtype == "detections"
 {"subtype": "detections", "detections": list[{"x1": int, "y1": int, "x2": int, "y2": int, "label": str}]}
+
+# subtype == "tracker"
+{
+    "subtype": "tracker",
+    "timestamp_ns": int,
+    "detections": list[{"x1": int, "y1": int, "x2": int, "y2": int, "label": str}],
+    "tracker": {
+        "version": int,
+        "state": str,
+        "state_code": int,
+        "confidence": float,
+        "search_scale": float,
+        "reacquired": bool,
+    } | None,
+    "state": str,
+    "state_code": int,
+    "confidence": float | None,
+    "search_scale": float,
+    "reacquired": bool,
+}
 
 # subtype == "matches"
 {"subtype": "matches", "matches": list[{"x1": int, "y1": int, "x2": int, "y2": int, "confidence": int}]}
@@ -1082,6 +1211,19 @@ struct VioStateFrame {
   VioInitReasonCode init_reason = VioInitReasonCode::kNone;
 };
 
+enum class TrackerStateCode : uint8_t {
+  kStopped = 0, kWaiting = 1, kTracking = 2,
+  kError = 3, kLost = 4, kUnknown = 255,
+};
+
+struct TrackerTelemetry {
+  uint8_t version = 1;
+  TrackerStateCode state = TrackerStateCode::kUnknown;
+  float confidence = 0.0f;
+  float search_scale = 1.0f;
+  bool reacquired = false;
+};
+
 struct VizFrame {
   std::string subtype; // features | detections | matches | tracker | unknown
   uint8_t raw_subtype = 255;
@@ -1089,6 +1231,7 @@ struct VizFrame {
   std::vector<VizFeature> features;
   std::vector<VizDetection> detections;
   std::vector<VizMatch> matches;
+  std::optional<TrackerTelemetry> tracker;
   std::vector<uint8_t> raw;
 };
 

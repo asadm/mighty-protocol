@@ -1,5 +1,11 @@
 from .calibration import parse_calibration_yaml
-from .client import MightyClient, VIO_STATE, VIO_DEGRADED_REASON, VIO_INIT_REASON
+from .client import (
+    MightyClient,
+    TRACKER_STATE,
+    VIO_STATE,
+    VIO_DEGRADED_REASON,
+    VIO_INIT_REASON,
+)
 from .depth import RgbdSynchronizer, depth_at_meters, rectify_image_to_depth
 from .loopclosure import LoopClosureError, NativeLoopClosure
 from .web_device import MightyWebDevice
@@ -10,6 +16,7 @@ __all__ = [
     "MightyWebDevice",
     "NativeLoopClosure",
     "RgbdSynchronizer",
+    "TRACKER_STATE",
     "VIO_STATE",
     "VIO_DEGRADED_REASON",
     "VIO_INIT_REASON",

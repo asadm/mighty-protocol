@@ -47,6 +47,26 @@ VIO_STATE = {
     "RECOVERING": 6,
 }
 
+TRACKER_STATE = {
+    "STOPPED": 0,
+    "WAITING": 1,
+    "TRACKING": 2,
+    "ERROR": 3,
+    "LOST": 4,
+    "UNKNOWN": 255,
+}
+
+_TRACKER_STATE_NAMES = {
+    value: name.lower()
+    for name, value in TRACKER_STATE.items()
+}
+_TRACKER_TELEMETRY_MAGIC = b"TRKR"
+_TRACKER_TELEMETRY_BYTES = 16
+
+
+def tracker_state_name(state_code: int) -> str:
+    return _TRACKER_STATE_NAMES.get(int(state_code), "unknown")
+
 VIO_DEGRADED_REASON = {
     "LOW_TRACKING": 1 << 0,
     "LOW_TRANSLATION_OBSERVABILITY": 1 << 1,
@@ -521,14 +541,59 @@ def decode_viz_payload(payload: bytes):
             off += 7
             feats.append({"x": x, "y": y, "status": status, "id": fid})
         return {"subtype": subtype, "features": feats}
-    if subtype == 1:
+    if subtype in (1, 4):
+        timestamp_ns = 0
+        if subtype == 4:
+            if off + 8 > len(payload):
+                raise ValueError("tracker timestamp missing")
+            timestamp_ns = struct.unpack(">Q", payload[off:off+8])[0]
+            off += 8
         dets = []
         for _ in range(count):
+            if off + 9 > len(payload):
+                raise ValueError("tracker detection truncated")
             x1, y1, x2, y2 = struct.unpack(">HHHH", payload[off:off+8]); off += 8
             ll = payload[off]; off += 1
+            if off + ll > len(payload):
+                raise ValueError("tracker label truncated")
             label = payload[off:off+ll].decode("utf-8"); off += ll
             dets.append({"x1": x1, "y1": y1, "x2": x2, "y2": y2, "label": label})
-        return {"subtype": subtype, "detections": dets}
+        if subtype == 1:
+            return {"subtype": subtype, "detections": dets}
+
+        tracker = None
+        if (
+            off + _TRACKER_TELEMETRY_BYTES <= len(payload)
+            and payload[off:off+4] == _TRACKER_TELEMETRY_MAGIC
+        ):
+            version = payload[off + 4]
+            raw_state_code = payload[off + 5]
+            state_code = (
+                raw_state_code
+                if raw_state_code <= TRACKER_STATE["LOST"]
+                else TRACKER_STATE["UNKNOWN"]
+            )
+            flags = struct.unpack(">H", payload[off+6:off+8])[0]
+            confidence, search_scale = struct.unpack(">ff", payload[off+8:off+16])
+            if not math.isfinite(confidence):
+                confidence = 0.0
+            confidence = min(1.0, max(0.0, float(confidence)))
+            if not math.isfinite(search_scale) or search_scale < 1.0:
+                search_scale = 1.0
+            tracker = {
+                "version": version,
+                "state": tracker_state_name(state_code),
+                "state_code": state_code,
+                "confidence": confidence,
+                "search_scale": float(search_scale),
+                "reacquired": bool(flags & 1),
+            }
+        return {
+            "subtype": subtype,
+            "timestamp_ns": timestamp_ns,
+            "detections": dets,
+            "tracker": tracker,
+        }
     if subtype == 2:
         matches = []
         for _ in range(count):

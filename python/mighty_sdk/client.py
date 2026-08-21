@@ -26,6 +26,7 @@ DEFAULT_OPTS = {
 VIO_STATE = mp.VIO_STATE
 VIO_DEGRADED_REASON = mp.VIO_DEGRADED_REASON
 VIO_INIT_REASON = mp.VIO_INIT_REASON
+TRACKER_STATE = mp.TRACKER_STATE
 
 
 class MightyClient:
@@ -623,6 +624,21 @@ class MightyClient:
                 elif subtype == 3:
                     tags = v.get("apriltags", v.get("tags", []))
                     mapped = {"subtype": "apriltags", "apriltags": tags, "tags": tags}
+                elif subtype == 4:
+                    tracker = v.get("tracker")
+                    mapped = {
+                        "subtype": "tracker",
+                        "timestamp_ns": v.get("timestamp_ns", 0),
+                        "detections": v.get("detections", []),
+                        "tracker": tracker,
+                        "state": (tracker or {}).get("state", "unknown"),
+                        "state_code": (tracker or {}).get(
+                            "state_code", mp.TRACKER_STATE["UNKNOWN"]
+                        ),
+                        "confidence": (tracker or {}).get("confidence"),
+                        "search_scale": (tracker or {}).get("search_scale", 1.0),
+                        "reacquired": bool((tracker or {}).get("reacquired", False)),
+                    }
                 else:
                     mapped = {"subtype": "unknown", "raw_subtype": subtype, "raw": to_bytes(payload)}
                 self._emit("viz", mapped)

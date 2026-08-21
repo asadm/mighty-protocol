@@ -89,7 +89,9 @@ Always print the response message when `ok` is false.
 
 The object tracker runs in preview mode and keeps the normal camera stream active. Pass
 the initial rectangle in primary-image pixels; tracker output arrives through
-`onViz` / `on_viz` as a `detections` event labeled `Tracker`.
+`onViz` / `on_viz` as a `tracker` event. It includes the lifecycle state and a
+`confidence` value from `0` to `1`; LOST events have no current rectangle while
+the device searches for the target.
 
 ```python
 res = client.start_tracker(x=180, y=100, width=120, height=100)

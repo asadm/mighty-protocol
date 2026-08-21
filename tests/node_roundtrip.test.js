@@ -452,11 +452,29 @@ async function main() {
     subtype: 4,
     timestampNs: 1234567890123n,
     detections: [{ x1: 20, y1: 30, x2: 120, y2: 90, label: "Tracker" }],
+    tracker: {
+      state: "lost",
+      confidence: 0.27,
+      searchScale: 2.5,
+      reacquired: false,
+    },
   };
   const decodedTrackerViz = proto.decodeVizPayload(proto.buildVizPayload(trackerViz));
   assert.strictEqual(decodedTrackerViz.subtype, 4);
   assert.strictEqual(decodedTrackerViz.timestampNs, trackerViz.timestampNs);
   assert.deepStrictEqual(decodedTrackerViz.detections, trackerViz.detections);
+  assert.strictEqual(decodedTrackerViz.tracker.state, "lost");
+  assert.strictEqual(decodedTrackerViz.tracker.stateCode, proto.TRACKER_STATE.LOST);
+  assert.ok(Math.abs(decodedTrackerViz.tracker.confidence - 0.27) < 1e-6);
+  assert.ok(Math.abs(decodedTrackerViz.tracker.searchScale - 2.5) < 1e-6);
+  assert.strictEqual(decodedTrackerViz.tracker.reacquired, false);
+
+  const legacyTrackerViz = proto.decodeVizPayload(proto.buildVizPayload({
+    subtype: 4,
+    timestampNs: 9n,
+    detections: [],
+  }));
+  assert.strictEqual(legacyTrackerViz.tracker, null);
 
   const packets = buildPackets();
   const port = randomPort();

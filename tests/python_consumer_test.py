@@ -3,6 +3,7 @@ import os
 import sys
 import random
 import secrets
+import struct
 
 HERE = os.path.dirname(__file__)
 sys.path.append(os.path.join(HERE, "..", "python"))
@@ -330,6 +331,22 @@ def main():
         raise AssertionError("zero-size tracker rectangle was accepted")
     except ValueError:
         pass
+
+    tracker_payload = (
+        struct.pack(">BHQ", 4, 0, 1234567890123)
+        + b"TRKR"
+        + struct.pack(">BBHff", 1, mp.TRACKER_STATE["LOST"], 0, 0.27, 2.5)
+    )
+    tracker_viz = mp.decode_viz_payload(tracker_payload)
+    assert tracker_viz["timestamp_ns"] == 1234567890123
+    assert tracker_viz["detections"] == []
+    assert tracker_viz["tracker"]["state"] == "lost"
+    assert tracker_viz["tracker"]["state_code"] == mp.TRACKER_STATE["LOST"]
+    assert almost(tracker_viz["tracker"]["confidence"], 0.27, 1e-6)
+    assert almost(tracker_viz["tracker"]["search_scale"], 2.5, 1e-6)
+
+    legacy_tracker_viz = mp.decode_viz_payload(struct.pack(">BHQ", 4, 0, 9))
+    assert legacy_tracker_viz["tracker"] is None
 
     stream = b"".join(build_packets())
     frames, rest = mp.parse_frames(stream)
