@@ -7,6 +7,7 @@ from .client import (
     VIO_INIT_REASON,
 )
 from .depth import RgbdSynchronizer, depth_at_meters, rectify_image_to_depth
+from .image import decode_jpeg_to_raw, image_to_raw, select_primary_image
 from .loopclosure import LoopClosureError, NativeLoopClosure
 from .web_device import MightyWebDevice
 
@@ -21,6 +22,9 @@ __all__ = [
     "VIO_DEGRADED_REASON",
     "VIO_INIT_REASON",
     "depth_at_meters",
+    "decode_jpeg_to_raw",
+    "image_to_raw",
     "parse_calibration_yaml",
     "rectify_image_to_depth",
+    "select_primary_image",
 ]

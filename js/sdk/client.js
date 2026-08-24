@@ -9,6 +9,7 @@ import { MightyOccupancyGridWorker } from "./occupancy-worker.js";
 import { toU8, encodeText, decodeText, sleep, isAbortError } from "./utils.js";
 import { RgbdSynchronizer } from "./depth.js";
 import { parseCalibrationYaml } from "./calibration.js";
+import { decodeJpegToRaw } from "./image.js";
 
 export const VIO_STATE = protocol.VIO_STATE;
 export const VIO_DEGRADED_REASON = protocol.VIO_DEGRADED_REASON;
@@ -33,6 +34,7 @@ const DEFAULT_OPTS = {
   algorithmsWasmOptions: null,
   loopclosureFailOpen: false,
   occupancyFailOpen: true,
+  jpegDecoder: null,
 };
 
 const EVENT_KEYS = [
@@ -60,35 +62,6 @@ function clamp01(v) {
   if (v < 0) return 0;
   if (v > 1) return 1;
   return v;
-}
-
-async function decodeJpegToRgbaFrame(jpegData) {
-  if (typeof createImageBitmap !== "function" || typeof Blob === "undefined") {
-    throw new Error("JPEG loopclosure decode requires browser image APIs");
-  }
-  const bitmap = await createImageBitmap(new Blob([toU8(jpegData)], { type: "image/jpeg" }));
-  try {
-    const width = bitmap.width || 0;
-    const height = bitmap.height || 0;
-    if (width <= 0 || height <= 0) throw new Error("decoded JPEG has invalid dimensions");
-    const canvas = typeof OffscreenCanvas === "function"
-      ? new OffscreenCanvas(width, height)
-      : document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    if (!ctx) throw new Error("unable to create JPEG decode canvas");
-    ctx.drawImage(bitmap, 0, 0);
-    const pixels = ctx.getImageData(0, 0, width, height).data;
-    return {
-      width,
-      height,
-      format: protocol.RAW_FORMAT.RGBA32,
-      data: new Uint8Array(pixels),
-    };
-  } finally {
-    bitmap.close?.();
-  }
 }
 
 function timeoutPromise(ms, message) {
@@ -615,7 +588,10 @@ export class MightyClient {
         await grid.ready;
       } else {
         const algorithmsModule = await this._loadAlgorithmsWasm(options);
-        grid = new MightyOccupancyGrid(this, algorithmsModule, gridOptions);
+        grid = new MightyOccupancyGrid(this, algorithmsModule, {
+          ...gridOptions,
+          jpegDecoder: gridOptions.jpegDecoder ?? this.opts.jpegDecoder,
+        });
       }
       if (generation !== this._occupancyGridGeneration) {
         grid.close();
@@ -772,8 +748,11 @@ export class MightyClient {
   }
 
   _pushLoopclosureJpegImage(image) {
-    if (!this._loopclosure) return;
-    void decodeJpegToRgbaFrame(image.data).then((decoded) => {
+    if (!this._loopclosure || image?.isReference) return;
+    const decoder = typeof this.opts.jpegDecoder === "function"
+      ? this.opts.jpegDecoder
+      : decodeJpegToRaw;
+    void Promise.resolve(decoder(image)).then((decoded) => {
       if (!this._loopclosure) return;
       this._pushLoopclosureImage({
         kind: "raw",
@@ -868,6 +847,7 @@ export class MightyClient {
             timestampNs: jpg.timestampNs,
             channel,
             channelAlias: this._mapChannelAlias(channel),
+            isReference: frame.type === protocol.TYPE.RJPG,
             data: toU8(jpg.data),
           };
           this._pushLoopclosureJpegImage(mapped);

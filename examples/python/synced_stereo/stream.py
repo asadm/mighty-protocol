@@ -11,7 +11,7 @@ from utils import decode_raw_for_opencv, median_int, parse_clock_payload
 
 def select_preview_frame(image: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     kind = image.get("kind")
-    if kind == "raw":
+    if kind in ("raw", "jpg"):
         return image
     if kind != "stereo_raw":
         return None

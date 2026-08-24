@@ -3,7 +3,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
-import { decodeRawToRgb } from "mighty-protocol";
+import { decodeImageToRgb, decodeRawToRgb } from "mighty-protocol";
 
 const DEVICE_COLOR_HEX = 0xff0055;
 const HIGH_CONF_COLOR_HEX = 0x0099ff;
@@ -126,6 +126,19 @@ export function drawRawFrame(canvas, frame) {
   if (!ctx) return false;
   const imageData = new ImageData(decoded.rgba, decoded.width, decoded.height);
   ctx.putImageData(imageData, 0, 0);
+  return true;
+}
+
+export async function drawImageFrame(canvas, frame) {
+  const decoded = await decodeImageToRgb(frame);
+  if (!decoded) return false;
+  if (canvas.width !== decoded.width || canvas.height !== decoded.height) {
+    canvas.width = decoded.width;
+    canvas.height = decoded.height;
+  }
+  const ctx = canvas.getContext("2d", { alpha: false });
+  if (!ctx) return false;
+  ctx.putImageData(new ImageData(decoded.rgba, decoded.width, decoded.height), 0, 0);
   return true;
 }
 

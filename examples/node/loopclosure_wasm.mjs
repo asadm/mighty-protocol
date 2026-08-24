@@ -7,6 +7,7 @@ import {
   MightyClient,
   MightyWebDevice,
 } from "../../js/index.js";
+import { decodeNodeJpegToRaw } from "./jpeg_decoder.mjs";
 
 function parseArgs(argv) {
   const out = {
@@ -102,6 +103,7 @@ async function main() {
     autoReconnect: true,
     loopclosure: true,
     algorithmsWasmUrl: wasmUrl,
+    jpegDecoder: decodeNodeJpegToRaw,
   });
   const events = [];
   const keyframes = [];

@@ -28,6 +28,9 @@ struct RectifiedRgbaFrame {
   std::vector<uint8_t> rgba;
 };
 
+using JpegImageDecoder =
+    std::function<bool(const JpegImageFrame&, RawImageFrame*)>;
+
 inline std::optional<float> depth_at_meters(const DepthFrame& frame,
                                             uint32_t x,
                                             uint32_t y) {
@@ -223,9 +226,33 @@ inline bool rectify_image_to_depth(const RawImageFrame& image,
   return true;
 }
 
+inline bool rectify_image_to_depth(
+    const ImageFrame& image,
+    const DepthFrame& depth,
+    RectifiedRgbaFrame* output,
+    const JpegImageDecoder& jpeg_decoder,
+    bool require_matching_timestamp = true) {
+  RawImageFrame decoded;
+  const RawImageFrame* selected = nullptr;
+  if (image.kind == ImageFrame::Kind::kJpeg) {
+    if (!image.jpeg || !jpeg_decoder || !jpeg_decoder(*image.jpeg, &decoded)) {
+      return false;
+    }
+    if (decoded.timestamp_ns == 0) decoded.timestamp_ns = image.jpeg->timestamp_ns;
+    if (decoded.channel.empty()) decoded.channel = image.jpeg->channel;
+    if (decoded.channel_alias.empty()) decoded.channel_alias = image.jpeg->channel_alias;
+    selected = &decoded;
+  } else {
+    selected = &image.left;
+  }
+  return rectify_image_to_depth(
+      *selected, depth, output, require_matching_timestamp);
+}
+
 class RgbdSynchronizer {
  public:
   using Handler = std::function<void(const RawImageFrame&, const DepthFrame&)>;
+  using JpegDecoder = JpegImageDecoder;
 
   explicit RgbdSynchronizer(Handler handler, size_t max_entries = 64)
       : handler_(std::move(handler)), max_entries_(std::max<size_t>(2, max_entries)) {}
@@ -251,6 +278,25 @@ class RgbdSynchronizer {
       }
     }
     if (matched && handler_) handler_(image, *matched);
+  }
+
+  // Compressed images remain compressed at the core SDK boundary. Pass the
+  // decoder used by the application (for example opencv::decode_jpeg_to_gray8_raw)
+  // when feeding a generic ImageFrame into the synchronizer.
+  bool push_image(const ImageFrame& image,
+                  const JpegDecoder& jpeg_decoder = JpegDecoder()) {
+    if (image.kind == ImageFrame::Kind::kJpeg) {
+      if (!image.jpeg || image.jpeg->is_reference || !jpeg_decoder) return false;
+      RawImageFrame decoded;
+      if (!jpeg_decoder(*image.jpeg, &decoded)) return false;
+      if (decoded.timestamp_ns == 0) decoded.timestamp_ns = image.jpeg->timestamp_ns;
+      if (decoded.channel.empty()) decoded.channel = image.jpeg->channel;
+      if (decoded.channel_alias.empty()) decoded.channel_alias = image.jpeg->channel_alias;
+      push_image(decoded);
+      return true;
+    }
+    push_image(image.left);
+    return image.left.timestamp_ns != 0;
   }
 
   void push_depth(const DepthFrame& depth) {

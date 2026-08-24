@@ -5,7 +5,9 @@ import path from "node:path";
 import {
   MightyClient,
   MightyWebDevice,
+  imageToRaw,
 } from "../../js/index.js";
+import { decodeNodeJpegToRaw } from "./jpeg_decoder.mjs";
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -36,13 +38,6 @@ function parseArgs(argv) {
   return out;
 }
 
-function pickPrimaryRaw(imageEvt) {
-  if (!imageEvt) return null;
-  if (imageEvt.kind === "raw") return imageEvt;
-  if (imageEvt.kind !== "stereo_raw") return null;
-  return imageEvt.left || imageEvt.right || null;
-}
-
 function isMapperPose(pose) {
   return !!pose?.isPublic &&
     Array.isArray(pose.orientationXyzw) &&
@@ -71,27 +66,33 @@ async function main() {
   let images = 0;
   let poses = 0;
 
+  let imageQueue = Promise.resolve();
   client.onImage((image) => {
-    if (!running) return;
-    const raw = pickPrimaryRaw(image);
-    if (!raw || !raw.timestampNs) return;
-    const data = raw.data instanceof Uint8Array ? raw.data : new Uint8Array(raw.data || []);
-    const frameId = images;
-    const rawName = `frames/frame_${String(frameId).padStart(6, "0")}.raw`;
-    fs.writeFileSync(path.join(outDir, rawName), data);
-    events.write(eventLine([
-      "image",
-      images,
-      frameId,
-      String(raw.timestampNs),
-      raw.width || 0,
-      raw.height || 0,
-      raw.format ?? 0,
-      rawName,
-      "", "", "", "", "", "", "", "", "",
-    ]));
-    images += 1;
-    if (images >= args.images) running = false;
+    imageQueue = imageQueue.then(async () => {
+      if (!running) return;
+      const raw = await imageToRaw(image, { jpegDecoder: decodeNodeJpegToRaw });
+      if (!raw || !raw.timestampNs) return;
+      const data = raw.data instanceof Uint8Array ? raw.data : new Uint8Array(raw.data || []);
+      const frameId = images;
+      const rawName = `frames/frame_${String(frameId).padStart(6, "0")}.raw`;
+      fs.writeFileSync(path.join(outDir, rawName), data);
+      events.write(eventLine([
+        "image",
+        images,
+        frameId,
+        String(raw.timestampNs),
+        raw.width || 0,
+        raw.height || 0,
+        raw.format ?? 0,
+        rawName,
+        "", "", "", "", "", "", "", "", "",
+      ]));
+      images += 1;
+      if (images >= args.images) running = false;
+    }).catch((err) => {
+      running = false;
+      throw err;
+    });
   });
 
   client.onPose((pose) => {
@@ -141,6 +142,7 @@ async function main() {
   while (running && !streamClosedAt) {
     await sleep(20);
   }
+  await imageQueue;
   await client.disconnect().catch(() => {});
   events.end();
   await new Promise((resolve) => events.on("finish", resolve));

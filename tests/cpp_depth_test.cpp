@@ -58,6 +58,30 @@ int main() {
   synchronizer.push_depth(decoded);
   assert(pair_count == 1);
 
+  ImageFrame jpeg_event;
+  jpeg_event.kind = ImageFrame::Kind::kJpeg;
+  jpeg_event.jpeg = JpegImageFrame{};
+  jpeg_event.jpeg->timestamp_ns = depth.timestamp_ns;
+  jpeg_event.jpeg->channel = "preview";
+  jpeg_event.jpeg->channel_alias = "cam0";
+  jpeg_event.jpeg->data = {0xff, 0xd8, 0xff, 0xd9};
+  const JpegImageDecoder fake_decoder =
+      [&raw](const JpegImageFrame&, RawImageFrame* output) {
+        *output = raw;
+        return true;
+      };
+  RectifiedRgbaFrame jpeg_rectified;
+  assert(rectify_image_to_depth(
+      jpeg_event, decoded, &jpeg_rectified, fake_decoder));
+  assert(jpeg_rectified.rgba == expected);
+
+  synchronizer.clear();
+  assert(synchronizer.push_image(jpeg_event, fake_decoder));
+  synchronizer.push_depth(decoded);
+  assert(pair_count == 2);
+  jpeg_event.jpeg->is_reference = true;
+  assert(!synchronizer.push_image(jpeg_event, fake_decoder));
+
   int dispatch_count = 0;
   DecodedDispatcher dispatcher;
   dispatcher.on_depth([&](const DepthFrame& frame) {

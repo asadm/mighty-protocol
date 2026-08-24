@@ -106,6 +106,9 @@ struct MightyOccupancyGridOptions {
   float resolution_m = 0.05f;
   std::optional<float> rolling_radius_m = 4.0f;
   std::optional<std::size_t> max_pending_frames = std::nullopt;
+  // Required only when the camera stream uses JPG/RJPG packets. The OpenCV
+  // adapter provides decode_jpeg_to_gray8_raw for applications using OpenCV.
+  std::function<bool(const JpegImageFrame&, RawImageFrame*)> jpeg_decoder;
 };
 
 struct MightyOccupancyGridStats {
@@ -162,6 +165,7 @@ class MightyOccupancyGrid {
 
     state_ = std::make_shared<State>();
     state_->max_pending_frames = options_.max_pending_frames;
+    state_->jpeg_decoder = options_.jpeg_decoder;
     initialize(*selected);
     subscribe();
   }
@@ -376,6 +380,7 @@ class MightyOccupancyGrid {
     std::size_t queued_images = 0;
     std::atomic<std::uint64_t> received_images{0};
     std::atomic<std::uint64_t> dropped_images{0};
+    std::function<bool(const JpegImageFrame&, RawImageFrame*)> jpeg_decoder;
 
     mutable std::mutex process_mutex;
     std::deque<RawImageFrame> pending_images;
@@ -440,7 +445,25 @@ class MightyOccupancyGrid {
     image_subscription_ = client_->on_image([weak](const ImageFrame& image) {
       const std::shared_ptr<State> state = weak.lock();
       if (!state || state->closed.load()) return;
-      const RawImageFrame* selected = primaryImage(image);
+      RawImageFrame decoded;
+      const RawImageFrame* selected = nullptr;
+      if (image.kind == ImageFrame::Kind::kJpeg) {
+        if (!image.jpeg || !state->jpeg_decoder ||
+            !primaryChannel(image.jpeg->channel_alias.empty()
+                                ? image.jpeg->channel
+                                : image.jpeg->channel_alias) ||
+            !state->jpeg_decoder(*image.jpeg, &decoded)) {
+          return;
+        }
+        if (decoded.timestamp_ns == 0) decoded.timestamp_ns = image.jpeg->timestamp_ns;
+        if (decoded.channel.empty()) decoded.channel = image.jpeg->channel;
+        if (decoded.channel_alias.empty()) {
+          decoded.channel_alias = image.jpeg->channel_alias;
+        }
+        selected = &decoded;
+      } else {
+        selected = primaryImage(image);
+      }
       if (!selected || selected->timestamp_ns == 0) return;
       PendingEvent event;
       event.type = PendingEvent::Type::kImage;
@@ -485,6 +508,7 @@ class MightyOccupancyGrid {
 
   static const RawImageFrame* primaryImage(const ImageFrame& image) {
     if (image.kind == ImageFrame::Kind::kRaw) return &image.left;
+    if (image.kind != ImageFrame::Kind::kStereoRaw) return nullptr;
     const auto channel = [](const RawImageFrame& value) {
       return value.channel_alias.empty() ? value.channel : value.channel_alias;
     };

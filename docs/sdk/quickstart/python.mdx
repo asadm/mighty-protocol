@@ -9,14 +9,14 @@ Install from GitHub:
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -U pip
-pip install "git+https://github.com/asadm/mighty-protocol.git"
+pip install Pillow "git+https://github.com/asadm/mighty-protocol.git"
 ```
 
 Minimal usage:
 
 ```python
 import time
-from mighty_sdk import MightyWebDevice, MightyClient
+from mighty_sdk import MightyWebDevice, MightyClient, image_to_raw
 
 device = MightyWebDevice()
 client = MightyClient(device, auto_reconnect=True)
@@ -30,12 +30,9 @@ def on_event(event):
 client.on_event(on_event)
 
 def on_image(img):
-    if img["kind"] == "stereo_raw":
-        left = img["left"]
-        right = img["right"]
-        print("stereo", left["width"], left["height"], right["width"], right["height"])
-    else:
-        print("image", img["kind"], img["width"], img["height"])
+    raw = image_to_raw(img)
+    if raw:
+        print("image", img["kind"], raw["width"], raw["height"])
 
 client.on_image(on_image)
 client.on_error(lambda e: print("error:", e))

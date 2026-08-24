@@ -1,4 +1,5 @@
 import { RAW_FORMAT } from "../core/protocol.js";
+import { imageToRaw } from "./image.js";
 
 export const DEFAULT_ALGORITHMS_WASM_URL = "/mighty_algorithms.wasm";
 export const DEFAULT_ALGORITHMS_MODULE_URL = "/mighty_algorithms.js";
@@ -255,6 +256,9 @@ export class NativeLoopClosureWasm {
 
   pushImage(image) {
     const raw = image?.kind === "stereo_raw" ? image.left : image;
+    if (raw?.kind === "jpg") {
+      throw new Error("pushImage requires raw pixels; use pushImageAsync for JPEG images");
+    }
     const data = asU8(raw?.data);
     if (!data.length) return false;
     const dataPtr = this.module._malloc(data.length);
@@ -273,6 +277,11 @@ export class NativeLoopClosureWasm {
       this.module._free(msgPtr);
       this.module._free(dataPtr);
     }
+  }
+
+  async pushImageAsync(image, options = {}) {
+    const raw = await imageToRaw(image, options);
+    return raw ? this.pushImage(raw) : false;
   }
 
   pushPose(pose) {
@@ -472,6 +481,9 @@ export class NativeMapperWasm {
 
   pushImage(image) {
     const raw = image?.kind === "stereo_raw" ? image.left : image;
+    if (raw?.kind === "jpg") {
+      throw new Error("pushImage requires raw pixels; use pushImageAsync for JPEG images");
+    }
     const data = asU8(raw?.data);
     if (!data.length) return null;
     const dataPtr = this.module._malloc(data.length);
@@ -495,6 +507,11 @@ export class NativeMapperWasm {
       this.module._free(msgPtr);
       this.module._free(dataPtr);
     }
+  }
+
+  async pushImageAsync(image, options = {}) {
+    const raw = await imageToRaw(image, options);
+    return raw ? this.pushImage(raw) : null;
   }
 
   pushPose(pose) {

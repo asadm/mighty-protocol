@@ -28,6 +28,9 @@
 namespace mighty_protocol {
 namespace sdk {
 
+struct JpegImageFrame;
+struct RawImageFrame;
+
 struct MightyClientOptions {
   int command_timeout_ms = 2000;  // Reserved for transports that support cancelable command requests.
   bool auto_reconnect = true;
@@ -36,6 +39,10 @@ struct MightyClientOptions {
   bool normalize_channel_aliases = true;
   bool loopclosure = false;
   std::string loopclosure_calibration_yaml;
+  // Optional adapter used when the built-in loop-closure path receives a
+  // compressed JPEG. Ordinary image subscribers receive JpegImageFrame
+  // directly and do not need to configure a decoder.
+  std::function<bool(const JpegImageFrame&, RawImageFrame*)> jpeg_decoder;
 };
 
 struct MightyClientStats {
@@ -56,13 +63,23 @@ struct RawImageFrame {
   std::vector<uint8_t> data;
 };
 
+struct JpegImageFrame {
+  uint64_t timestamp_ns = 0;
+  std::string channel;
+  std::string channel_alias;
+  bool is_reference = false;
+  std::vector<uint8_t> data;
+};
+
 struct ImageFrame {
   enum class Kind {
+    kJpeg,
     kRaw,
     kStereoRaw,
   };
 
   Kind kind = Kind::kRaw;
+  std::optional<JpegImageFrame> jpeg;
   RawImageFrame left;
   std::optional<RawImageFrame> right;
 };
@@ -849,6 +866,47 @@ class MightyClient {
     const bool wants_any = has_any_listener();
 
     try {
+      if (type == "JPG " || type == "RJPG") {
+        if (image_handlers_.empty() && !wants_any && !opts_.loopclosure) return;
+        JpegImageFrame jpeg;
+        jpeg.is_reference = type == "RJPG";
+        if (!decode_jpg_payload(frame.payload,
+                                jpeg.is_reference,
+                                jpeg.timestamp_ns,
+                                jpeg.channel,
+                                jpeg.data)) {
+          throw std::runtime_error("JPG decode failed");
+        }
+        if (jpeg.is_reference) jpeg.channel = "ref";
+        if (jpeg.channel.empty()) jpeg.channel = "preview";
+        jpeg.channel_alias = map_channel_alias(jpeg.channel);
+
+        if (opts_.loopclosure && !jpeg.is_reference) {
+          if (opts_.jpeg_decoder) {
+            RawImageFrame raw;
+            if (opts_.jpeg_decoder(jpeg, &raw)) {
+              if (raw.timestamp_ns == 0) raw.timestamp_ns = jpeg.timestamp_ns;
+              if (raw.channel.empty()) raw.channel = jpeg.channel;
+              if (raw.channel_alias.empty()) raw.channel_alias = jpeg.channel_alias;
+              push_loopclosure_image(raw);
+            } else {
+              emit_error("loopclosure", "jpeg_decode_failed",
+                         "configured JPEG decoder rejected the image");
+            }
+          } else if (!jpeg_decoder_warning_emitted_.exchange(true)) {
+            emit_error("loopclosure", "jpeg_decoder_required",
+                       "JPEG loop closure input requires MightyClientOptions::jpeg_decoder");
+          }
+        }
+
+        ImageFrame evt;
+        evt.kind = ImageFrame::Kind::kJpeg;
+        evt.jpeg = std::move(jpeg);
+        emit(image_handlers_, evt);
+        if (wants_any) emit_any(AnyEvent{"image", "", {}});
+        return;
+      }
+
       if (type == "RAW ") {
         if (image_handlers_.empty() && !wants_any && !opts_.loopclosure) return;
         RawImageFrame raw;
@@ -1177,6 +1235,7 @@ class MightyClient {
   std::atomic<bool> running_{false};
   std::atomic<bool> stream_active_{false};
   std::atomic<uint32_t> req_id_{1};
+  std::atomic<bool> jpeg_decoder_warning_emitted_{false};
 
   mutable std::mutex stats_mu_;
   MightyClientStats stats_;

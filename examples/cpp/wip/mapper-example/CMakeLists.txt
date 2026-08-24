@@ -16,7 +16,7 @@ get_filename_component(REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../.."
 list(PREPEND CMAKE_PREFIX_PATH "${REPO_ROOT}/external/pangolin-install")
 list(PREPEND CMAKE_PREFIX_PATH "/opt/homebrew/opt/eigen")
 
-find_package(OpenCV REQUIRED COMPONENTS core imgproc calib3d)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs calib3d)
 find_package(Eigen3 REQUIRED)
 find_package(Threads REQUIRED)
 find_package(GLEW REQUIRED)

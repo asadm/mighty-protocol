@@ -242,6 +242,7 @@ int main() {
 
   Seen seen;
   std::optional<ImageFrame> last_image;
+  std::optional<ImageFrame> jpeg_image;
   std::optional<PoseFrame> last_pose;
   std::optional<VioStateFrame> last_vsta;
   std::optional<VizFrame> last_viz;
@@ -250,6 +251,7 @@ int main() {
 
   client.on_image([&](const ImageFrame& f) {
     seen.image.fetch_add(1);
+    if (f.kind == ImageFrame::Kind::kJpeg) jpeg_image = f;
     last_image = f;
   });
   client.on_pose([&](const PoseFrame& p) {
@@ -280,6 +282,14 @@ int main() {
 
   client.connect();
   assert(wait_until([&]() { return client.is_connected(); }, 1000));
+
+  const std::vector<uint8_t> jpeg_data = {0xff, 0xd8, 0xff, 0xd9};
+  auto jpeg_payload = build_jpg_payload(/*timestamp_ns=*/9,
+                                        /*is_ref=*/false,
+                                        /*channel=*/"cam0",
+                                        jpeg_data.data(),
+                                        jpeg_data.size());
+  device->emit_packet(make_packet(jpeg_payload, TYPE_JPG));
 
   const std::vector<uint8_t> raw_data = {0x01, 0x02};
   auto raw_payload = build_raw_payload(/*timestamp_ns=*/10,
@@ -384,7 +394,15 @@ int main() {
 
   assert(wait_until([&]() { return seen.any.load() >= 11; }, 2000));
 
-  assert(seen.image.load() == 1);
+  assert(seen.image.load() == 2);
+  assert(jpeg_image.has_value());
+  assert(jpeg_image->kind == ImageFrame::Kind::kJpeg);
+  assert(jpeg_image->jpeg.has_value());
+  assert(jpeg_image->jpeg->timestamp_ns == 9);
+  assert(jpeg_image->jpeg->channel == "cam0");
+  assert(jpeg_image->jpeg->channel_alias == "cam0");
+  assert(!jpeg_image->jpeg->is_reference);
+  assert(jpeg_image->jpeg->data == jpeg_data);
   assert(last_image.has_value());
   assert(last_image->kind == ImageFrame::Kind::kRaw);
   assert(last_image->left.channel == "cam0");

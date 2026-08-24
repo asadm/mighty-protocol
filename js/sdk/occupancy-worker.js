@@ -37,6 +37,7 @@ export class MightyOccupancyGridWorker {
       onUpdate: _onUpdate,
       onError: _onError,
       worker: _worker,
+      jpegDecoder: _jpegDecoder,
       moduleUrl,
       wasmUrl,
       ...workerOptions

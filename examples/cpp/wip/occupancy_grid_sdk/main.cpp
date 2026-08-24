@@ -9,6 +9,7 @@
 #include <thread>
 
 #include "cpp/mighty_sdk.h"
+#include "cpp/sdk/mighty_opencv.h"
 
 namespace {
 
@@ -81,6 +82,8 @@ int main(int argc, char** argv) {
 
   MightyOccupancyGridOptions grid_options;
   grid_options.resolution_m = options.resolution_m;
+  grid_options.jpeg_decoder =
+      mighty_protocol::sdk::opencv::decode_jpeg_to_gray8_raw;
   MightyOccupancyGrid grid(client, grid_options);
   grid.setUpdateCallback([](const OccupancyGridUpdate& update) {
     std::size_t occupied_changes = 0;

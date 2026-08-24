@@ -17,7 +17,7 @@ from state import (
 
 def select_preview_frame(image: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     kind = image.get("kind")
-    if kind == "raw":
+    if kind in ("raw", "jpg"):
         return image
     if kind != "stereo_raw":
         return None
@@ -31,6 +31,17 @@ def select_preview_frame(image: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 def decode_raw_to_rgb(raw: Dict[str, Any]) -> Optional[np.ndarray]:
+    if raw.get("kind") == "jpg":
+        import cv2
+
+        encoded = np.frombuffer(raw.get("data", b"") or b"", dtype=np.uint8)
+        if encoded.size == 0:
+            return None
+        bgr = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
+        if bgr is None or not bgr.size:
+            return None
+        return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+
     width = int(raw.get("width", 0) or 0)
     height = int(raw.get("height", 0) or 0)
     if width <= 0 or height <= 0:

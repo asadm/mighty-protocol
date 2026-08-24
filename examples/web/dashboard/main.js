@@ -5,7 +5,7 @@ import {
   setConnectButtonState,
   updateStatusFields,
   pickRenderableRaw,
-  drawRawFrame,
+  drawImageFrame,
   createImuPlotter,
   createPosePlot,
   mapCanonicalPoseToViz,
@@ -95,17 +95,14 @@ function renderStatusPanel() {
 
 client.onImage((img) => {
   markDataActivity();
-  try {
-    const raw = pickRenderableRaw(img);
-    if (!raw) return;
-
-    if (drawRawFrame(ui.cameraCanvas, raw)) {
-      const ch = raw.channelAlias || raw.channel || "cam0";
-      state.imageInfo = `raw ${raw.width}x${raw.height} ${ch} ${raw.timestampNs || 0}`;
-    }
-  } catch (err) {
+  void drawImageFrame(ui.cameraCanvas, img).then((drawn) => {
+    if (!drawn) return;
+    const source = pickRenderableRaw(img) || img;
+    const ch = source.channelAlias || source.channel || "cam0";
+    state.imageInfo = `${img.kind} ${ui.cameraCanvas.width}x${ui.cameraCanvas.height} ${ch} ${source.timestampNs || 0}`;
+  }).catch((err) => {
     state.lastError = `image draw failed: ${err?.message || err}`;
-  }
+  });
 });
 
 client.onPose((pose) => {

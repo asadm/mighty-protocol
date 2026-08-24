@@ -61,6 +61,15 @@ def image_pair_age_ms(pair: Optional[Dict[str, Any]]) -> Optional[float]:
 
 
 def decode_raw_for_opencv(raw: Dict[str, Any], raw_format: Dict[str, int]) -> Optional[np.ndarray]:
+    if raw.get("kind") == "jpg":
+        import cv2
+
+        encoded = np.frombuffer(raw.get("data", b"") or b"", dtype=np.uint8)
+        if encoded.size == 0:
+            return None
+        decoded = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
+        return decoded if decoded is not None and decoded.size else None
+
     width = int(raw.get("width", 0) or 0)
     height = int(raw.get("height", 0) or 0)
     if width <= 0 or height <= 0:

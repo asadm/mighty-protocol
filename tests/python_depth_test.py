@@ -10,6 +10,7 @@ from mighty_sdk import (  # noqa: E402
     MightyClient,
     RgbdSynchronizer,
     depth_at_meters,
+    image_to_raw,
     rectify_image_to_depth,
 )
 
@@ -51,6 +52,16 @@ assert bytes(rectified["rgba"]) == bytes((
     10, 10, 10, 255, 20, 20, 20, 255,
     30, 30, 30, 255, 40, 40, 40, 255,
 ))
+assert image_to_raw(raw) is raw
+
+jpeg = {
+    "kind": "jpg",
+    "timestamp_ns": TIMESTAMP_NS,
+    "channel": "preview",
+    "channel_alias": "cam0",
+    "data": b"\xff\xd8\xff\xd9",
+}
+assert image_to_raw({**jpeg, "is_reference": True}) is None
 
 pairs = []
 synchronizer = RgbdSynchronizer(pairs.append)
@@ -58,6 +69,12 @@ synchronizer.push_image({**raw, "channel_alias": "cam0"})
 synchronizer.push_depth(depth)
 assert len(pairs) == 1
 assert pairs[0]["image"]["timestamp_ns"] == pairs[0]["depth"]["timestamp_ns"]
+
+synchronizer.clear()
+synchronizer.push_image(jpeg)
+synchronizer.push_depth(depth)
+assert len(pairs) == 2
+assert pairs[1]["image"]["kind"] == "jpg"
 
 seen = []
 dispatcher = DecodedDispatcher()

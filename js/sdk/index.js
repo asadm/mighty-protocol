@@ -6,7 +6,7 @@ export {
   TRACKER_STATE,
 } from "./client.js";
 export { MightyWebDevice, DEFAULT_BASE_URLS } from "./device-web.js";
-export { decodeRawToRgb } from "./image.js";
+export { decodeImageToRgb, decodeJpegToRaw, decodeRawToRgb, imageToRaw } from "./image.js";
 export { parseCalibrationYaml } from "./calibration.js";
 export {
   RgbdSynchronizer,

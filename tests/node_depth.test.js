@@ -65,6 +65,25 @@ async function main() {
     /timestamps do not match/,
   );
 
+  const jpeg = {
+    kind: "jpg",
+    timestampNs,
+    channel: "preview",
+    data: new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
+  };
+  const decodedJpeg = await proto.imageToRaw(jpeg, {
+    jpegDecoder: async () => raw,
+  });
+  assert.strictEqual(decodedJpeg, raw);
+  assert.strictEqual(await proto.imageToRaw(
+    { ...jpeg, isReference: true },
+    { jpegDecoder: async () => raw },
+  ), null);
+  const rgbJpeg = await proto.decodeImageToRgb(jpeg, {
+    jpegDecoder: async () => raw,
+  });
+  assert.deepStrictEqual(Array.from(rgbJpeg.rgba), Array.from(rectified.rgba));
+
   const device = new MockDevice();
   const client = new proto.MightyClient(device, { autoReconnect: false });
   const depths = [];

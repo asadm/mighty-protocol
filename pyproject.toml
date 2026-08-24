@@ -25,6 +25,9 @@ Homepage = "https://github.com/asadm/mighty-protocol"
 Repository = "https://github.com/asadm/mighty-protocol"
 Issues = "https://github.com/asadm/mighty-protocol/issues"
 
+[project.optional-dependencies]
+images = ["Pillow>=9.0"]
+
 [tool.setuptools]
 package-dir = { "" = "python" }
 packages = ["mighty_sdk"]

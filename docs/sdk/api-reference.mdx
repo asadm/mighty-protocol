@@ -138,8 +138,11 @@ import {
   MightyWebDevice,
   DEFAULT_BASE_URLS,
   TRACKER_STATE,
+  decodeImageToRgb,
+  decodeJpegToRaw,
   decodeRawToRgb,
   depthAtMeters,
+  imageToRaw,
   parseCalibrationYaml,
   rectifyImageToDepth,
 } from "mighty-protocol";
@@ -151,8 +154,11 @@ import {
 - `MightyWebDevice`
 - `DEFAULT_BASE_URLS: string[]`
 - `TRACKER_STATE: { STOPPED: 0, WAITING: 1, TRACKING: 2, ERROR: 3, LOST: 4, UNKNOWN: 255 }`
+- `decodeImageToRgb(frame, options?)`
+- `decodeJpegToRaw(frame)`
 - `decodeRawToRgb(frame, rawFormat?)`
 - `depthAtMeters(depth, x, y)`
+- `imageToRaw(frame, options?)`
 - `parseCalibrationYaml(yaml)`
 - `rectifyImageToDepth(image, depth, options?)`
 - `colorizeDepth(depth, options?)`
@@ -198,6 +204,7 @@ new MightyClient(
     streamStallTimeoutMs?: number;    // default 3000; <=0 disables
     emitStatAsStatus?: boolean;       // default true
     normalizeChannelAliases?: boolean;// default true
+    jpegDecoder?: (frame: JpegImageFrame) => RawImageFrame | Promise<RawImageFrame>;
   }
 )
 ```
@@ -290,6 +297,15 @@ Subscriptions (each returns `() => void` to unsubscribe):
 `onImage`:
 
 ```ts
+type JpegImageFrame = {
+  kind: "jpg";
+  timestampNs: bigint;
+  channel: string;
+  channelAlias?: "cam0" | "cam1";
+  isReference: boolean;
+  data: Uint8Array; // still JPEG-compressed
+};
+
 type RawImageFrame = {
   kind: "raw";
   timestampNs: bigint;
@@ -307,6 +323,15 @@ type StereoRawImageFrame = {
   right: RawImageFrame;
 };
 ```
+
+The event union is `JpegImageFrame | RawImageFrame | StereoRawImageFrame`.
+Use `imageToRaw(...)` when a consumer needs a primary raw frame, or
+`decodeImageToRgb(...)` when it needs display-ready RGBA. Both helpers preserve
+RAW input and decode JPEG only when necessary. Browser JPEG decoding uses
+`createImageBitmap`; Node callers pass a `jpegDecoder` (the Node examples use
+`jpeg-js`). Reference (`RJPG`) events are skipped by these primary-image
+helpers unless `includeReference: true` is requested; call
+`decodeJpegToRaw(...)` directly to decode a known reference frame.
 
 `onDepth`:
 
@@ -341,12 +366,13 @@ type MetricDepthFrame = {
 canonical camera channel (`preview` and `left` alias to `cam0`):
 
 ```js
-const unsubscribe = client.onRgbd(({ image, depth }) => {
-  if (image.kind !== "raw") return;
+const unsubscribe = client.onRgbd(async ({ image, depth }) => {
+  const raw = await imageToRaw(image);
+  if (!raw) return;
 
   // The source image is distorted; put it on the same rectified pixel grid as
   // depth before using corresponding pixels.
-  const rectified = rectifyImageToDepth(image, depth);
+  const rectified = rectifyImageToDepth(raw, depth);
   const centerX = Math.floor(depth.width / 2);
   const centerY = Math.floor(depth.height / 2);
   const centerDepthM = depthAtMeters(depth, centerX, centerY);
@@ -517,7 +543,7 @@ type ResetEvent = { receivedAtMs: number };
 
 ```ts
 type AnyEvent =
-  | { type: "image"; data: RawImageFrame | StereoRawImageFrame }
+  | { type: "image"; data: JpegImageFrame | RawImageFrame | StereoRawImageFrame }
   | { type: "depth"; data: MetricDepthFrame }
   | { type: "pose"; data: PoseEvent }
   | { type: "imu"; data: ImuEvent }
@@ -549,6 +575,12 @@ decodeRawToRgb(
 ): { width: number; height: number; rgba: Uint8ClampedArray } | null
 ```
 
+`decodeJpegToRaw(frame)` asynchronously returns an RGBA32 `RawImageFrame` in
+browsers. `imageToRaw(frame, { jpegDecoder })` accepts the full image-event
+union, selects the primary image, and decodes JPEG if needed.
+`decodeImageToRgb(frame, options)` composes `imageToRaw` and
+`decodeRawToRgb`.
+
 ## Python SDK
 
 ```python
@@ -556,7 +588,9 @@ from mighty_sdk import (
     MightyClient,
     MightyWebDevice,
     TRACKER_STATE,
+    decode_jpeg_to_raw,
     depth_at_meters,
+    image_to_raw,
     parse_calibration_yaml,
     rectify_image_to_depth,
 )
@@ -601,6 +635,7 @@ MightyClient(
     reconnect_delay_s: float = 0.3,
     emit_stat_as_status: bool = True,
     normalize_channel_aliases: bool = True,
+    jpeg_decoder: Callable[[dict], dict] | None = None,
 )
 ```
 
@@ -682,6 +717,16 @@ Subscriptions (each returns `Callable[[], None]` unsubscribe):
 `on_image`:
 
 ```python
+# JPEG (compressed bytes; width/height are known after decoding)
+{
+  "kind": "jpg",
+  "timestamp_ns": int,
+  "channel": str,
+  "channel_alias": str | None,
+  "is_reference": bool,
+  "data": bytes,
+}
+
 # raw
 {
   "kind": "raw",
@@ -701,6 +746,13 @@ Subscriptions (each returns `Callable[[], None]` unsubscribe):
   "right": { ...raw... },
 }
 ```
+
+`image_to_raw(image, jpeg_output_format="gray8")` selects the primary image
+and returns a raw mapping, decoding `kind: "jpg"` with Pillow only when needed.
+`decode_jpeg_to_raw(...)` also supports `rgb24` and `rgba32`. Install Pillow
+with the `images` extra (or directly) when pixel decoding is required; merely
+receiving or forwarding JPEG events has no Pillow dependency. Reference JPEGs
+are skipped unless `include_reference=True` is passed.
 
 `on_depth` returns the per-frame calibration and the metric plane together:
 
@@ -736,8 +788,6 @@ Pair and rectify without separately loading `calib.yaml`:
 ```python
 def on_rgbd(pair):
     image, depth = pair["image"], pair["depth"]
-    if image["kind"] != "raw":
-        return
     rectified = rectify_image_to_depth(image, depth)
     x, y = depth["width"] // 2, depth["height"] // 2
     print(depth["timestamp_ns"], depth_at_meters(depth, x, y))
@@ -925,6 +975,7 @@ Headers:
 - `cpp/sdk/mighty_device_io.h`
 - `cpp/sdk/mighty_depth.h`
 - `cpp/sdk/mighty_calibration.h`
+- `cpp/sdk/mighty_opencv.h` (optional JPEG/RAW pixel adapter)
 
 Namespace:
 
@@ -985,6 +1036,8 @@ struct MightyClientOptions {
   int reconnect_delay_ms = 300;
   bool emit_stat_as_status = true;
   bool normalize_channel_aliases = true;
+  bool loopclosure = false;
+  std::function<bool(const JpegImageFrame&, RawImageFrame*)> jpeg_decoder;
 };
 ```
 
@@ -1133,9 +1186,18 @@ struct RawImageFrame {
   std::vector<uint8_t> data;
 };
 
+struct JpegImageFrame {
+  uint64_t timestamp_ns = 0;
+  std::string channel;
+  std::string channel_alias;
+  bool is_reference = false;
+  std::vector<uint8_t> data;  // still JPEG-compressed
+};
+
 struct ImageFrame {
-  enum class Kind { kRaw, kStereoRaw };
+  enum class Kind { kJpeg, kRaw, kStereoRaw };
   Kind kind = Kind::kRaw;
+  std::optional<JpegImageFrame> jpeg;
   RawImageFrame left;
   std::optional<RawImageFrame> right;
 };
@@ -1333,6 +1395,7 @@ implementing custom alignment or 3D reconstruction.
 
 ```cpp
 #include "mighty_sdk.h"
+#include "sdk/mighty_opencv.h"
 
 using namespace mighty_protocol::sdk;
 
@@ -1347,8 +1410,8 @@ RgbdSynchronizer synchronizer(
     });
 
 auto image_sub = client.on_image([&](const ImageFrame& frame) {
-  synchronizer.push_image(frame.left);
-  if (frame.right) synchronizer.push_image(*frame.right);
+  synchronizer.push_image(
+      frame, mighty_protocol::sdk::opencv::decode_jpeg_to_gray8_raw);
 });
 auto depth_sub = client.on_depth([&](const mighty_protocol::DepthFrame& depth) {
   synchronizer.push_depth(depth);
@@ -1359,3 +1422,13 @@ auto depth_sub = client.on_depth([&](const mighty_protocol::DepthFrame& depth) {
 timestamp. `rectify_image_to_depth` returns `false` for unsupported raw formats,
 invalid geometry, or mismatched nonzero timestamps. `depth_at_meters` returns
 `std::nullopt` for invalid or out-of-bounds samples.
+
+The core callback exposes JPEG as `ImageFrame::Kind::kJpeg` without requiring
+an image library. `cpp/sdk/mighty_opencv.h` adds
+`decode_image_to_bgr(...)`, `decode_jpeg_to_gray8_raw(...)`, and
+`image_to_raw(...)`. Link OpenCV `core`, `imgcodecs`, and `imgproc` only in
+applications that use that adapter. The same decoder can be supplied through
+`MightyClientOptions::jpeg_decoder` for built-in loop closure and through
+`MightyOccupancyGridOptions::jpeg_decoder` for occupancy processing. Primary
+image helpers skip reference JPEGs by default; pass `true` to their
+`include_reference` argument when the reference image is intentional.

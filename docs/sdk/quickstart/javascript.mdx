@@ -12,7 +12,7 @@ npm install https://github.com/asadm/mighty-protocol
 Minimal usage:
 
 ```js
-import { MightyWebDevice, MightyClient, decodeRawToRgb } from "mighty-protocol";
+import { MightyWebDevice, MightyClient, decodeImageToRgb } from "mighty-protocol";
 
 const device = new MightyWebDevice();
 const client = new MightyClient(device, { autoReconnect: true, reconnectDelayMs: 500 });
@@ -23,9 +23,9 @@ client.onEvent((event) => {
     console.log("loop closed", event.data);
   }
 });
-client.onImage((img) => {
-  const decoded = decodeRawToRgb(img);
-  console.log("image", decoded?.width ?? img.width, decoded?.height ?? img.height);
+client.onImage(async (img) => {
+  const decoded = await decodeImageToRgb(img);
+  console.log("image", img.kind, decoded?.width, decoded?.height);
 });
 client.onError((e) => console.error(e));
 
@@ -33,6 +33,11 @@ await client.connect();
 await client.setLoopClosureEnabled(true);
 await client.startVio();
 ```
+
+`decodeImageToRgb` accepts both `kind: "jpg"` and `kind: "raw"`. In Node,
+where browser image APIs are unavailable, pass a `jpegDecoder` to
+`decodeImageToRgb` or to the `MightyClient` options; the Node examples use
+`jpeg-js`.
 
 Full web dashboard example:
 - [`examples/web/dashboard/main.js`](https://github.com/asadm/mighty-protocol/blob/main/examples/web/dashboard/main.js)

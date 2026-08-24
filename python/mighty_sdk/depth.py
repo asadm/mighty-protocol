@@ -3,6 +3,8 @@ from typing import Any, Callable, Dict, Optional
 
 import mighty_protocol as mp
 
+from .image import decode_jpeg_to_raw
+
 
 def _timestamp_ns(frame: Dict[str, Any]) -> int:
     try:
@@ -118,7 +120,8 @@ def rectify_image_to_depth(image: Dict[str, Any], depth: Dict[str, Any], require
     depth_ts = _timestamp_ns(depth)
     if require_matching_timestamp and image_ts > 0 and depth_ts > 0 and image_ts != depth_ts:
         raise ValueError("source image and depth timestamps do not match")
-    decoded = _raw_to_rgba(image)
+    source_image = decode_jpeg_to_raw(image, "rgba32") if image.get("kind") == "jpg" else image
+    decoded = _raw_to_rgba(source_image)
     if decoded is None:
         raise ValueError("source image format cannot be decoded to RGBA")
     width = int(depth.get("width", 0) or 0)
@@ -188,6 +191,8 @@ class RgbdSynchronizer:
             cache.pop(next(iter(cache)))
 
     def push_image(self, image: Dict[str, Any]) -> None:
+        if image and image.get("kind") == "jpg" and image.get("is_reference"):
+            return
         if image and image.get("kind") == "stereo_raw":
             self.push_image(image.get("left"))
             self.push_image(image.get("right"))

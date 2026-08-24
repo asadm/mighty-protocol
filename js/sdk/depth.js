@@ -208,6 +208,7 @@ export class RgbdSynchronizer {
   }
 
   pushImage(image) {
+    if (image?.kind === "jpg" && image.isReference) return;
     if (image?.kind === "stereo_raw") {
       this.pushImage(image.left);
       this.pushImage(image.right);

@@ -11,7 +11,7 @@ setup(
         ("share/" + package_name, ["package.xml"]),
         ("share/" + package_name + "/launch", ["launch/mighty_ros2.launch.py"]),
     ],
-    install_requires=["setuptools"],
+    install_requires=["setuptools", "Pillow>=9.0"],
     zip_safe=True,
     maintainer="Mighty Camera",
     maintainer_email="hello@mightycamera.com",

@@ -1,5 +1,6 @@
 import { RAW_FORMAT } from "../core/protocol.js";
 import { parseCalibrationYaml } from "./calibration.js";
+import { imageToRaw } from "./image.js";
 import { toU8 } from "./utils.js";
 
 const OCCUPIED = 2;
@@ -138,38 +139,6 @@ function selectRawImage(image) {
   if (primaryChannel(image.left)) return image.left;
   if (primaryChannel(image.right)) return image.right;
   return image.left || image.right || null;
-}
-
-async function decodeJpeg(image) {
-  if (typeof createImageBitmap !== "function" || typeof Blob === "undefined") {
-    throw new Error("JPEG occupancy input requires browser image APIs");
-  }
-  const bitmap = await createImageBitmap(new Blob([toU8(image.data)], { type: "image/jpeg" }));
-  try {
-    const width = bitmap.width || 0;
-    const height = bitmap.height || 0;
-    if (width <= 0 || height <= 0) throw new Error("decoded JPEG has invalid dimensions");
-    const canvas = typeof OffscreenCanvas === "function"
-      ? new OffscreenCanvas(width, height)
-      : document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext("2d", { willReadFrequently: true });
-    if (!context) throw new Error("unable to create JPEG decode canvas");
-    context.drawImage(bitmap, 0, 0);
-    return {
-      kind: "raw",
-      timestampNs: image.timestampNs,
-      width,
-      height,
-      format: RAW_FORMAT.RGBA32,
-      channel: image.channel,
-      channelAlias: image.channelAlias,
-      data: new Uint8Array(context.getImageData(0, 0, width, height).data),
-    };
-  } finally {
-    bitmap.close?.();
-  }
 }
 
 function selectCamera(calibration, cameraId = "") {
@@ -464,6 +433,7 @@ export class MightyOccupancyGrid {
     }
     this.client = client;
     this.options = { ...options };
+    this.jpegDecoder = typeof options.jpegDecoder === "function" ? options.jpegDecoder : null;
     this.native = new NativeOccupancyGrid(
       module,
       selectCamera(options.calibration || options.calibrationYaml, options.cameraId),
@@ -575,8 +545,8 @@ export class MightyOccupancyGrid {
     const selected = selectRawImage(image);
     if (!selected || !primaryChannel(selected) || timestampNs(selected.timestampNs) === 0n) return;
     if (selected.kind === "jpg") {
-      void decodeJpeg(selected).then((decoded) => {
-        if (!this.closed) this._enqueueImage(decoded);
+      void imageToRaw(selected, { jpegDecoder: this.jpegDecoder }).then((decoded) => {
+        if (!this.closed && decoded) this._enqueueImage(decoded);
       }).catch((error) => this._reportError(error));
       return;
     }

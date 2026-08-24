@@ -6,6 +6,8 @@ from typing import Any, Callable, Dict, List, Optional
 
 import mighty_protocol as mp
 
+from .image import image_to_raw
+
 
 class LoopClosureError(RuntimeError):
     pass
@@ -182,9 +184,7 @@ class NativeLoopClosure:
         return True
 
     def push_image(self, image: Dict[str, Any]) -> bool:
-        raw = image
-        if image.get("kind") == "stereo_raw":
-            raw = image.get("left") or {}
+        raw = image_to_raw(image) or {}
         data = bytes(raw.get("data") or b"")
         if not data:
             return False

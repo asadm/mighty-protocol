@@ -47,13 +47,14 @@ Required:
 - `python >= 3.9`
 - `numpy`
 - `matplotlib`
+- `Pillow` (for JPEG streams)
 
 Optional:
 
 Install:
 
 ```bash
-pip install numpy matplotlib
+pip install numpy matplotlib Pillow
 ```
 
 Using `venv` (recommended), from the root of repository:
@@ -62,7 +63,7 @@ Using `venv` (recommended), from the root of repository:
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
-pip install numpy matplotlib
+pip install numpy matplotlib Pillow
 ```
 
 ## Run

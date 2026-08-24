@@ -276,6 +276,7 @@ async function main() {
   };
 
   let lastImage = null;
+  let jpegImage = null;
   let lastPose = null;
   let lastVsta = null;
   let lastViz = null;
@@ -285,6 +286,7 @@ async function main() {
 
   client.onImage((f) => {
     seen.image += 1;
+    if (f.kind === "jpg") jpegImage = f;
     lastImage = f;
   });
   client.onPose((p) => {
@@ -332,6 +334,12 @@ async function main() {
     angularAccelerationBodyRps2: [0.7, 0.8, 0.9],
     timestampNs: 11n,
   };
+
+  device.emitPacket(proto.makePacket(proto.TYPE.JPG, proto.buildJpgPayload({
+    timestampNs: 9n,
+    channel: "cam0",
+    data: Buffer.from([0xff, 0xd8, 0xff, 0xd9]),
+  })));
 
   device.emitPacket(proto.makePacket(proto.TYPE.RAW, proto.buildRawPayload({
     timestampNs: 10n,
@@ -418,7 +426,12 @@ async function main() {
 
   await sleep(20);
 
-  assert.strictEqual(seen.image, 1);
+  assert.strictEqual(seen.image, 2);
+  assert.strictEqual(jpegImage.kind, "jpg");
+  assert.strictEqual(jpegImage.timestampNs, 9n);
+  assert.strictEqual(jpegImage.channel, "cam0");
+  assert.strictEqual(jpegImage.channelAlias, "cam0");
+  assert.strictEqual(jpegImage.isReference, false);
   assert.strictEqual(lastImage.kind, "raw");
   assert.strictEqual(lastImage.channel, "cam0");
   assert.strictEqual(lastImage.channelAlias, "cam0");

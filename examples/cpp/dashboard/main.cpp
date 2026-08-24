@@ -16,14 +16,15 @@
 #include <vector>
 
 #include <opencv2/highgui.hpp>
+#include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 
 #include "mighty_sdk.h"
+#include "sdk/mighty_opencv.h"
 
 namespace {
 
 using Clock = std::chrono::steady_clock;
-using mighty_protocol::RawFormat;
 using mighty_protocol::sdk::ImageFrame;
 using mighty_protocol::sdk::ImuBatch;
 using mighty_protocol::sdk::KeyframeEvent;
@@ -31,7 +32,6 @@ using mighty_protocol::sdk::MightyClient;
 using mighty_protocol::sdk::MightyClientOptions;
 using mighty_protocol::sdk::MightyWebDevice;
 using mighty_protocol::sdk::PoseFrame;
-using mighty_protocol::sdk::RawImageFrame;
 using mighty_protocol::sdk::StatusEvent;
 using mighty_protocol::sdk::VioStateFrame;
 
@@ -137,83 +137,6 @@ std::string to_vio_label(int code) {
   }
   if (code < 0) return "STATE_NA";
   return "STATE_" + std::to_string(code);
-}
-
-bool is_primary_channel(const std::string& channel_or_alias) {
-  std::string s = channel_or_alias;
-  std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-  return s == "cam0" || s == "preview" || s == "left";
-}
-
-const RawImageFrame* pick_render_frame(const ImageFrame& image) {
-  if (image.kind == ImageFrame::Kind::kRaw) return &image.left;
-
-  const RawImageFrame* left = &image.left;
-  const RawImageFrame* right = image.right ? &image.right.value() : nullptr;
-  const auto pick_name = [](const RawImageFrame* f) -> std::string {
-    if (!f) return "";
-    if (!f->channel_alias.empty()) return f->channel_alias;
-    return f->channel;
-  };
-
-  if (left && is_primary_channel(pick_name(left))) return left;
-  if (right && is_primary_channel(pick_name(right))) return right;
-  if (left) return left;
-  return right;
-}
-
-bool decode_raw_to_bgr(const RawImageFrame& raw, cv::Mat* out) {
-  if (!out) return false;
-  if (raw.width == 0 || raw.height == 0) return false;
-
-  const int width = static_cast<int>(raw.width);
-  const int height = static_cast<int>(raw.height);
-  const size_t pixels = static_cast<size_t>(width) * static_cast<size_t>(height);
-  const auto fmt = static_cast<RawFormat>(raw.format);
-
-  if (fmt == RawFormat::kGray8) {
-    if (raw.data.size() < pixels) return false;
-    cv::Mat gray(height, width, CV_8UC1, const_cast<uint8_t*>(raw.data.data()));
-    cv::cvtColor(gray, *out, cv::COLOR_GRAY2BGR);
-    return true;
-  }
-
-  if (fmt == RawFormat::kBGR24) {
-    if (raw.data.size() < pixels * 3) return false;
-    cv::Mat bgr(height, width, CV_8UC3, const_cast<uint8_t*>(raw.data.data()));
-    *out = bgr.clone();
-    return true;
-  }
-
-  if (fmt == RawFormat::kRGB24) {
-    if (raw.data.size() < pixels * 3) return false;
-    cv::Mat rgb(height, width, CV_8UC3, const_cast<uint8_t*>(raw.data.data()));
-    cv::cvtColor(rgb, *out, cv::COLOR_RGB2BGR);
-    return true;
-  }
-
-  if (fmt == RawFormat::kRGBA32) {
-    if (raw.data.size() < pixels * 4) return false;
-    cv::Mat rgba(height, width, CV_8UC4, const_cast<uint8_t*>(raw.data.data()));
-    cv::cvtColor(rgba, *out, cv::COLOR_RGBA2BGR);
-    return true;
-  }
-
-  if (fmt == RawFormat::kBGRA32) {
-    if (raw.data.size() < pixels * 4) return false;
-    cv::Mat bgra(height, width, CV_8UC4, const_cast<uint8_t*>(raw.data.data()));
-    cv::cvtColor(bgra, *out, cv::COLOR_BGRA2BGR);
-    return true;
-  }
-
-  if (fmt == RawFormat::kYUV420P || fmt == RawFormat::kYUV420SP) {
-    if (raw.data.size() < pixels) return false;
-    cv::Mat gray(height, width, CV_8UC1, const_cast<uint8_t*>(raw.data.data()));
-    cv::cvtColor(gray, *out, cv::COLOR_GRAY2BGR);
-    return true;
-  }
-
-  return false;
 }
 
 cv::Matx33d quat_xyzw_to_rot(const std::array<double, 4>& q) {
@@ -751,16 +674,15 @@ int main() {
   DashboardState state;
 
   client->on_image([&state](const ImageFrame& evt) {
-    const RawImageFrame* frame = pick_render_frame(evt);
-    if (!frame) return;
-    cv::Mat bgr;
-    if (!decode_raw_to_bgr(*frame, &bgr)) return;
+    mighty_protocol::sdk::opencv::DecodedImageFrame frame;
+    if (!mighty_protocol::sdk::opencv::decode_image_to_bgr(evt, &frame)) return;
     std::lock_guard<std::mutex> lock(state.mu);
-    state.image_bgr = std::move(bgr);
-    const std::string channel = !frame->channel_alias.empty() ? frame->channel_alias : frame->channel;
+    state.image_bgr = std::move(frame.bgr);
+    const std::string channel = !frame.channel_alias.empty() ? frame.channel_alias : frame.channel;
     std::ostringstream ss;
-    ss << "raw " << frame->width << "x" << frame->height << " " << channel
-       << " " << frame->timestamp_ns;
+    ss << (evt.kind == ImageFrame::Kind::kJpeg ? "jpg " : "raw ")
+       << state.image_bgr.cols << "x" << state.image_bgr.rows << " " << channel
+       << " " << frame.timestamp_ns;
     state.image_info = ss.str();
     mark_data(&state);
   });

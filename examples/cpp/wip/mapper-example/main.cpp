@@ -4,6 +4,7 @@
 #include <pangolin/pangolin.h>
 #include <pangolin/display/default_font.h>
 
+#include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 
 #include <algorithm>
@@ -26,6 +27,7 @@
 
 #include <mighty_algorithms/mighty_algorithms.h>
 #include "mighty_sdk.h"
+#include "sdk/mighty_opencv.h"
 
 namespace {
 
@@ -336,23 +338,6 @@ void print_usage() {
       << "  --auto-exit        close after idle stream timeout\n"
       << "  --idle-exit-sec=N   idle timeout for --auto-exit (default 5)\n"
       << "  --no-auto-exit      keep viewer open until closed (default)\n";
-}
-
-bool is_primary_channel(const std::string& channel_or_alias) {
-  const std::string s = lower_copy(channel_or_alias);
-  return s == "cam0" || s == "preview" || s == "left";
-}
-
-const RawImageFrame* pick_render_frame(const ImageFrame& image) {
-  const RawImageFrame* left = &image.left;
-  const RawImageFrame* right = image.right ? &image.right.value() : nullptr;
-  const auto name = [](const RawImageFrame* f) {
-    if (!f) return std::string();
-    return f->channel_alias.empty() ? f->channel : f->channel_alias;
-  };
-  if (left && is_primary_channel(name(left))) return left;
-  if (right && is_primary_channel(name(right))) return right;
-  return left ? left : right;
 }
 
 bool decode_raw_to_bgr(const RawImageFrame& raw, cv::Mat* out) {
@@ -909,7 +894,9 @@ int main(int argc, char** argv) {
   }
 
   auto image_sub = client->on_image([&](const ImageFrame& image_frame) {
-    const RawImageFrame* raw = pick_render_frame(image_frame);
+    RawImageFrame decoded_jpeg;
+    const RawImageFrame* raw =
+        mighty_protocol::sdk::opencv::image_to_raw(image_frame, &decoded_jpeg);
     if (!raw || raw->timestamp_ns == 0) return;
     cv::Mat bgr;
     if (!decode_raw_to_bgr(*raw, &bgr)) return;

@@ -228,8 +228,9 @@ def main():
     }
 
     last = {"image": None, "pose": None, "vsta": None, "viz": None, "keyframe": None, "event": None}
+    images = []
 
-    client.on_image(lambda v: (seen.__setitem__("image", seen["image"] + 1), last.__setitem__("image", v)))
+    client.on_image(lambda v: (seen.__setitem__("image", seen["image"] + 1), last.__setitem__("image", v), images.append(v)))
     client.on_pose(lambda v: (seen.__setitem__("pose", seen["pose"] + 1), last.__setitem__("pose", v)))
     client.on_imu(lambda _: seen.__setitem__("imu", seen["imu"] + 1))
     client.on_vio_state(lambda v: (seen.__setitem__("vsta", seen["vsta"] + 1), last.__setitem__("vsta", v)))
@@ -244,6 +245,10 @@ def main():
 
     client.connect()
     assert wait_until(lambda: client.is_connected(), timeout_s=1.0)
+
+    jpeg_data = b"\xff\xd8\xff\xd9"
+    jpeg_payload = struct.pack(">QB", 9, 4) + b"cam0" + jpeg_data
+    device.emit_packet(mp.make_packet(mp.TYPE["JPG"], jpeg_payload))
 
     device.emit_packet(mp.make_packet(mp.TYPE["RAW"], mp.build_raw_payload(
         10,
@@ -309,7 +314,7 @@ def main():
 
     assert wait_until(lambda: seen["any"] >= 11)
 
-    assert seen["image"] == 1
+    assert seen["image"] == 2
     assert seen["pose"] == 1
     assert seen["imu"] == 1
     assert seen["vsta"] == 1
@@ -349,6 +354,13 @@ def main():
     assert last["event"]["data"]["pose"]["positionM"] == [1.0, 2.0, 3.0]
     assert last["event"]["data"]["pose"]["orientationXyzw"] == [0.0, 0.0, 0.0, 1.0]
     assert seen["reset"] == 1
+    assert seen["image"] == 2
+    assert images[0]["kind"] == "jpg"
+    assert images[0]["timestamp_ns"] == 9
+    assert images[0]["channel"] == "cam0"
+    assert images[0]["channel_alias"] == "cam0"
+    assert images[0]["is_reference"] is False
+    assert images[0]["data"] == jpeg_data
     assert last["image"]["kind"] == "raw"
     assert last["image"]["channel"] == "cam0"
     assert last["image"]["channel_alias"] == "cam0"

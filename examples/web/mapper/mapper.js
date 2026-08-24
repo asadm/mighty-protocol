@@ -7,6 +7,7 @@ import {
   MightyClient,
   MightyWebDevice,
   decodeRawToRgb,
+  imageToRaw,
 } from "mighty-protocol";
 
 const BRAND_BLUE = 0x0099ff;
@@ -71,18 +72,6 @@ function mapperToRenderVec(x, y, z) {
 
 function mapperDirectionToRender(v) {
   return new THREE.Vector3(Number(v.x || 0), -Number(v.y || 0), -Number(v.z || 0));
-}
-
-function pickPrimaryRaw(imageEvt) {
-  if (!imageEvt) return null;
-  if (imageEvt.kind === "raw") return imageEvt;
-  if (imageEvt.kind !== "stereo_raw") return null;
-  const left = imageEvt.left || null;
-  const right = imageEvt.right || null;
-  const name = (raw) => String(raw?.channelAlias || raw?.channel || "").toLowerCase();
-  if (name(left) === "cam0" || name(left) === "preview" || name(left) === "left") return left;
-  if (name(right) === "cam0" || name(right) === "preview" || name(right) === "left") return right;
-  return left || right || null;
 }
 
 function drawPreview(raw) {
@@ -589,21 +578,25 @@ function postImageToMapper(raw) {
 }
 
 client.onImage((img) => {
-  const raw = pickPrimaryRaw(img);
-  if (!raw || !raw.timestampNs) return;
-  state.frames += 1;
-  state.lastDataAtMs = performance.now();
-  const now = performance.now();
-  if (now - lastPreviewDrawMs > 100) {
-    lastPreviewDrawMs = now;
-    try {
-      drawPreview(raw);
-    } catch (err) {
-      state.lastError = `preview: ${err?.message || err}`;
+  void imageToRaw(img).then((raw) => {
+    if (!raw || !raw.timestampNs) return;
+    state.frames += 1;
+    state.lastDataAtMs = performance.now();
+    const now = performance.now();
+    if (now - lastPreviewDrawMs > 100) {
+      lastPreviewDrawMs = now;
+      try {
+        drawPreview(raw);
+      } catch (err) {
+        state.lastError = `preview: ${err?.message || err}`;
+      }
     }
-  }
-  postImageToMapper(raw);
-  renderStatus();
+    postImageToMapper(raw);
+    renderStatus();
+  }).catch((err) => {
+    state.lastError = `image decode: ${err?.message || err}`;
+    renderStatus();
+  });
 });
 
 client.onPose((pose) => {

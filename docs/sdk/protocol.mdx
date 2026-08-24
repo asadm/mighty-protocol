@@ -56,6 +56,13 @@ The canonical builders/decoders are implemented in:
 
 ### 3.1 Images
 
+`JPG ` and `RAW ` are alternative mono-frame encodings. A producer may choose
+either per runtime/build configuration, so high-level consumers must not infer
+that every image event has raw dimensions and a pixel format. The SDKs expose
+these as `kind: "jpg"` / `kind: "raw"` (C++ `kJpeg` / `kRaw`) and provide
+optional pixel-decoding helpers. JPEG stays compressed until such a helper is
+called.
+
 #### `JPG ` / `RJPG`
 - timestamp (u64)
 - channel name length + channel bytes (`RJPG` may omit/normalize channel)

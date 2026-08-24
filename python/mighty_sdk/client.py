@@ -8,6 +8,7 @@ from dispatcher import FrameDispatcher
 from .calibration import parse_calibration_yaml
 from .loopclosure import LoopClosureError, NativeLoopClosure
 from .depth import RgbdSynchronizer
+from .image import decode_jpeg_to_raw
 from .utils import clamp01, sleep_seconds, to_bytes
 
 
@@ -21,6 +22,7 @@ DEFAULT_OPTS = {
     "loopclosure_calibration_yaml": "",
     "loopclosure_library": "",
     "loopclosure_options": None,
+    "jpeg_decoder": None,
 }
 
 VIO_STATE = mp.VIO_STATE
@@ -70,6 +72,7 @@ class MightyClient:
         }
 
         self._loopclosure: Optional[NativeLoopClosure] = None
+        self._last_jpeg_loopclosure_error = ""
         if bool(self.opts.get("loopclosure", False)):
             try:
                 self._loopclosure = NativeLoopClosure(
@@ -414,6 +417,22 @@ class MightyClient:
         except Exception as exc:
             self._emit_error("loopclosure", "push_image_failed", str(exc), exc)
 
+    def _push_loopclosure_jpeg_image(self, image: dict) -> None:
+        if not self._loopclosure or image.get("is_reference"):
+            return
+        decoder = self.opts.get("jpeg_decoder") or decode_jpeg_to_raw
+        try:
+            raw = decoder(image)
+            if not raw:
+                raise ValueError("configured JPEG decoder returned no image")
+            self._last_jpeg_loopclosure_error = ""
+            self._push_loopclosure_image(raw)
+        except Exception as exc:
+            message = str(exc)
+            if message != self._last_jpeg_loopclosure_error:
+                self._last_jpeg_loopclosure_error = message
+                self._emit_error("loopclosure", "jpeg_decode_failed", message, exc)
+
     @staticmethod
     def _is_loopclosure_pose(pose: dict) -> bool:
         return pose.get("pose_type") in ("body", "camera")
@@ -473,6 +492,26 @@ class MightyClient:
         wants_loopclosure = self._loopclosure is not None
 
         try:
+            if frame_type in ("JPG ", "RJPG"):
+                if not self._has_listeners("image") and not wants_any and not wants_loopclosure:
+                    return
+                is_reference = frame_type == "RJPG"
+                jpg = mp.decode_jpg_payload(payload, is_reference)
+                channel = "ref" if is_reference else (jpg.get("channel") or "preview")
+                mapped = {
+                    "kind": "jpg",
+                    "timestamp_ns": jpg.get("timestamp_ns"),
+                    "channel": channel,
+                    "channel_alias": self._map_channel_alias(channel),
+                    "is_reference": is_reference,
+                    "data": to_bytes(jpg.get("data", b"")),
+                }
+                self._push_loopclosure_jpeg_image(mapped)
+                self._emit("image", mapped)
+                if wants_any:
+                    self._emit_any({"type": "image", "data": mapped})
+                return
+
             if frame_type == "RAW ":
                 if not self._has_listeners("image") and not wants_any and not wants_loopclosure:
                     return

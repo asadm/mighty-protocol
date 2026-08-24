@@ -24,7 +24,7 @@ SDK_PY_DIR = THIS_FILE.parents[2] / "python"
 if str(SDK_PY_DIR) not in sys.path:
     sys.path.insert(0, str(SDK_PY_DIR))
 
-from mighty_sdk import MightyClient, MightyWebDevice  # noqa: E402
+from mighty_sdk import MightyClient, MightyWebDevice, image_to_raw  # noqa: E402
 
 from uihelpers import (  # noqa: E402
     DashboardState,
@@ -76,28 +76,18 @@ def _map_quat_odom_to_viz(quat):
 
 def wire_client_callbacks(client: MightyClient, state: DashboardState) -> None:
     def on_image(img: Dict[str, object]) -> None:
-        kind = img.get("kind")
-        if kind == "raw":
-            rgb = decode_raw_to_rgb(img)
-            if rgb is None:
-                return
-            channel = str(img.get("channel_alias") or img.get("channel") or "cam0")
-            ts = int(img.get("timestamp_ns") or 0)
-            state.update_image(rgb, channel, ts)
+        try:
+            frame = image_to_raw(img, jpeg_output_format="rgb24")
+        except (RuntimeError, ValueError):
             return
-
-        if kind == "stereo_raw":
-            left = img.get("left") or {}
-            right = img.get("right") or {}
-            frame = left
-            if (left.get("channel_alias") or left.get("channel")) not in ("cam0", "preview", "left"):
-                frame = right
-            rgb = decode_raw_to_rgb(frame)
-            if rgb is None:
-                return
-            channel = str(frame.get("channel_alias") or frame.get("channel") or "cam0")
-            ts = int(frame.get("timestamp_ns") or 0)
-            state.update_image(rgb, channel, ts)
+        if not frame:
+            return
+        rgb = decode_raw_to_rgb(frame)
+        if rgb is None:
+            return
+        channel = str(frame.get("channel_alias") or frame.get("channel") or "cam0")
+        ts = int(frame.get("timestamp_ns") or 0)
+        state.update_image(rgb, channel, ts)
 
     def on_pose(p: Dict[str, object]) -> None:
         pos_viz = _map_position_odom_to_viz(p.get("position_m"))

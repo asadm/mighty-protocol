@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Threads REQUIRED)
+find_package(OpenCV REQUIRED COMPONENTS core imgcodecs imgproc)
 
 get_filename_component(MIGHTY_PROTOCOL_ROOT
   "${CMAKE_CURRENT_SOURCE_DIR}/../../../.." ABSOLUTE)
@@ -20,7 +21,9 @@ add_executable(mighty_occupancy_grid_example main.cpp)
 target_compile_definitions(mighty_occupancy_grid_example PRIVATE
   MIGHTY_PROTOCOL_ENABLE_OCCUPANCY_GRID=1)
 target_include_directories(mighty_occupancy_grid_example PRIVATE
-  "${MIGHTY_PROTOCOL_ROOT}")
+  "${MIGHTY_PROTOCOL_ROOT}"
+  ${OpenCV_INCLUDE_DIRS})
 target_link_libraries(mighty_occupancy_grid_example PRIVATE
   MightyAlgorithms::mighty_algorithms
+  ${OpenCV_LIBS}
   Threads::Threads)

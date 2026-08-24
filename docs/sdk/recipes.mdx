@@ -241,30 +241,26 @@ pipeline.
 ## Display Camera Images
 
 Use image callbacks for previews, feature overlays, recording tools, and visual
-debugging. Images may be mono, RGB/BGR/RGBA, YUV, or stereo raw depending on
-firmware mode.
+debugging. Mono frames may arrive as compressed JPEG or as GRAY8/RGB/YUV raw
+pixels depending on firmware mode.
 
 ```python
+from mighty_sdk import image_to_raw
+
 def on_image(img):
-    if img["kind"] == "stereo_raw":
-        print("left", img["left"]["width"], img["left"]["height"],
-              "right", img["right"]["width"], img["right"]["height"])
-    else:
-        print(img["width"], img["height"], img["channel"])
+    raw = image_to_raw(img)
+    if raw:
+        print(img["kind"], raw["width"], raw["height"], raw["channel"])
 
 client.on_image(on_image)
 ```
 
 ```js
-import { decodeRawToRgb } from "mighty-protocol";
+import { decodeImageToRgb } from "mighty-protocol";
 
-client.onImage((img) => {
-  if (img.kind === "stereo_raw") {
-    console.log("stereo", img.left.width, img.right.width);
-    return;
-  }
-  const rgba = decodeRawToRgb(img);
-  console.log("image", img.width, img.height, !!rgba);
+client.onImage(async (img) => {
+  const decoded = await decodeImageToRgb(img);
+  console.log("image", img.kind, decoded?.width, decoded?.height);
 });
 ```
 

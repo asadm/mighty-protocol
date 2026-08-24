@@ -12,7 +12,7 @@ from sensor_msgs.msg import Image, Imu
 from std_msgs.msg import String
 from tf2_ros import TransformBroadcaster
 
-from mighty_sdk import MightyClient, MightyWebDevice
+from mighty_sdk import MightyClient, MightyWebDevice, image_to_raw
 
 
 def _finite(value: Any, fallback: float = 0.0) -> float:
@@ -185,7 +185,12 @@ class MightyRos2Publisher(Node):
             self.imu_pub.publish(msg)
 
     def _on_image(self, image: Dict[str, Any]):
-        if image.get("kind") == "stereo_raw":
+        try:
+            image = image_to_raw(image, jpeg_output_format="gray8")
+        except (RuntimeError, ValueError) as exc:
+            self.get_logger().warn(f"image decode failed: {exc}")
+            return
+        if not image:
             return
 
         width = int(image.get("width") or 0)

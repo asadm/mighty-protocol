@@ -44,6 +44,10 @@ pip install -U pip
 pip install "git+https://github.com/asadm/mighty-protocol.git"
 ```
 
+Install Pillow as well when a Python application needs to decode compressed
+camera frames into pixels (`pip install Pillow`). Receiving or forwarding JPEG
+events does not require it.
+
 JavaScript from GitHub:
 
 ```bash
@@ -58,6 +62,16 @@ C++ is header-only for the protocol/client SDK:
 
 For a tiny C++ command-line example, see
 [`examples/cpp/cli`](./examples/cpp/cli).
+
+## Image Events
+
+Mono camera frames are exposed consistently as `kind: "jpg"` or
+`kind: "raw"` (`ImageFrame::Kind::kJpeg` / `kRaw` in C++). JPEG payloads stay
+compressed at the callback boundary. Use `imageToRaw` or `decodeImageToRgb` in
+JavaScript, `image_to_raw` in Python, or the optional
+`cpp/sdk/mighty_opencv.h` adapter in C++ when a consumer needs decoded pixels.
+This avoids paying JPEG decode cost in applications that only record or relay
+frames.
 
 ## Optional Algorithm Binaries
 

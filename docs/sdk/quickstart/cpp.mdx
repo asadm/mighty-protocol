@@ -16,6 +16,7 @@ C++ entry points:
 Minimal usage:
 
 ```cpp
+#include <iostream>
 #include <memory>
 #include "cpp/mighty_sdk.h"
 
@@ -30,7 +31,12 @@ int main() {
   });
 
   auto img_sub = client.on_image([](const ImageFrame& f) {
-    (void)f;
+    if (f.kind == ImageFrame::Kind::kJpeg && f.jpeg) {
+      // JPEG stays compressed until the application needs pixels.
+      std::cout << "jpeg bytes=" << f.jpeg->data.size() << '\n';
+    } else {
+      std::cout << "raw " << f.left.width << "x" << f.left.height << '\n';
+    }
   });
 
   auto event_sub = client.on_event([](const DeviceEvent& event) {
@@ -46,3 +52,8 @@ int main() {
   return 0;
 }
 ```
+
+Applications using OpenCV can include `cpp/sdk/mighty_opencv.h` and call
+`opencv::decode_image_to_bgr(...)` for either JPEG or RAW events. Link OpenCV
+`core`, `imgcodecs`, and `imgproc`; the core protocol SDK itself remains
+header-only and does not require OpenCV.
