@@ -97,7 +97,7 @@ source image in every frame. Numeric fields and uint16 samples are big-endian.
 
 ```text
 u8  version (=1)
-u8  encoding (=1, UINT16_MILLIMETERS)
+u8  encoding (1=UINT16_MILLIMETERS, 2=UINT16_MILLIMETERS_RLE)
 u8  depth_convention (=1, Z_DEPTH)
 u8  camera_model (1=PINHOLE, 2=DOUBLE_SPHERE)
 u8  distortion_model (0=NONE, 1=RADTAN, 2=EQUIDISTANT)
@@ -114,8 +114,13 @@ u8  source_channel_length
 u8  frame_id_length
 bytes source_channel
 bytes frame_id
-u16 depth_samples[width * height]
+if encoding == 1: u16 depth_samples[width * height]
+if encoding == 2: repeated { u16 run_length, u16 depth_sample }
 ```
+
+RLE runs are row-major, may not have zero length, and must expand to exactly
+`width * height` samples. Runs longer than 65,535 samples are split. SDK
+decoders expose the same fully expanded uint16 depth raster for both encodings.
 
 `Z_DEPTH` is forward optical-axis depth, so a valid pixel reconstructs as
 `X=(u-cx)/fx*Z`, `Y=(v-cy)/fy*Z`, `Z=sample*depth_scale_m`. The depth grid is

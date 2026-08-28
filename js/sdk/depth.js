@@ -248,5 +248,7 @@ export class RgbdSynchronizer {
 }
 
 export function isUint16MetricDepth(frame) {
-  return Number(frame?.encoding) === DEPTH_ENCODING.UINT16_MILLIMETERS;
+  const encoding = Number(frame?.encoding);
+  return encoding === DEPTH_ENCODING.UINT16_MILLIMETERS ||
+    encoding === DEPTH_ENCODING.UINT16_MILLIMETERS_RLE;
 }

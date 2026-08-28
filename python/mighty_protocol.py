@@ -113,6 +113,7 @@ RAW_FORMAT = {
 DEPTH_ENCODING = {
     "UNKNOWN": 0,
     "UINT16_MILLIMETERS": 1,
+    "UINT16_MILLIMETERS_RLE": 2,
 }
 
 DEPTH_CONVENTION = {
@@ -217,9 +218,11 @@ def build_depth_payload(timestamp_ns: int,
     width = int(width)
     height = int(height)
     values = list(depth_mm or [])
-    if version != 1 or encoding != DEPTH_ENCODING["UINT16_MILLIMETERS"] or \
+    raw_encoding = encoding == DEPTH_ENCODING["UINT16_MILLIMETERS"]
+    rle_encoding = encoding == DEPTH_ENCODING["UINT16_MILLIMETERS_RLE"]
+    if version != 1 or not (raw_encoding or rle_encoding) or \
             width <= 0 or height <= 0 or len(values) != width * height:
-        raise ValueError("DPT requires width*height UINT16_MILLIMETERS samples")
+        raise ValueError("DPT requires width*height uint16 millimeter samples")
     depth_k = list(depth_intrinsics or [])[:4]
     source_k = list(source_intrinsics or [])[:4]
     coeffs = list(distortion or [])[:4]
@@ -246,10 +249,25 @@ def build_depth_payload(timestamp_ns: int,
     )
     header += struct.pack(">ffffffffffff", *(float(v) for v in depth_k + source_k + coeffs))
     header += bytes([len(channel), len(frame)]) + channel + frame
-    samples = array.array("H", (int(v) & 0xffff for v in values))
-    if sys.byteorder == "little":
-        samples.byteswap()
-    return header + samples.tobytes()
+    if raw_encoding:
+        samples = array.array("H", (int(v) & 0xffff for v in values))
+        if sys.byteorder == "little":
+            samples.byteswap()
+        encoded_samples = samples.tobytes()
+    else:
+        encoded_samples = bytearray()
+        index = 0
+        while index < len(values):
+            value = int(values[index]) & 0xffff
+            index += 1
+            run_length = 1
+            while index < len(values) and \
+                    (int(values[index]) & 0xffff) == value and \
+                    run_length < 0xffff:
+                index += 1
+                run_length += 1
+            encoded_samples.extend(struct.pack(">HH", run_length, value))
+    return header + bytes(encoded_samples)
 
 def build_stereo_raw_payload(left_timestamp_ns: int,
                              right_timestamp_ns: int,
@@ -324,14 +342,32 @@ def decode_depth_payload(payload: bytes):
     source_channel = payload[off:off+channel_len].decode("utf-8"); off += channel_len
     frame_id = payload[off:off+frame_id_len].decode("utf-8"); off += frame_id_len
     sample_count = int(width) * int(height)
-    if version != 1 or encoding != DEPTH_ENCODING["UINT16_MILLIMETERS"] or \
+    raw_encoding = encoding == DEPTH_ENCODING["UINT16_MILLIMETERS"]
+    rle_encoding = encoding == DEPTH_ENCODING["UINT16_MILLIMETERS_RLE"]
+    if version != 1 or not (raw_encoding or rle_encoding) or \
             width <= 0 or height <= 0 or not math.isfinite(depth_scale_m) or \
-            depth_scale_m <= 0.0 or len(payload) - off != sample_count * 2:
+            depth_scale_m <= 0.0:
         raise ValueError("invalid DPT payload")
     values = array.array("H")
-    values.frombytes(payload[off:])
-    if sys.byteorder == "little":
-        values.byteswap()
+    if raw_encoding:
+        if len(payload) - off != sample_count * 2:
+            raise ValueError("invalid DPT payload")
+        values.frombytes(payload[off:])
+        if sys.byteorder == "little":
+            values.byteswap()
+    else:
+        if (len(payload) - off) % 4:
+            raise ValueError("invalid DPT RLE payload")
+        output_count = 0
+        while off < len(payload):
+            run_length, value = struct.unpack(">HH", payload[off:off+4])
+            off += 4
+            if run_length == 0 or output_count + run_length > sample_count:
+                raise ValueError("invalid DPT RLE payload")
+            values.extend(array.array("H", [value]) * run_length)
+            output_count += run_length
+        if output_count != sample_count:
+            raise ValueError("invalid DPT RLE payload")
     return {
         "version": version,
         "encoding": encoding,

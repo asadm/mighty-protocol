@@ -44,6 +44,7 @@ const RAW_FORMAT = {
 const DEPTH_ENCODING = {
   UNKNOWN: 0,
   UINT16_MILLIMETERS: 1,
+  UINT16_MILLIMETERS_RLE: 2,
 };
 
 const DEPTH_CONVENTION = {
@@ -405,17 +406,39 @@ function buildDepthPayload({
   const w = Number(width) >>> 0;
   const h = Number(height) >>> 0;
   const sampleCount = w * h;
-  if (version !== 1 || encoding !== DEPTH_ENCODING.UINT16_MILLIMETERS ||
+  const rawEncoding = encoding === DEPTH_ENCODING.UINT16_MILLIMETERS;
+  const rleEncoding = encoding === DEPTH_ENCODING.UINT16_MILLIMETERS_RLE;
+  if (version !== 1 || (!rawEncoding && !rleEncoding) ||
       w === 0 || h === 0 || !Number.isSafeInteger(sampleCount) ||
       !depthMm || Number(depthMm.length) !== sampleCount) {
-    throw new Error("DPT requires width*height UINT16_MILLIMETERS samples");
+    throw new Error("DPT requires width*height uint16 millimeter samples");
   }
   const channelBytes = (textEncoder || new TextEncoder()).encode(sourceChannel || "");
   const frameIdBytes = (textEncoder || new TextEncoder()).encode(frameId || "");
   const channelLen = Math.min(255, channelBytes.length);
   const frameIdLen = Math.min(255, frameIdBytes.length);
   const fixedBytes = 86;
-  const out = new Uint8Array(fixedBytes + channelLen + frameIdLen + sampleCount * 2);
+  let encodedSampleBytes = sampleCount * 2;
+  if (rleEncoding) {
+    let runCount = 0;
+    let index = 0;
+    while (index < sampleCount) {
+      const value = Number(depthMm[index]) & 0xffff;
+      index += 1;
+      let runLength = 1;
+      while (index < sampleCount &&
+             (Number(depthMm[index]) & 0xffff) === value &&
+             runLength < 0xffff) {
+        index += 1;
+        runLength += 1;
+      }
+      runCount += 1;
+    }
+    encodedSampleBytes = runCount * 4;
+  }
+  const out = new Uint8Array(
+    fixedBytes + channelLen + frameIdLen + encodedSampleBytes,
+  );
   const dv = new DataView(out.buffer, out.byteOffset, out.byteLength);
   let off = 0;
   dv.setUint8(off, version); off += 1;
@@ -445,9 +468,26 @@ function buildDepthPayload({
   dv.setUint8(off, frameIdLen); off += 1;
   out.set(channelBytes.subarray(0, channelLen), off); off += channelLen;
   out.set(frameIdBytes.subarray(0, frameIdLen), off); off += frameIdLen;
-  for (let i = 0; i < sampleCount; i += 1) {
-    dv.setUint16(off, Number(depthMm[i]) & 0xffff, false);
-    off += 2;
+  if (rawEncoding) {
+    for (let i = 0; i < sampleCount; i += 1) {
+      dv.setUint16(off, Number(depthMm[i]) & 0xffff, false);
+      off += 2;
+    }
+  } else {
+    let index = 0;
+    while (index < sampleCount) {
+      const value = Number(depthMm[index]) & 0xffff;
+      index += 1;
+      let runLength = 1;
+      while (index < sampleCount &&
+             (Number(depthMm[index]) & 0xffff) === value &&
+             runLength < 0xffff) {
+        index += 1;
+        runLength += 1;
+      }
+      dv.setUint16(off, runLength, false); off += 2;
+      dv.setUint16(off, value, false); off += 2;
+    }
   }
   return fromU8(out);
 }
@@ -1136,16 +1176,39 @@ function decodeDepthPayload(payload) {
   const sourceChannel = decoder.decode(u8.subarray(off, off + channelLen)); off += channelLen;
   const frameId = decoder.decode(u8.subarray(off, off + frameIdLen)); off += frameIdLen;
   const sampleCount = width * height;
-  if (version !== 1 || encoding !== DEPTH_ENCODING.UINT16_MILLIMETERS ||
+  const rawEncoding = encoding === DEPTH_ENCODING.UINT16_MILLIMETERS;
+  const rleEncoding = encoding === DEPTH_ENCODING.UINT16_MILLIMETERS_RLE;
+  if (version !== 1 || (!rawEncoding && !rleEncoding) ||
       width === 0 || height === 0 || !Number.isSafeInteger(sampleCount) ||
-      !Number.isFinite(depthScaleM) || depthScaleM <= 0 ||
-      u8.length - off !== sampleCount * 2) {
+      !Number.isFinite(depthScaleM) || depthScaleM <= 0) {
     throw new Error("invalid DPT payload");
   }
   const depthMm = new Uint16Array(sampleCount);
-  for (let i = 0; i < sampleCount; i += 1) {
-    depthMm[i] = dv.getUint16(off, false);
-    off += 2;
+  if (rawEncoding) {
+    if (u8.length - off !== sampleCount * 2) {
+      throw new Error("invalid DPT payload");
+    }
+    for (let i = 0; i < sampleCount; i += 1) {
+      depthMm[i] = dv.getUint16(off, false);
+      off += 2;
+    }
+  } else {
+    if ((u8.length - off) % 4 !== 0) {
+      throw new Error("invalid DPT RLE payload");
+    }
+    let outputIndex = 0;
+    while (off < u8.length) {
+      const runLength = dv.getUint16(off, false); off += 2;
+      const value = dv.getUint16(off, false); off += 2;
+      if (runLength === 0 || outputIndex + runLength > sampleCount) {
+        throw new Error("invalid DPT RLE payload");
+      }
+      depthMm.fill(value, outputIndex, outputIndex + runLength);
+      outputIndex += runLength;
+    }
+    if (outputIndex !== sampleCount) {
+      throw new Error("invalid DPT RLE payload");
+    }
   }
   return {
     version, encoding, depthConvention, cameraModel, distortionModel, flags,

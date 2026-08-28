@@ -29,6 +29,15 @@ int main() {
   DepthFrame decoded;
   assert(decode_depth_payload(payload, decoded));
   assert(decoded.depth_mm == depth.depth_mm);
+
+  depth.encoding =
+      static_cast<std::uint8_t>(DepthEncoding::kUint16MillimetersRle);
+  const std::vector<uint8_t> rle_payload = build_depth_payload(depth);
+  assert(!rle_payload.empty());
+  assert(decode_depth_payload(rle_payload, decoded));
+  assert(decoded.encoding == depth.encoding);
+  assert(is_uint16_metric_depth_encoding(decoded.encoding));
+  assert(decoded.depth_mm == depth.depth_mm);
   assert(depth_at_meters(decoded, 1, 0).has_value());
   assert(std::abs(*depth_at_meters(decoded, 1, 0) - 1.25f) < 1e-6f);
   assert(!depth_at_meters(decoded, 0, 0).has_value());
@@ -88,7 +97,7 @@ int main() {
     ++dispatch_count;
     assert(frame.frame_id == "cam0_rectified");
   });
-  const std::vector<uint8_t> packet = make_packet(payload, TYPE_DPT);
+  const std::vector<uint8_t> packet = make_packet(rle_payload, TYPE_DPT);
   dispatcher.feed(packet.data(), packet.size());
   assert(dispatch_count == 1);
 

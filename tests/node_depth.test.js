@@ -3,8 +3,9 @@ import proto from "../js/index.js";
 
 const timestampNs = 123456789n;
 
-function makeDepthPayload() {
+function makeDepthPayload(encoding = proto.DEPTH_ENCODING.UINT16_MILLIMETERS) {
   return proto.buildDepthPayload({
+    encoding,
     timestampNs,
     width: 2,
     height: 2,
@@ -35,8 +36,18 @@ class MockDevice {
 }
 
 async function main() {
-  const payload = makeDepthPayload();
+  const rawPayload = makeDepthPayload();
+  assert.deepStrictEqual(
+    Array.from(proto.decodeDepthPayload(rawPayload).depthMm),
+    [0, 1250, 2500, 10000],
+  );
+  const payload = makeDepthPayload(proto.DEPTH_ENCODING.UINT16_MILLIMETERS_RLE);
   const decoded = proto.decodeDepthPayload(payload);
+  assert.strictEqual(
+    decoded.encoding,
+    proto.DEPTH_ENCODING.UINT16_MILLIMETERS_RLE,
+  );
+  assert.ok(proto.isUint16MetricDepth(decoded));
   assert.strictEqual(decoded.timestampNs, timestampNs);
   assert.deepStrictEqual(Array.from(decoded.depthMm), [0, 1250, 2500, 10000]);
   assert.ok(Math.abs(proto.depthAtMeters(decoded, 1, 0) - 1.25) < 1e-6);

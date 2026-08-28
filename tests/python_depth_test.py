@@ -18,7 +18,7 @@ from mighty_sdk import (  # noqa: E402
 TIMESTAMP_NS = 123456789
 
 
-def make_payload():
+def make_payload(encoding=mp.DEPTH_ENCODING["UINT16_MILLIMETERS"]):
     return mp.build_depth_payload(
         timestamp_ns=TIMESTAMP_NS,
         width=2,
@@ -29,11 +29,15 @@ def make_payload():
         source_intrinsics=(1.0, 1.0, 0.0, 0.0),
         distortion=(0.0, 0.0, 0.0, 0.0),
         depth_mm=(0, 1250, 2500, 10000),
+        encoding=encoding,
     )
 
 
-payload = make_payload()
+raw_payload = make_payload()
+assert list(mp.decode_depth_payload(raw_payload)["depth_mm"]) == [0, 1250, 2500, 10000]
+payload = make_payload(mp.DEPTH_ENCODING["UINT16_MILLIMETERS_RLE"])
 depth = mp.decode_depth_payload(payload)
+assert depth["encoding"] == mp.DEPTH_ENCODING["UINT16_MILLIMETERS_RLE"]
 assert list(depth["depth_mm"]) == [0, 1250, 2500, 10000]
 assert abs(depth_at_meters(depth, 1, 0) - 1.25) < 1e-6
 assert depth_at_meters(depth, 0, 0) is None

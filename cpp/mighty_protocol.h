@@ -55,7 +55,16 @@ enum class DepthEncoding : uint8_t {
   // Samples are unsigned 16-bit millimetres in network byte order. Zero is
   // normally reserved for invalid pixels; `invalid_value` is authoritative.
   kUint16Millimeters = 1,
+  // Lossless row-major runs of (u16 run_length, u16 value), both in network
+  // byte order. Decoders expand this to the same width*height depth_mm raster.
+  kUint16MillimetersRle = 2,
 };
+
+inline constexpr bool is_uint16_metric_depth_encoding(uint8_t encoding) {
+  return encoding == static_cast<uint8_t>(DepthEncoding::kUint16Millimeters) ||
+         encoding ==
+             static_cast<uint8_t>(DepthEncoding::kUint16MillimetersRle);
+}
 
 enum class DepthConvention : uint8_t {
   kUnknown = 0,
@@ -615,8 +624,12 @@ inline std::vector<uint8_t> build_raw_payload(uint64_t timestamp_ns,
 }
 
 inline std::vector<uint8_t> build_depth_payload(const DepthFrame& frame) {
+  const bool raw_encoding = frame.encoding ==
+      static_cast<uint8_t>(DepthEncoding::kUint16Millimeters);
+  const bool rle_encoding = frame.encoding ==
+      static_cast<uint8_t>(DepthEncoding::kUint16MillimetersRle);
   if (frame.version != 1 ||
-      frame.encoding != static_cast<uint8_t>(DepthEncoding::kUint16Millimeters) ||
+      !is_uint16_metric_depth_encoding(frame.encoding) ||
       frame.width == 0 || frame.height == 0) {
     return {};
   }
@@ -632,9 +645,30 @@ inline std::vector<uint8_t> build_depth_payload(const DepthFrame& frame) {
   const uint8_t frame_id_len = static_cast<uint8_t>(
       std::min<size_t>(255, frame.frame_id.size()));
   constexpr size_t kFixedBytes = 86;
+  size_t encoded_sample_bytes = static_cast<size_t>(sample_count) * 2u;
+  if (rle_encoding) {
+    size_t run_count = 0;
+    size_t index = 0;
+    while (index < frame.depth_mm.size()) {
+      const uint16_t value = frame.depth_mm[index++];
+      uint32_t run_length = 1;
+      while (index < frame.depth_mm.size() &&
+             frame.depth_mm[index] == value && run_length < 65535u) {
+        ++index;
+        ++run_length;
+      }
+      ++run_count;
+    }
+    const size_t prefix_bytes = kFixedBytes + channel_len + frame_id_len;
+    if (run_count >
+        (std::numeric_limits<size_t>::max() - prefix_bytes) / 4u) {
+      return {};
+    }
+    encoded_sample_bytes = run_count * 4u;
+  }
   std::vector<uint8_t> payload(
       kFixedBytes + channel_len + frame_id_len +
-      static_cast<size_t>(sample_count) * 2u);
+      encoded_sample_bytes);
   size_t offset = 0;
   payload[offset++] = frame.version;
   payload[offset++] = frame.encoding;
@@ -668,9 +702,24 @@ inline std::vector<uint8_t> build_depth_payload(const DepthFrame& frame) {
     std::memcpy(payload.data() + offset, frame.frame_id.data(), frame_id_len);
     offset += frame_id_len;
   }
-  for (uint16_t value : frame.depth_mm) {
-    write_u16_be(payload.data() + offset, value);
-    offset += 2;
+  if (raw_encoding) {
+    for (uint16_t value : frame.depth_mm) {
+      write_u16_be(payload.data() + offset, value);
+      offset += 2;
+    }
+  } else {
+    size_t index = 0;
+    while (index < frame.depth_mm.size()) {
+      const uint16_t value = frame.depth_mm[index++];
+      uint16_t run_length = 1;
+      while (index < frame.depth_mm.size() &&
+             frame.depth_mm[index] == value && run_length < 65535u) {
+        ++index;
+        ++run_length;
+      }
+      write_u16_be(payload.data() + offset, run_length); offset += 2;
+      write_u16_be(payload.data() + offset, value); offset += 2;
+    }
   }
   return payload;
 }
@@ -1396,22 +1445,45 @@ inline bool decode_depth_payload(const std::vector<uint8_t>& payload,
       reinterpret_cast<const char*>(payload.data() + offset), frame_id_len);
   offset += frame_id_len;
 
+  const bool raw_encoding = decoded.encoding ==
+      static_cast<uint8_t>(DepthEncoding::kUint16Millimeters);
+  const bool rle_encoding = decoded.encoding ==
+      static_cast<uint8_t>(DepthEncoding::kUint16MillimetersRle);
   if (decoded.version != 1 ||
-      decoded.encoding != static_cast<uint8_t>(DepthEncoding::kUint16Millimeters) ||
+      !is_uint16_metric_depth_encoding(decoded.encoding) ||
       decoded.width == 0 || decoded.height == 0 ||
       !std::isfinite(decoded.depth_scale_m) || decoded.depth_scale_m <= 0.0f) {
     return false;
   }
   const uint64_t sample_count =
       static_cast<uint64_t>(decoded.width) * static_cast<uint64_t>(decoded.height);
-  if (sample_count > (std::numeric_limits<size_t>::max() / 2u) ||
-      payload.size() - offset != static_cast<size_t>(sample_count) * 2u) {
+  if (sample_count > (std::numeric_limits<size_t>::max() / 2u)) {
     return false;
   }
-  decoded.depth_mm.resize(static_cast<size_t>(sample_count));
-  for (uint16_t& value : decoded.depth_mm) {
-    value = read_u16_be(payload.data() + offset);
-    offset += 2;
+  const size_t decoded_samples = static_cast<size_t>(sample_count);
+  decoded.depth_mm.resize(decoded_samples);
+  if (raw_encoding) {
+    if (payload.size() - offset != decoded_samples * 2u) return false;
+    for (uint16_t& value : decoded.depth_mm) {
+      value = read_u16_be(payload.data() + offset);
+      offset += 2;
+    }
+  } else {
+    if ((payload.size() - offset) % 4u != 0u) return false;
+    size_t output_index = 0;
+    while (offset < payload.size()) {
+      const uint16_t run_length = read_u16_be(payload.data() + offset);
+      offset += 2;
+      const uint16_t value = read_u16_be(payload.data() + offset);
+      offset += 2;
+      if (run_length == 0 ||
+          static_cast<size_t>(run_length) > decoded_samples - output_index) {
+        return false;
+      }
+      std::fill_n(decoded.depth_mm.begin() + output_index, run_length, value);
+      output_index += run_length;
+    }
+    if (output_index != decoded_samples) return false;
   }
   frame = std::move(decoded);
   return true;
