@@ -1,0 +1,116 @@
+---
+title: Loop Closure
+description: Reduce accumulated VIO drift when Mighty revisits a previously seen area.
+---
+
+Loop closure helps Mighty reduce accumulated pose drift when the camera returns
+to a previously visited area. Once enabled, it works alongside VIO and corrected
+poses continue through the normal pose stream.
+
+Loop closure is disabled by default.
+
+## Enable loop closure in the visualizer
+
+1. Plug Mighty Camera into your machine.
+2. Open [mightycamera.com/viz](https://mightycamera.com/viz) and wait for the
+   camera to connect.
+3. Start VIO.
+4. Open **Settings** and click **Enable Loop Closure**.
+
+The visualizer reports when a loop closure is applied.
+
+## Enable loop closure from Python
+
+Use `set_loop_closure_enabled(True)` after connecting and starting VIO:
+
+```python
+import time
+
+from mighty_sdk import MightyClient, MightyWebDevice
+
+
+client = MightyClient(MightyWebDevice())
+
+
+def on_loop_closure(event):
+    if event.get("kind") != "loop_closure":
+        return
+
+    data = event.get("data") or {}
+    print(
+        "Loop closure applied:",
+        data.get("matchedTimestampNs"),
+        "->",
+        data.get("timestampNs"),
+    )
+
+
+client.on_event(on_loop_closure)
+client.connect()
+
+try:
+    result = client.start_vio()
+    if not result.get("ok"):
+        raise RuntimeError(result.get("message", "Could not start VIO"))
+
+    result = client.set_loop_closure_enabled(True)
+    if not result.get("ok"):
+        raise RuntimeError(result.get("message", "Loop closure unavailable"))
+
+    status = client.loop_closure_status()
+    print(status.get("message", ""))
+
+    while True:
+        time.sleep(0.25)
+except KeyboardInterrupt:
+    pass
+finally:
+    client.set_loop_closure_enabled(False)
+    client.stop_vio()
+    client.disconnect()
+```
+
+If another part of your application already manages VIO, omit the `start_vio()`
+and `stop_vio()` calls.
+
+Corrected poses arrive through the regular `on_pose()` callback. Do not apply a
+second loop-closure correction in your application.
+
+## What to expect
+
+Loop closure takes effect only after Mighty recognizes a previously visited
+area. It does not eliminate normal short-term VIO drift, and not every revisit
+is guaranteed to produce a closure.
+
+For the best results:
+
+- Revisit areas with some overlap in camera viewpoint.
+- Use environments with stable visual detail.
+- Avoid severe motion blur and poor lighting.
+- Keep the camera view reasonably unobstructed.
+
+When a closure is accepted, the published pose may adjust over a short period.
+Applications consuming position should tolerate this gradual global correction.
+If no reliable revisit is found, VIO continues operating normally without
+applying a correction.
+
+## Session horizon
+
+For planning purposes, expect approximately **20–25 minutes of continuously
+exploring new, similarly textured indoor space** under tested conditions.
+
+This is not a fixed time or distance limit:
+
+- Sessions following or revisiting known routes can operate substantially
+  longer.
+- Rapidly entering new areas uses the available history faster.
+- Scene appearance, camera motion, lighting, and visual detail all affect the
+  useful horizon.
+- In a sufficiently long session, the oldest areas may no longer be available
+  for loop closure.
+
+Loop-closure history belongs to the current VIO session. Restarting VIO begins
+a new session.
+
+Loop closure is not persistent mapping or cross-session localization, and it
+should not be treated as a guaranteed or safety-critical return-to-home system.
