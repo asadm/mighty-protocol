@@ -19,6 +19,7 @@ TYPE = {
     "LCON": b"LCON",
     "VIZ": b"VIZ ",
     "IMU": b"IMU ",
+    "GPS": b"GPS ",
     "STAT": b"STAT",
     "VSTA": b"VSTA",
     "RSET": b"RSET",
@@ -664,6 +665,68 @@ def decode_imu_payload(payload: bytes):
         ax, ay, az, gx, gy, gz = struct.unpack(">dddddd", payload[off:off+48]); off += 48
         samples.append({"timestamp_ns": ts, "ax": ax, "ay": ay, "az": az, "gx": gx, "gy": gy, "gz": gz})
     return samples
+
+def build_gps_payload(timestamp_ns: int = 0,
+                      latitude_deg: float = math.nan,
+                      longitude_deg: float = math.nan,
+                      altitude_m: Optional[float] = None,
+                      status: int = -1,
+                      service: int = 0,
+                      covariance_type: int = 0,
+                      position_covariance: Optional[List[float]] = None,
+                      version: int = 1) -> bytes:
+    altitude = float(altitude_m) if altitude_m is not None else math.nan
+    has_altitude = math.isfinite(altitude)
+    covariance = [float(value) for value in (position_covariance or [])]
+    has_covariance = (
+        int(covariance_type) != 0 and
+        len(covariance) == 9 and
+        all(math.isfinite(value) for value in covariance)
+    )
+    flags = (1 if has_altitude else 0) | (2 if has_covariance else 0)
+    payload = struct.pack(
+        ">BbHBBHQddd",
+        max(1, int(version)),
+        int(status),
+        int(service) & 0xFFFF,
+        int(covariance_type) & 0xFF,
+        flags,
+        0,
+        int(timestamp_ns),
+        float(latitude_deg),
+        float(longitude_deg),
+        altitude,
+    )
+    if has_covariance:
+        payload += struct.pack(">9d", *covariance)
+    return payload
+
+def decode_gps_payload(payload: bytes):
+    if len(payload) < 40:
+        raise ValueError("GPS payload truncated")
+    version, status, service, covariance_type, flags, _reserved, timestamp_ns, \
+        latitude_deg, longitude_deg, altitude_m = struct.unpack(">BbHBBHQddd", payload[:40])
+    if version == 0:
+        raise ValueError("GPS payload has invalid version")
+    if not math.isfinite(latitude_deg) or not math.isfinite(longitude_deg):
+        raise ValueError("GPS payload contains an invalid coordinate")
+    position_covariance = None
+    if flags & 2:
+        if len(payload) < 112:
+            raise ValueError("GPS covariance truncated")
+        position_covariance = list(struct.unpack(">9d", payload[40:112]))
+    return {
+        "version": version,
+        "status": status,
+        "service": service,
+        "covariance_type": covariance_type,
+        "flags": flags,
+        "timestamp_ns": timestamp_ns,
+        "latitude_deg": latitude_deg,
+        "longitude_deg": longitude_deg,
+        "altitude_m": altitude_m if flags & 1 else None,
+        "position_covariance": position_covariance,
+    }
 
 def decode_status_payload(payload: bytes):
     return payload.decode("utf-8")

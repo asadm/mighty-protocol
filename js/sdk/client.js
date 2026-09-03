@@ -42,6 +42,7 @@ const EVENT_KEYS = [
   "depth",
   "pose",
   "imu",
+  "gps",
   "vio_state",
   "viz",
   "point_cloud",
@@ -207,6 +208,7 @@ export class MightyClient {
   }
   onPose(cb) { return this._subscribe("pose", cb); }
   onImu(cb) { return this._subscribe("imu", cb); }
+  onGps(cb) { return this._subscribe("gps", cb); }
   onVioState(cb) { return this._subscribe("vio_state", cb); }
   onViz(cb) { return this._subscribe("viz", cb); }
   onPointCloud(cb) { return this._subscribe("point_cloud", cb); }
@@ -944,6 +946,13 @@ export class MightyClient {
           const mapped = { samples };
           this._emit("imu", mapped);
           if (wantsAny) this._emitAny({ type: "imu", data: mapped });
+          return;
+        }
+        case protocol.TYPE.GPS: {
+          if (!this._hasListeners("gps") && !wantsAny) return;
+          const mapped = protocol.decodeGpsPayload(frame.payload);
+          this._emit("gps", mapped);
+          if (wantsAny) this._emitAny({ type: "gps", data: mapped });
           return;
         }
         case protocol.TYPE.VSTA: {

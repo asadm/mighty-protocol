@@ -230,6 +230,7 @@ int main() {
     std::atomic<int> image{0};
     std::atomic<int> pose{0};
     std::atomic<int> imu{0};
+    std::atomic<int> gps{0};
     std::atomic<int> vsta{0};
     std::atomic<int> viz{0};
     std::atomic<int> lcon{0};
@@ -244,6 +245,7 @@ int main() {
   std::optional<ImageFrame> last_image;
   std::optional<ImageFrame> jpeg_image;
   std::optional<PoseFrame> last_pose;
+  std::optional<GpsFix> last_gps;
   std::optional<VioStateFrame> last_vsta;
   std::optional<VizFrame> last_viz;
   std::optional<KeyframeEvent> last_keyframe;
@@ -259,6 +261,10 @@ int main() {
     last_pose = p;
   });
   client.on_imu([&](const ImuBatch&) { seen.imu.fetch_add(1); });
+  client.on_gps([&](const GpsFix& gps) {
+    seen.gps.fetch_add(1);
+    last_gps = gps;
+  });
   client.on_vio_state([&](const VioStateFrame& v) {
     seen.vsta.fetch_add(1);
     last_vsta = v;
@@ -326,6 +332,17 @@ int main() {
   };
   device->emit_packet(make_packet(build_imu_payload(imu), TYPE_IMU));
 
+  GpsFix gps;
+  gps.timestamp_ns = 12;
+  gps.status = 0;
+  gps.service = 1;
+  gps.latitude_deg = 37.77639;
+  gps.longitude_deg = -122.39441;
+  gps.altitude_m = 8.25;
+  gps.covariance_type = 2;
+  gps.position_covariance = {{4, 0, 0, 0, 9, 0, 0, 0, 16}};
+  device->emit_packet(make_packet(build_gps_payload(gps), TYPE_GPS));
+
   VioState vsta;
   vsta.version = 8;
   vsta.state = 2;
@@ -392,7 +409,7 @@ int main() {
   device->emit_packet(make_packet(nullptr, 0, TYPE_RSET));
   device->emit_packet(make_packet(std::vector<uint8_t>{0xAA}, "ZZZZ"));
 
-  assert(wait_until([&]() { return seen.any.load() >= 11; }, 2000));
+  assert(wait_until([&]() { return seen.any.load() >= 12; }, 2000));
 
   assert(seen.image.load() == 2);
   assert(jpeg_image.has_value());
@@ -438,6 +455,13 @@ int main() {
   assert(approx(last_pose->angular_acceleration_body_rps2.value()[2], pose_angacc[2]));
 
   assert(seen.imu.load() == 1);
+  assert(seen.gps.load() == 1);
+  assert(last_gps.has_value());
+  assert(last_gps->timestamp_ns == 12);
+  assert(approx(last_gps->latitude_deg, 37.77639));
+  assert(approx(last_gps->longitude_deg, -122.39441));
+  assert(approx(last_gps->altitude_m, 8.25));
+  assert(last_gps->position_covariance[4] == 9.0);
   assert(seen.vsta.load() == 1);
   assert(last_vsta.has_value());
   assert(last_vsta->init_reason_code == static_cast<uint8_t>(VioInitReasonCode::kNone));

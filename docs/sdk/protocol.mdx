@@ -36,6 +36,7 @@ Bulk-frame CRC compatibility rule:
 - `UPOS`: reserved/internal pose stream (not part of public API)
 - `VIZ `: visualization payload (subtyped)
 - `IMU `: IMU samples batch
+- `GPS `: WGS84 geographic fix
 - `STAT`: textual status
 - `VSTA`: structured VIO status
 - `RSET`: reset event
@@ -185,7 +186,29 @@ Batch payload containing repeated samples:
 - accel `(ax, ay, az)` (f32)
 - gyro `(gx, gy, gz)` (f32)
 
-### 3.4 VIO State (`VSTA`)
+### 3.4 GPS (`GPS `)
+
+Version 1 carries a WGS84 fix and optional `sensor_msgs/NavSatFix` covariance.
+All multibyte values are big-endian.
+
+```text
+u8  version (=1)
+i8  status                 # -1=no fix, 0=fix, 1=SBAS, 2=GBAS
+u16 service                # sensor_msgs/NavSatStatus service bitmask
+u8  covariance_type        # 0=unknown, 1=approximated, 2=diagonal, 3=known
+u8  flags                   # bit 0=altitude valid, bit 1=covariance present
+u16 reserved (=0)
+u64 timestamp_ns
+f64 latitude_deg
+f64 longitude_deg
+f64 altitude_m             # meaningful only when flags bit 0 is set
+if flags bit 1: f64 position_covariance[9]  # row-major ENU, metres²
+```
+
+Latitude and longitude are WGS84 degrees. `timestamp_ns` uses the same sensor
+clock as image and pose frames so consumers can associate fixes by timestamp.
+
+### 3.5 VIO State (`VSTA`)
 
 Structured low-rate status telemetry.
 
@@ -259,7 +282,7 @@ Recommended init reason mapping:
 - `14=WAITING_FOR_FIRST_IMU_NOT_YET_ALIGNED`
 - `15=WAITING_FOR_FIRST_IMU_TIME_OFFSET_INVALID`
 
-### 3.5 Status / Reset
+### 3.6 Status / Reset
 
 #### `STAT`
 - UTF-8 status text
@@ -284,7 +307,7 @@ Recommended init reason mapping:
   JSON clients. Matcher scores, keyframe identifiers, descriptors, and graph
   state are intentionally not part of the public event.
 
-### 3.6 Viz / Point Cloud
+### 3.7 Viz / Point Cloud
 
 #### `VIZ `
 - subtype-based payload:
@@ -319,7 +342,7 @@ TRACKING rectangle if they want to visualize the last known location.
 - points: `(x,y,z,r,g,b)`
 - optional `point_size`
 
-### 3.7 Command and Config
+### 3.8 Command and Config
 
 #### `CMD `
 - `req_id` (u32)

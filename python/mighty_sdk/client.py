@@ -45,6 +45,7 @@ class MightyClient:
             "depth": set(),
             "pose": set(),
             "imu": set(),
+            "gps": set(),
             "vio_state": set(),
             "viz": set(),
             "lcon": set(),
@@ -149,6 +150,9 @@ class MightyClient:
 
     def on_imu(self, cb: Callable[[dict], None]) -> Callable[[], None]:
         return self._subscribe("imu", cb)
+
+    def on_gps(self, cb: Callable[[dict], None]) -> Callable[[], None]:
+        return self._subscribe("gps", cb)
 
     def on_vio_state(self, cb: Callable[[dict], None]) -> Callable[[], None]:
         return self._subscribe("vio_state", cb)
@@ -612,6 +616,15 @@ class MightyClient:
                 self._emit("imu", mapped)
                 if wants_any:
                     self._emit_any({"type": "imu", "data": mapped})
+                return
+
+            if frame_type == "GPS ":
+                if not self._has_listeners("gps") and not wants_any:
+                    return
+                mapped = mp.decode_gps_payload(payload)
+                self._emit("gps", mapped)
+                if wants_any:
+                    self._emit_any({"type": "gps", "data": mapped})
                 return
 
             if frame_type == "VSTA":

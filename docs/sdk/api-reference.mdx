@@ -282,6 +282,7 @@ Subscriptions (each returns `() => void` to unsubscribe):
 - `onRgbd(cb, options?)`
 - `onPose(cb)`
 - `onImu(cb)`
+- `onGps(cb)`
 - `onVioState(cb)`
 - `onViz(cb)`
 - `onPointCloud(cb)`
@@ -692,6 +693,23 @@ an existing string. The returned `value` uses this stable snake-case schema:
 }
 ```
 
+`onGps`:
+
+```ts
+type GpsEvent = {
+  version: number;
+  status: number;
+  service: number;
+  covarianceType: number;
+  flags: number;
+  timestampNs: bigint;
+  latitudeDeg: number;
+  longitudeDeg: number;
+  altitudeM: number | null;
+  positionCovariance: number[] | null; // 3x3 row-major ENU, metres²
+};
+```
+
 Each matrix has 16 row-major values and follows `target_from_source` naming.
 `body_from_camera` maps optical right/down/forward camera points into the
 public FLU `base_link` frame at the IMU origin. The parser accepts Kalibr
@@ -704,6 +722,7 @@ Subscriptions (each returns `Callable[[], None]` unsubscribe):
 - `on_rgbd(cb, max_entries=64)`
 - `on_pose(cb)`
 - `on_imu(cb)`
+- `on_gps(cb)`
 - `on_vio_state(cb)`
 - `on_viz(cb)`
 - `on_status(cb)`
@@ -833,6 +852,23 @@ or out-of-bounds samples.
     "gy": float,
     "gz": float,
   }]
+}
+```
+
+`on_gps`:
+
+```python
+{
+  "version": int,
+  "status": int,
+  "service": int,
+  "covariance_type": int,
+  "flags": int,
+  "timestamp_ns": int,
+  "latitude_deg": float,
+  "longitude_deg": float,
+  "altitude_m": float | None,
+  "position_covariance": list[float] | None,  # 3x3 row-major ENU, metres²
 }
 ```
 
@@ -1066,6 +1102,7 @@ Subscriptions:
 - `Subscription on_depth(DepthHandler cb)`
 - `Subscription on_pose(PoseHandler cb)`
 - `Subscription on_imu(ImuHandler cb)`
+- `Subscription on_gps(GpsHandler cb)`
 - `Subscription on_vio_state(VioStateHandler cb)`
 - `Subscription on_viz(VizHandler cb)`
 - `Subscription on_status(StatusHandler cb)`
@@ -1158,6 +1195,7 @@ struct Subscription {
     kDepth,
     kPose,
     kImu,
+    kGps,
     kVioState,
     kViz,
     kStatus,
@@ -1200,6 +1238,17 @@ struct ImageFrame {
   std::optional<JpegImageFrame> jpeg;
   RawImageFrame left;
   std::optional<RawImageFrame> right;
+};
+
+struct GpsFix {
+  uint8_t version = 1;
+  int8_t status = -1;
+  uint16_t service = 0;
+  uint8_t covariance_type = 0;
+  uint8_t flags = 0;
+  uint64_t timestamp_ns = 0;
+  double latitude_deg, longitude_deg, altitude_m;
+  std::array<double, 9> position_covariance; // row-major ENU, metres²
 };
 
 struct DepthFrame {

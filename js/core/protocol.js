@@ -16,6 +16,7 @@ const TYPE = {
   LCON: "LCON",
   VIZ: "VIZ ",
   IMU: "IMU ",
+  GPS: "GPS ",
   STAT: "STAT",
   VSTA: "VSTA",
   RSET: "RSET",
@@ -602,6 +603,49 @@ function buildStereoRawPayload({ left = {}, right = {} } = {}) {
 		  }
 		  return fromU8(buf);
 		}
+
+function buildGpsPayload({
+  version = 1,
+  status = -1,
+  service = 0,
+  covarianceType = 0,
+  timestampNs = 0n,
+  latitudeDeg = Number.NaN,
+  longitudeDeg = Number.NaN,
+  altitudeM = Number.NaN,
+  positionCovariance = null,
+} = {}) {
+  const altitudeValue = altitudeM === null || altitudeM === undefined
+    ? Number.NaN
+    : Number(altitudeM);
+  const hasAltitude = Number.isFinite(altitudeValue);
+  const covariance = Array.isArray(positionCovariance) || ArrayBuffer.isView(positionCovariance)
+    ? Array.from(positionCovariance, Number)
+    : [];
+  const hasCovariance = Number(covarianceType) !== 0 &&
+    covariance.length === 9 && covariance.every(Number.isFinite);
+  const flags = (hasAltitude ? 1 : 0) | (hasCovariance ? 2 : 0);
+  const out = new Uint8Array(40 + (hasCovariance ? 9 * 8 : 0));
+  const dv = new DataView(out.buffer, out.byteOffset, out.byteLength);
+  let off = 0;
+  dv.setUint8(off, Math.max(1, Number(version) || 1)); off += 1;
+  dv.setInt8(off, Number(status) || 0); off += 1;
+  dv.setUint16(off, Number(service) >>> 0, false); off += 2;
+  dv.setUint8(off, Number(covarianceType) >>> 0); off += 1;
+  dv.setUint8(off, flags); off += 1;
+  off += 2;
+  dv.setBigUint64(off, BigInt(timestampNs || 0n), false); off += 8;
+  dv.setFloat64(off, Number(latitudeDeg), false); off += 8;
+  dv.setFloat64(off, Number(longitudeDeg), false); off += 8;
+  dv.setFloat64(off, altitudeValue, false); off += 8;
+  if (hasCovariance) {
+    covariance.forEach((value) => {
+      dv.setFloat64(off, value, false);
+      off += 8;
+    });
+  }
+  return fromU8(out);
+}
 
 function buildConstraintsPayload(segments = []) {
   const per = 1 + 6 * 4;
@@ -1318,6 +1362,48 @@ function decodeStereoRawPayload(payload) {
 		  };
 		}
 
+function decodeGpsPayload(payload) {
+  const u8 = toU8(payload);
+  if (u8.length < 40) throw new Error("GPS payload truncated");
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  let off = 0;
+  const version = dv.getUint8(off); off += 1;
+  if (version === 0) throw new Error("GPS payload has invalid version");
+  const status = dv.getInt8(off); off += 1;
+  const service = dv.getUint16(off, false); off += 2;
+  const covarianceType = dv.getUint8(off); off += 1;
+  const flags = dv.getUint8(off); off += 1;
+  off += 2;
+  const timestampNs = dv.getBigUint64(off, false); off += 8;
+  const latitudeDeg = dv.getFloat64(off, false); off += 8;
+  const longitudeDeg = dv.getFloat64(off, false); off += 8;
+  const altitudeM = dv.getFloat64(off, false); off += 8;
+  if (!Number.isFinite(latitudeDeg) || !Number.isFinite(longitudeDeg)) {
+    throw new Error("GPS payload contains an invalid coordinate");
+  }
+  let positionCovariance = null;
+  if ((flags & 2) !== 0) {
+    if (u8.length < 40 + 9 * 8) throw new Error("GPS covariance truncated");
+    positionCovariance = [];
+    for (let i = 0; i < 9; i += 1) {
+      positionCovariance.push(dv.getFloat64(off, false));
+      off += 8;
+    }
+  }
+  return {
+    version,
+    status,
+    service,
+    covarianceType,
+    flags,
+    timestampNs,
+    latitudeDeg,
+    longitudeDeg,
+    altitudeM: (flags & 1) !== 0 ? altitudeM : null,
+    positionCovariance,
+  };
+}
+
 function decodeConstraintsPayload(payload) {
   const u8 = toU8(payload);
   let off = 0;
@@ -1815,6 +1901,7 @@ const api = {
   buildDepthPayload,
   buildStereoRawPayload,
   buildPosePayload,
+  buildGpsPayload,
   buildConstraintsPayload,
   buildVizPayload,
   buildImuPayload,
@@ -1836,6 +1923,7 @@ const api = {
   decodeDepthPayload,
   decodeStereoRawPayload,
   decodePosePayload,
+  decodeGpsPayload,
   decodeConstraintsPayload,
   decodeVizPayload,
   decodeImuPayload,
@@ -1879,6 +1967,7 @@ export {
   buildDepthPayload,
   buildStereoRawPayload,
   buildPosePayload,
+  buildGpsPayload,
   buildConstraintsPayload,
   buildVizPayload,
   buildImuPayload,
@@ -1900,6 +1989,7 @@ export {
   decodeDepthPayload,
   decodeStereoRawPayload,
   decodePosePayload,
+  decodeGpsPayload,
   decodeConstraintsPayload,
   decodeVizPayload,
   decodeImuPayload,

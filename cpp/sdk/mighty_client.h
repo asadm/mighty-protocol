@@ -188,7 +188,7 @@ struct ResetEvent {
 };
 
 struct AnyEvent {
-  std::string type;      // image|depth|pose|imu|vio_state|viz|event|status|reset|unknown
+  std::string type;      // image|depth|pose|imu|gps|vio_state|viz|event|status|reset|unknown
   std::string raw_type;  // only for unknown
   std::vector<uint8_t> payload; // only for unknown
 };
@@ -236,6 +236,7 @@ class MightyClient {
   using DepthHandler = std::function<void(const DepthFrame&)>;
   using PoseHandler = std::function<void(const PoseFrame&)>;
   using ImuHandler = std::function<void(const ImuBatch&)>;
+  using GpsHandler = std::function<void(const GpsFix&)>;
   using VioStateHandler = std::function<void(const VioStateFrame&)>;
   using VizHandler = std::function<void(const VizFrame&)>;
   using LconHandler = std::function<void(const LconFrame&)>;
@@ -254,6 +255,7 @@ class MightyClient {
       kDepth,
       kPose,
       kImu,
+      kGps,
       kVioState,
       kViz,
       kLcon,
@@ -338,6 +340,7 @@ class MightyClient {
   Subscription on_depth(DepthHandler cb) { return subscribe(depth_handlers_, Subscription::Kind::kDepth, std::move(cb)); }
   Subscription on_pose(PoseHandler cb) { return subscribe(pose_handlers_, Subscription::Kind::kPose, std::move(cb)); }
   Subscription on_imu(ImuHandler cb) { return subscribe(imu_handlers_, Subscription::Kind::kImu, std::move(cb)); }
+  Subscription on_gps(GpsHandler cb) { return subscribe(gps_handlers_, Subscription::Kind::kGps, std::move(cb)); }
   Subscription on_vio_state(VioStateHandler cb) { return subscribe(vio_state_handlers_, Subscription::Kind::kVioState, std::move(cb)); }
   Subscription on_viz(VizHandler cb) { return subscribe(viz_handlers_, Subscription::Kind::kViz, std::move(cb)); }
   Subscription on_lcon(LconHandler cb) { return subscribe(lcon_handlers_, Subscription::Kind::kLcon, std::move(cb)); }
@@ -357,6 +360,7 @@ class MightyClient {
       case Subscription::Kind::kDepth: depth_handlers_.remove(sub.id); break;
       case Subscription::Kind::kPose: pose_handlers_.remove(sub.id); break;
       case Subscription::Kind::kImu: imu_handlers_.remove(sub.id); break;
+      case Subscription::Kind::kGps: gps_handlers_.remove(sub.id); break;
       case Subscription::Kind::kVioState: vio_state_handlers_.remove(sub.id); break;
       case Subscription::Kind::kViz: viz_handlers_.remove(sub.id); break;
       case Subscription::Kind::kLcon: lcon_handlers_.remove(sub.id); break;
@@ -1016,6 +1020,17 @@ class MightyClient {
         return;
       }
 
+      if (type == "GPS ") {
+        if (gps_handlers_.empty() && !wants_any) return;
+        GpsFix evt;
+        if (!decode_gps_payload(frame.payload, evt)) {
+          throw std::runtime_error("GPS decode failed");
+        }
+        emit(gps_handlers_, evt);
+        if (wants_any) emit_any(AnyEvent{"gps", "", {}});
+        return;
+      }
+
       if (type == "VSTA") {
         if (vio_state_handlers_.empty() && !wants_any) return;
         VioState raw;
@@ -1247,6 +1262,7 @@ class MightyClient {
   ListenerSet<DepthHandler> depth_handlers_;
   ListenerSet<PoseHandler> pose_handlers_;
   ListenerSet<ImuHandler> imu_handlers_;
+  ListenerSet<GpsHandler> gps_handlers_;
   ListenerSet<VioStateHandler> vio_state_handlers_;
   ListenerSet<VizHandler> viz_handlers_;
   ListenerSet<LconHandler> lcon_handlers_;

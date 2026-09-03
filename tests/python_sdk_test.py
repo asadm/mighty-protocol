@@ -216,6 +216,7 @@ def main():
         "image": 0,
         "pose": 0,
         "imu": 0,
+        "gps": 0,
         "vsta": 0,
         "viz": 0,
         "lcon": 0,
@@ -227,12 +228,13 @@ def main():
         "error": 0,
     }
 
-    last = {"image": None, "pose": None, "vsta": None, "viz": None, "keyframe": None, "event": None}
+    last = {"image": None, "pose": None, "gps": None, "vsta": None, "viz": None, "keyframe": None, "event": None}
     images = []
 
     client.on_image(lambda v: (seen.__setitem__("image", seen["image"] + 1), last.__setitem__("image", v), images.append(v)))
     client.on_pose(lambda v: (seen.__setitem__("pose", seen["pose"] + 1), last.__setitem__("pose", v)))
     client.on_imu(lambda _: seen.__setitem__("imu", seen["imu"] + 1))
+    client.on_gps(lambda v: (seen.__setitem__("gps", seen["gps"] + 1), last.__setitem__("gps", v)))
     client.on_vio_state(lambda v: (seen.__setitem__("vsta", seen["vsta"] + 1), last.__setitem__("vsta", v)))
     client.on_viz(lambda v: (seen.__setitem__("viz", seen["viz"] + 1), last.__setitem__("viz", v)))
     client.on_lcon(lambda _: seen.__setitem__("lcon", seen["lcon"] + 1))
@@ -273,6 +275,17 @@ def main():
     device.emit_packet(mp.make_packet(mp.TYPE["IMU"], build_imu_payload([
         {"timestamp_ns": 12, "ax": 0.1, "ay": 0.2, "az": 0.3, "gx": 0.4, "gy": 0.5, "gz": 0.6}])))
 
+    device.emit_packet(mp.make_packet(mp.TYPE["GPS"], mp.build_gps_payload(
+        timestamp_ns=12,
+        status=0,
+        service=1,
+        latitude_deg=37.77639,
+        longitude_deg=-122.39441,
+        altitude_m=8.25,
+        covariance_type=2,
+        position_covariance=[4, 0, 0, 0, 9, 0, 0, 0, 16],
+    )))
+
     device.emit_packet(mp.make_packet(mp.TYPE["VSTA"], build_vsta_payload()))
 
     tracker_payload = (
@@ -312,11 +325,16 @@ def main():
     device.emit_packet(mp.make_packet(mp.TYPE["RSET"]))
     device.emit_packet(mp.make_packet(b"ZZZZ", b"\xaa"))
 
-    assert wait_until(lambda: seen["any"] >= 11)
+    assert wait_until(lambda: seen["any"] >= 12)
 
     assert seen["image"] == 2
     assert seen["pose"] == 1
     assert seen["imu"] == 1
+    assert seen["gps"] == 1
+    assert last["gps"]["timestamp_ns"] == 12
+    assert abs(float(last["gps"]["latitude_deg"]) - 37.77639) < 1e-9
+    assert abs(float(last["gps"]["longitude_deg"]) + 122.39441) < 1e-9
+    assert last["gps"]["position_covariance"][4] == 9.0
     assert seen["vsta"] == 1
     assert int(last["vsta"]["init_reason_code"]) == mp.VIO_INIT_REASON["NONE"]
     assert abs(float(last["vsta"]["translation_confidence01"]) - 0.34) < 1e-3

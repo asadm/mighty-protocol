@@ -264,6 +264,7 @@ async function main() {
     image: 0,
     pose: 0,
     imu: 0,
+    gps: 0,
     vsta: 0,
     viz: 0,
     pcld: 0,
@@ -278,6 +279,7 @@ async function main() {
   let lastImage = null;
   let jpegImage = null;
   let lastPose = null;
+  let lastGps = null;
   let lastVsta = null;
   let lastViz = null;
   let lastPointCloud = null;
@@ -294,6 +296,10 @@ async function main() {
     lastPose = p;
   });
   client.onImu(() => { seen.imu += 1; });
+  client.onGps((gps) => {
+    seen.gps += 1;
+    lastGps = gps;
+  });
   client.onVioState((v) => {
     seen.vsta += 1;
     lastVsta = v;
@@ -355,6 +361,17 @@ async function main() {
   device.emitPacket(proto.makePacket(proto.TYPE.IMU, proto.buildImuPayload([
     { timestampNs: 12n, ax: 0.1, ay: 0.2, az: 0.3, gx: 0.4, gy: 0.5, gz: 0.6 },
   ])));
+
+  device.emitPacket(proto.makePacket(proto.TYPE.GPS, proto.buildGpsPayload({
+    timestampNs: 12n,
+    status: 0,
+    service: 1,
+    latitudeDeg: 37.77639,
+    longitudeDeg: -122.39441,
+    altitudeM: 8.25,
+    covarianceType: 2,
+    positionCovariance: [4, 0, 0, 0, 9, 0, 0, 0, 16],
+  })));
 
   device.emitPacket(proto.makePacket(proto.TYPE.VSTA, proto.buildVioStatePayload({
     version: 8,
@@ -508,6 +525,10 @@ async function main() {
   client._loopclosure = null;
 
   assert.strictEqual(seen.imu, 1);
+  assert.strictEqual(seen.gps, 1);
+  assert.strictEqual(lastGps.timestampNs, 12n);
+  assert.ok(almost(lastGps.latitudeDeg, 37.77639));
+  assert.ok(almost(lastGps.longitudeDeg, -122.39441));
   assert.strictEqual(seen.vsta, 1);
   assert.strictEqual(lastVsta.initReasonCode, proto.VIO_INIT_REASON.NONE);
   assert.ok(almost(lastVsta.translationConfidence01, 0.34));

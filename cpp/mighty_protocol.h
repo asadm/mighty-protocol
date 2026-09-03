@@ -25,6 +25,7 @@ inline constexpr char TYPE_UPOSE[4]= {'U','P','O','S'};
 inline constexpr char TYPE_LCON[4] = {'L','C','O','N'};
 inline constexpr char TYPE_VIZ[4]  = {'V','I','Z',' '};
 inline constexpr char TYPE_IMU[4]  = {'I','M','U',' '};
+inline constexpr char TYPE_GPS[4]  = {'G','P','S',' '};
 inline constexpr char TYPE_STAT[4] = {'S','T','A','T'};
 inline constexpr char TYPE_RSET[4] = {'R','S','E','T'};
 inline constexpr char TYPE_FEA3[4] = {'F','E','A','3'};
@@ -142,6 +143,13 @@ inline float read_f32_be(const uint8_t* src) {
   float value = 0.0f;
   static_assert(sizeof(float) == sizeof(uint32_t), "float must be 4 bytes");
   std::memcpy(&value, &raw, sizeof(float));
+  return value;
+}
+inline double read_f64_be(const uint8_t* src) {
+  const uint64_t raw = read_u64_be(src);
+  double value = 0.0;
+  static_assert(sizeof(double) == sizeof(uint64_t), "double must be 8 bytes");
+  std::memcpy(&value, &raw, sizeof(double));
   return value;
 }
 
@@ -265,6 +273,21 @@ struct ImuSample {
   double gx;
   double gy;
   double gz;
+};
+
+// WGS84 fix, corresponding to sensor_msgs/NavSatFix when replayed from ROS.
+// flags bit 0: altitude is valid; bit 1: position_covariance is present.
+struct GpsFix {
+  uint8_t version = 1;
+  int8_t status = -1;
+  uint16_t service = 0;
+  uint8_t covariance_type = 0;
+  uint8_t flags = 0;
+  uint64_t timestamp_ns = 0;
+  double latitude_deg = std::numeric_limits<double>::quiet_NaN();
+  double longitude_deg = std::numeric_limits<double>::quiet_NaN();
+  double altitude_m = std::numeric_limits<double>::quiet_NaN();
+  std::array<double, 9> position_covariance{};
 };
 
 struct PoseConstraintSegment {
@@ -855,6 +878,38 @@ inline std::vector<uint8_t> build_pose_payload(uint32_t pose_type,
   if (has_timestamp) {
     write_u64_be(buf8, timestamp_ns.value());
     payload.insert(payload.end(), buf8, buf8 + 8);
+  }
+  return payload;
+}
+
+inline std::vector<uint8_t> build_gps_payload(const GpsFix& fix) {
+  const bool has_altitude = std::isfinite(fix.altitude_m);
+  const bool has_covariance =
+      fix.covariance_type != 0 &&
+      std::all_of(fix.position_covariance.begin(),
+                  fix.position_covariance.end(),
+                  [](double value) { return std::isfinite(value); });
+  const uint8_t flags = static_cast<uint8_t>(
+      (has_altitude ? 1u : 0u) | (has_covariance ? 2u : 0u));
+  constexpr size_t kBaseBytes = 40;
+  constexpr size_t kCovarianceBytes = 9 * sizeof(double);
+  std::vector<uint8_t> payload(kBaseBytes + (has_covariance ? kCovarianceBytes : 0), 0);
+  size_t off = 0;
+  payload[off++] = fix.version == 0 ? 1 : fix.version;
+  payload[off++] = static_cast<uint8_t>(fix.status);
+  write_u16_be(payload.data() + off, fix.service); off += 2;
+  payload[off++] = fix.covariance_type;
+  payload[off++] = flags;
+  off += 2;  // reserved
+  write_u64_be(payload.data() + off, fix.timestamp_ns); off += 8;
+  write_f64_be(payload.data() + off, fix.latitude_deg); off += 8;
+  write_f64_be(payload.data() + off, fix.longitude_deg); off += 8;
+  write_f64_be(payload.data() + off, fix.altitude_m); off += 8;
+  if (has_covariance) {
+    for (double value : fix.position_covariance) {
+      write_f64_be(payload.data() + off, value);
+      off += 8;
+    }
   }
   return payload;
 }
@@ -1664,6 +1719,41 @@ inline bool decode_pose_payload(const std::vector<uint8_t>& payload,
     }
   }
   return true;
+}
+
+inline bool decode_gps_payload(const std::vector<uint8_t>& payload,
+                               GpsFix& out) {
+  constexpr size_t kBaseBytes = 40;
+  constexpr size_t kCovarianceBytes = 9 * sizeof(double);
+  if (payload.size() < kBaseBytes) {
+    return false;
+  }
+  size_t off = 0;
+  out = GpsFix();
+  out.version = payload[off++];
+  if (out.version == 0) {
+    return false;
+  }
+  out.status = static_cast<int8_t>(payload[off++]);
+  out.service = read_u16_be(payload.data() + off); off += 2;
+  out.covariance_type = payload[off++];
+  out.flags = payload[off++];
+  off += 2;  // reserved
+  out.timestamp_ns = read_u64_be(payload.data() + off); off += 8;
+  out.latitude_deg = read_f64_be(payload.data() + off); off += 8;
+  out.longitude_deg = read_f64_be(payload.data() + off); off += 8;
+  out.altitude_m = read_f64_be(payload.data() + off); off += 8;
+  if ((out.flags & 2u) != 0) {
+    if (payload.size() < kBaseBytes + kCovarianceBytes) {
+      return false;
+    }
+    for (double& value : out.position_covariance) {
+      value = read_f64_be(payload.data() + off);
+      off += 8;
+    }
+  }
+  return std::isfinite(out.latitude_deg) &&
+         std::isfinite(out.longitude_deg);
 }
 
 inline bool decode_constraints_payload(const std::vector<uint8_t>& payload,

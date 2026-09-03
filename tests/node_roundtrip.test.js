@@ -428,6 +428,25 @@ function randomPort() {
 }
 
 async function main() {
+  const gpsSample = {
+    timestampNs: 123456789n,
+    status: 0,
+    service: 1,
+    latitudeDeg: 37.77639,
+    longitudeDeg: -122.39441,
+    altitudeM: 8.25,
+    covarianceType: 2,
+    positionCovariance: [4, 0, 0, 0, 9, 0, 0, 0, 16],
+  };
+  const gpsDecoded = proto.decodeGpsPayload(proto.buildGpsPayload(gpsSample));
+  assert.strictEqual(gpsDecoded.timestampNs, gpsSample.timestampNs);
+  assert.strictEqual(gpsDecoded.status, gpsSample.status);
+  assert.strictEqual(gpsDecoded.service, gpsSample.service);
+  assert(almost(gpsDecoded.latitudeDeg, gpsSample.latitudeDeg));
+  assert(almost(gpsDecoded.longitudeDeg, gpsSample.longitudeDeg));
+  assert(almost(gpsDecoded.altitudeM, gpsSample.altitudeM));
+  assert.deepStrictEqual(gpsDecoded.positionCovariance, gpsSample.positionCovariance);
+
   const resetPayload = proto.buildResetVioPosePayload({ positionM: [0, 0, 0] });
   const resetPose = proto.decodeResetVioPosePayload(resetPayload);
   assert.deepStrictEqual(resetPose.positionM, [0, 0, 0]);
