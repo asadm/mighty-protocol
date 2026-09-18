@@ -44,6 +44,7 @@ function postUpdate(update) {
     update.states?.buffer,
     update.occupancy?.buffer,
     update.intensity?.buffer,
+    update.rgb?.buffer,
     update.support?.buffer,
     update.visible?.buffer,
   ].filter(Boolean);

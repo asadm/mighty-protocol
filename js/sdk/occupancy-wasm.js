@@ -115,6 +115,7 @@ function readLayout(module) {
     LAYOUT_FIELDS.forEach((name, index) => {
       layout[name] = module.getValue(ptr + index * 4, "i32") >>> 0;
     });
+    layout.cellRgbOffset = module._ma_occupancy_cell_rgb_offset?.() ?? null;
     return layout;
   } finally {
     module._free(ptr);
@@ -381,6 +382,7 @@ class NativeOccupancyGrid {
     const states = new Uint8Array(count);
     const occupancy = new Uint8Array(count);
     const intensity = new Uint8Array(count);
+    const rgb = new Uint8Array(count * 3);
     const support = new Uint8Array(count);
     const visible = new Uint8Array(count);
     for (let index = 0; index < count; index += 1) {
@@ -391,6 +393,11 @@ class NativeOccupancyGrid {
       states[index] = m.getValue(cell + l.cellStateOffset, "i32") & 0xff;
       occupancy[index] = m.getValue(cell + l.cellOccupancyOffset, "i8") & 0xff;
       intensity[index] = m.getValue(cell + l.cellIntensityOffset, "i8") & 0xff;
+      for (let channel = 0; channel < 3; channel += 1) {
+        rgb[index * 3 + channel] = l.cellRgbOffset == null
+          ? intensity[index]
+          : m.getValue(cell + l.cellRgbOffset + channel, "i8") & 0xff;
+      }
       support[index] = m.getValue(cell + l.cellSupportOffset, "i8") & 0xff;
       visible[index] = m.getValue(cell + l.cellVisibleOffset, "i8") & 0xff;
     }
@@ -413,6 +420,7 @@ class NativeOccupancyGrid {
       states,
       occupancy,
       intensity,
+      rgb,
       support,
       visible,
     };
