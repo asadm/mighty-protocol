@@ -44,14 +44,14 @@ non-blocking reads of the latest published state. They do not run vision process
 - Pose is refreshed with public pose output.
 - IMU is refreshed from the latest received sample.
 - Runtime, tracker, identity, and configuration summaries refresh at low rate.
-- `arm_connected` becomes false when ARM publication is more than two seconds
-  old, rather than leaving stale state marked as connected.
+- `Mighty.state().valid` becomes false when device state is more than two seconds
+  old, rather than leaving stale state marked as current.
 
 All nanosecond timestamps and 64-bit counters are Lua strings. This preserves
 their exact values. Convert them only if your application can
 tolerate loss of integer precision.
 
-Control calls normally block until ARM acknowledges the command or the timeout
+Control calls normally block until the device acknowledges the command or the timeout
 expires. The asynchronous command API is available when `loop()` must never
 wait.
 
@@ -111,7 +111,6 @@ and the selected path only; YAML contents are not exposed to Lua.
 The compact helpers are:
 
 ```lua
-Mighty.arm_connected()
 Mighty.recording()
 Mighty.preview_mode()
 Mighty.initializing()
@@ -126,9 +125,9 @@ Mighty.vio_state() -- returns name, numeric code
 ```lua
 local s = Mighty.state()
 
--- Connection and app mode
-s.arm_connected
-s.arm_age_ms
+-- State freshness and app mode
+s.valid               -- whether device state is fresh
+s.state_age_ms        -- age of device state; age_ms below is VIO state age
 s.recording
 s.recording_mode       -- "none", "full", or "imu_only"
 s.preview_mode
@@ -224,7 +223,7 @@ device `POSE` stream:
 }
 ```
 
-When VIO is unavailable or the ARM snapshot is stale, `valid` is false and the
+When VIO is unavailable or the device snapshot is stale, `valid` is false and the
 pose is zero/identity. There is deliberately no `unoptimized_pose()` API:
 internal estimator coordinates are not a public stream.
 
@@ -359,7 +358,7 @@ local ok, result = Mighty.start_imu_recording([directory], [timeout_ms])
 local ok, result = Mighty.stop_recording([timeout_ms])
 
 local status = Mighty.recording_status()
--- { active=true, mode="full"|"imu_only"|"none", path="...", arm_connected=true }
+-- { active=true, mode="full"|"imu_only"|"none", path="...", valid=true }
 ```
 
 The default directory is `/mnt/sdcard`. IMU-only recording omits camera frames
@@ -629,6 +628,6 @@ end
   iteration.
 - Use `next_event()` in a drain loop because it is non-blocking.
 - Use asynchronous commands for responsive loops.
-- Check `arm_connected`, snapshot `valid`, and optional capability flags.
+- Check snapshot `valid` fields and optional capability flags.
 - Avoid creating large temporary strings or tables in tight loops.
 - Use the [Lua editor’s logs](/code) while developing, then reduce noisy `print()` calls.
