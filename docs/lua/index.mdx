@@ -9,9 +9,10 @@ alongside VIO and Analog Out.
 
 For complete, copyable programs, open [Lua Recipes](/docs/lua/recipes).
 
-Edit `/build/userdata/mcu/user.lua` from the device `/code` page.
+Edit your script in the website’s [Lua editor](/code).
 `Save + Reload` installs the program and starts a fresh Lua state. `RESET`
-restores the shipped default program. It does not factory-reset the device.
+opens the recipe picker: choose Default Script or another recipe, then
+Replace + Reload to install it. It does not factory-reset the device.
 
 Depth images, camera images, keyframes, descriptors, point clouds, and full
 configuration payloads are intentionally not exposed to Lua.
@@ -630,4 +631,4 @@ end
 - Use asynchronous commands for responsive loops.
 - Check `arm_connected`, snapshot `valid`, and optional capability flags.
 - Avoid creating large temporary strings or tables in tight loops.
-- Use `/code` logs while developing, then reduce noisy `print()` calls.
+- Use the [Lua editor’s logs](/code) while developing, then reduce noisy `print()` calls.
