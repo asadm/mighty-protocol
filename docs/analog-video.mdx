@@ -98,9 +98,11 @@ before VIO starts and disappears once VIO is running; it is not configurable.
 | **Tracking warning** | A blinking warning when tracking needs attention, such as low light or lost tracking. |
 | **Speed** | Estimated speed in meters per second. |
 | **Status & timer** | Tracking state and time accumulated while VIO runs. |
-| **Home direction & distance** | An arrow toward the starting position and distance in meters or kilometers. |
+| **Home direction & distance** | An arrow toward the starting position and distance in meters or kilometers. Off by default. |
 | **Altitude** | Height relative to the starting position, in meters. |
 | **Pitch & roll** | A central attitude ladder that moves with pitch and rotates with roll. |
+| **Mini map** | A gray recent path with a white heading arrow and home marker, with automatic zoom to fit your current position and home. It zooms back in as you return; older trail outside the view is clipped. The scale bar updates with the zoom. On by default in place of the Home arrow. The trail freezes and the arrow disappears when positioning is unavailable. Move or hide Home if they overlap. |
+| **VIO FPS** | VIO processing frames per second, averaged over one second. Off by default; shows `--` when stopped or unavailable. |
 
 **Default position** keeps the original placement. The other positions cover
 the top, middle, and bottom of the display. A margin keeps widgets away from
