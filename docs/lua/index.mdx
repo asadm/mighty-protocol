@@ -3,17 +3,18 @@ title: On-Device Lua API
 description: Write bounded Lua programs that react to VIO, IMU, loop closure, tracking, recording, and device state.
 ---
 
-Mighty runs a sandboxed Lua 5.4 program on the RV1106 MCU. Lua stays alive
-independently of the ARM vision process, so it is a good place for LEDs, button
-policy, serial protocols, small state machines, and reactions to public device
-events.
+Mighty runs Lua 5.4 on-device for LEDs, button policy, serial protocols,
+small state machines, and reactions to public device events. Scripts can run
+alongside VIO and Analog Out.
+
+For complete, copyable programs, open [Lua Recipes](/docs/lua/recipes).
 
 Edit `/build/userdata/mcu/user.lua` from the device `/code` page.
 `Save + Reload` installs the program and starts a fresh Lua state. `RESET`
 restores the shipped default program. It does not factory-reset the device.
 
 Depth images, camera images, keyframes, descriptors, point clouds, and full
-configuration payloads are intentionally not exposed to MCU Lua.
+configuration payloads are intentionally not exposed to Lua.
 
 ## Program shape
 
@@ -37,8 +38,7 @@ not provide `io`, `os`, `package`, `debug`, `dofile`, `loadfile`, unrestricted
 ## Snapshot and command model
 
 Snapshot calls such as `Mighty.pose()`, `Mighty.imu()`, and `Mighty.state()` are
-non-blocking reads. They never run vision work on the MCU. ARM publishes small,
-fixed-size snapshots through shared memory:
+non-blocking reads of the latest published state. They do not run vision processing:
 
 - Pose is refreshed with public pose output.
 - IMU is refreshed from the latest received sample.
@@ -47,7 +47,7 @@ fixed-size snapshots through shared memory:
   old, rather than leaving stale state marked as connected.
 
 All nanosecond timestamps and 64-bit counters are Lua strings. This preserves
-their exact values on the 32-bit MCU. Convert them only if your application can
+their exact values. Convert them only if your application can
 tolerate loss of integer precision.
 
 Control calls normally block until ARM acknowledges the command or the timeout
@@ -61,8 +61,7 @@ millis()          -- monotonic milliseconds
 Mighty.time_ns() -- monotonic nanoseconds as a decimal string
 ```
 
-ARM periodically aligns the MCU clock. The MCU extrapolates between alignment
-updates, so `millis()` continues to advance even during a short ARM stall.
+These clocks measure monotonic device time, not UTC.
 
 ## Device identity and capabilities
 
@@ -104,7 +103,7 @@ local info = Mighty.info()
 
 Capability values describe the running build and device. Check them before
 showing or invoking an optional feature. Configuration fields expose presence
-and the selected path only; YAML contents remain on ARM.
+and the selected path only; YAML contents are not exposed to Lua.
 
 ## Runtime state
 
@@ -266,7 +265,7 @@ local imu = Mighty.imu()
 }
 ```
 
-This is a latest-value snapshot, not a lossless IMU queue. Use ARM recording or
+This is a latest-value snapshot, not a lossless IMU queue. Use device recording or
 the protocol IMU stream when every sample matters.
 
 ## Public event queue
@@ -374,8 +373,7 @@ local status = Mighty.loop_closure_status()
 ```
 
 The toggle controls the same device-side loop-closure worker as the protocol
-and SDK command. Enabling it does not run loop closure on the MCU; Lua only
-controls and observes the lower-priority ARM/NPU pipeline.
+and SDK command. Lua requests the change and observes the resulting status.
 
 ### Public pose reset
 
@@ -422,7 +420,7 @@ effect immediately.
 ### Generic command whitelist
 
 `Mighty.command(name, [argument], [timeout_ms])` is a convenience wrapper, not
-an unrestricted ARM command channel. Supported names are:
+an unrestricted command channel. Supported names are:
 
 - `start_vio`
 - `stop_vio`
@@ -475,7 +473,37 @@ digitalWrite(LED_BUILTIN, HIGH)
 digitalRead(LED_BUILTIN)
 ```
 
-Arduino-style pin calls support the built-in LED only.
+`LED.read()` and `digitalRead(LED_BUILTIN)` return booleans for compatibility.
+`digitalWrite` accepts `HIGH`/`LOW` or booleans.
+
+## TX/RX as GPIO
+
+The header TX and RX pins can be used as UART or GPIO. Use these aliases rather
+than numeric pin IDs:
+
+```lua
+pinMode(RX_PIN, INPUT_PULLUP)
+local pressed = digitalRead(RX_PIN) == LOW
+pinMode(TX_PIN, OUTPUT) -- starts LOW
+digitalWrite(TX_PIN, HIGH)
+digitalWrite(TX_PIN, LOW)
+```
+
+Supported modes are `INPUT` (no pull), `INPUT_PULLUP`, `INPUT_PULLDOWN`, and
+`OUTPUT`. `pinMode` and `digitalWrite` return success booleans. TX/RX reads return
+numeric `HIGH` or `LOW`, or `nil` when the pin is still assigned to UART.
+Unsupported pins/modes return `false`; writing an input also returns `false`.
+Always compare reads with `HIGH` or `LOW`: **Lua treats numeric zero as true**.
+
+Changing either pin to GPIO disables the Serial API until `Serial.begin(baud)`
+reclaims both pins. GPIO modes persist until changed; configure them in `setup()`.
+Use 3.3 V logic with a shared ground, never 5 V. A switch can connect an
+`INPUT_PULLUP` pin to ground. Disconnect a UART peer before driving its TX line
+with a GPIO output.
+
+Loop polling supports buttons and slow control signals. It is not an interrupt
+capture or a precise microsecond `pulseIn` API: short pulses can be missed.
+See the [external-trigger and pulse recipes](/docs/lua/recipes#gpio).
 
 ## Button API
 
@@ -494,7 +522,12 @@ the USB IP range and camera-sync marker, then reboots.
 
 ## Serial API
 
-`Serial` is fixed to UART2 M1. Pin selection is not exposed.
+`Serial` uses the header UART2 M1 TX/RX pins, non-inverted 8N1.
+`Serial.begin(baud)` accepts integer rates from 1200 through 1,000,000, including
+115200, 416666, and 420000. Omitting the argument selects 115200. It waits up to
+100 ms for an idle UART, configures the baud, reclaims both pins, and clears RX
+buffering. Invalid rates, an unavailable clock, or a busy UART raise a Lua error.
+Call it once in `setup()`, not on every loop iteration.
 
 ```lua
 Serial.begin(115200)
@@ -502,11 +535,22 @@ Serial.available()
 Serial.read()             -- byte integer or nil
 Serial.readBytes(n)       -- binary Lua string
 Serial.write("hello")
-Serial.writeBytes("\x01\x02")
+Serial.writeBytes("\x01\x02") -- legacy text-compatible writer
+Serial.writeRaw("\x00\x0A\xFF") -- byte-exact binary packet
 Serial.print(value)
 Serial.println(value)
 Serial.flush()
 ```
+
+`writeRaw` returns the number of bytes submitted. Use it for MAVLink and CRSF.
+The legacy `write`, `writeBytes`, `print`, and `println` insert CR before LF;
+they are not binary-safe. Use plain `print()` for web logs while UART carries
+binary packets, so debug text does not corrupt the protocol stream.
+
+Configurable baud, TX/RX GPIO, and `writeRaw` require firmware containing these
+APIs. Older firmware ignored the baud argument. This UART API does not provide
+inversion, single-wire half-duplex operation, or guaranteed lossless high-rate
+reception; receive polling must keep up with the sender.
 
 ## Product-style example
 
@@ -583,7 +627,7 @@ end
 - Store a snapshot in a local variable instead of calling it repeatedly in one
   iteration.
 - Use `next_event()` in a drain loop because it is non-blocking.
-- Use asynchronous commands for latency-sensitive MCU behavior.
+- Use asynchronous commands for responsive loops.
 - Check `arm_connected`, snapshot `valid`, and optional capability flags.
 - Avoid creating large temporary strings or tables in tight loops.
 - Use `/code` logs while developing, then reduce noisy `print()` calls.

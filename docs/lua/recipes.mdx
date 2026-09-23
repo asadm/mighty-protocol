@@ -1,0 +1,494 @@
+---
+title: Recipes
+description: Copyable Lua programs for buttons, GPIO, telemetry, MAVLink, and CRSF.
+---
+
+Expand a recipe, then use the code block’s copy button and paste it into the
+device’s `/code` editor. Save + Reload starts it. Each recipe is a standalone
+program: it **replaces** the current script, including default button/LED logic.
+To combine recipes, merge their `setup()` and `loop()` functions rather than
+pasting multiple definitions. RESET restores the default program.
+
+See the [Lua API](/docs/lua) for return values and firmware requirements.
+
+## Everyday programs
+
+<details>
+<summary>Default program: button controls and status LED</summary>
+
+The shipped program, unchanged. Paste this to restore the normal button and LED behavior.
+
+```lua
+local blink = {
+  idle = { { true, 100 }, { false, 900 } },
+  recording = { { true, 120 }, { false, 120 }, { true, 120 }, { false, 120 }, { true, 120 }, { false, 400 } },
+  starting = { { true, 100 }, { false, 100 } },
+  tracking = { { true, 1000 } },
+  degraded = { { true, 50 }, { false, 150 }, { true, 50 }, { false, 750 } },
+  lost = { { true, 200 }, { false, 200 } },
+}
+
+local vio_blink = {
+  off = "idle",
+  tracking = "tracking",
+  degraded = "degraded",
+  lost = "lost",
+  low_light = "degraded",
+  recovering = "starting",
+}
+
+local mode = "starting"
+local step = 1
+local elapsed = 0
+local recording_started_by_button = false
+
+local function current_mode()
+  if not Mighty.arm_connected() then return "starting" end
+  if Mighty.recording() then return "recording" end
+  if Mighty.preview_mode() then return "idle" end
+  if Mighty.initializing() then return "starting" end
+  return vio_blink[Mighty.vio_state()] or "starting"
+end
+
+local function show()
+  LED.write(blink[mode][step][1])
+end
+
+function setup()
+  LED.begin()
+  Button.begin()
+  LED.off()
+  print("mcu led ready")
+end
+
+local function handle_button()
+  if Button.held(1200) and Mighty.preview_mode() and not Mighty.recording() then
+    local ok = Mighty.start_recording()
+    recording_started_by_button = ok
+  end
+
+  if not Button.released() then return end
+
+  if recording_started_by_button then
+    recording_started_by_button = false
+    return
+  end
+
+  if Mighty.recording() then
+    Mighty.stop_recording()
+  elseif Button.held_ms() < 1200 then
+    if Mighty.preview_mode() then
+      Mighty.start_vio()
+    else
+      Mighty.stop_vio()
+    end
+  end
+end
+
+function loop(dt_ms)
+  handle_button()
+
+  local next_mode = current_mode()
+  if next_mode ~= mode then
+    mode, step, elapsed = next_mode, 1, 0
+    show()
+    return
+  end
+
+  local pattern = blink[mode]
+  elapsed = elapsed + (dt_ms or 1)
+  if elapsed < pattern[step][2] then return end
+
+  elapsed = 0
+  step = step % #pattern + 1
+  show()
+end
+```
+
+</details>
+
+<details>
+<summary>Blink the LED without blocking</summary>
+
+A small timing example. This replaces the default button handling.
+
+```lua
+local elapsed = 0
+function setup() LED.begin() end
+function loop(dt_ms)
+  elapsed = elapsed + dt_ms
+  if elapsed >= 500 then
+    elapsed = elapsed % 500
+    LED.toggle()
+  end
+end
+```
+
+</details>
+
+<details>
+<summary>Log a fresh position at up to 10 Hz</summary>
+
+Web logs only. Ignore orientation-only or stale poses instead of reporting held translation.
+
+```lua
+local elapsed, last = 0, nil
+function setup() Mighty.start_vio() end
+function loop(dt_ms)
+  elapsed = elapsed + dt_ms
+  if elapsed < 100 then return end
+  elapsed = elapsed % 100
+  local p = Mighty.pose()
+  if not p.valid or p.confidence < 0.5 or p.age_ms > 200 or p.timestamp_ns == last then return end
+  last = p.timestamp_ns
+  print(string.format("%.2f,%.2f,%.2f", p.position.x, p.position.y, p.position.z))
+end
+```
+
+</details>
+
+<details>
+<summary>Log device events in bounded batches</summary>
+
+Drain at most four events per iteration to leave time for other work.
+
+```lua
+function setup() print("Watching device events") end
+function loop()
+  for i = 1, 4 do
+    local event = Mighty.next_event()
+    if not event then break end
+    print(event.kind, event.timestamp_ns)
+  end
+end
+```
+
+</details>
+
+## GPIO
+
+These examples require the new TX/RX GPIO APIs. Configure the pins in `setup()`; do not also start Serial.
+
+<details>
+<summary>External switches: toggle VIO and recording</summary>
+
+Connect one momentary switch between RX and GND for VIO, and another between TX and GND for recording. Inputs are active-low with internal pull-ups and 40 ms debounce. A held switch does not repeat. A switch held at startup must be released first. Actions use asynchronous commands; additional presses while a command is pending are ignored.
+
+```lua
+local inputs = {
+  {pin = RX_PIN, action = "vio"},
+  {pin = TX_PIN, action = "record"},
+}
+local pending
+function setup()
+  for _, b in ipairs(inputs) do
+    assert(pinMode(b.pin, INPUT_PULLUP))
+    b.raw = digitalRead(b.pin)
+    b.stable, b.since = b.raw, millis()
+  end
+end
+function loop()
+  if pending then
+    local ok, result = Mighty.command_result(pending)
+    if ok ~= nil then
+      print(ok and result.message or result.error)
+      pending = nil
+    end
+  end
+  local now = millis()
+  for _, b in ipairs(inputs) do
+    local value = digitalRead(b.pin)
+    if value ~= b.raw then b.raw, b.since = value, now end
+    if value ~= b.stable and now - b.since >= 40 then
+      b.stable = value
+      if value == LOW and not pending then
+        local state = Mighty.state()
+        local command
+        if b.action == "record" then
+          command = state.recording and "stop_recording" or "start_recording"
+        else
+          command = state.preview_mode and "start_vio" or "stop_vio"
+        end
+        local err
+        pending, err = Mighty.command_async(command)
+        if not pending then print(err) end
+      end
+    end
+  end
+end
+```
+
+</details>
+
+<details>
+<summary>Output a VIO tracking indicator</summary>
+
+TX is HIGH while a fresh full-position pose is available, otherwise LOW. Connect only to a high-impedance 3.3 V logic input; do not connect another output.
+
+```lua
+function setup() assert(pinMode(TX_PIN, OUTPUT)) end
+function loop()
+  local p = Mighty.pose()
+  local good = p.valid and p.confidence >= 0.5 and p.age_ms <= 200
+  digitalWrite(TX_PIN, good and HIGH or LOW)
+end
+```
+
+</details>
+
+<details>
+<summary>Measure a slow HIGH pulse</summary>
+
+RX uses an internal pull-down. Reports observed HIGH duration in milliseconds without blocking. Use long pulses (for example 100 ms); this is not suitable for RC PWM, frequency measurement, or microsecond timing.
+
+```lua
+local previous, started
+function setup()
+  assert(pinMode(RX_PIN, INPUT_PULLDOWN))
+  previous = digitalRead(RX_PIN)
+end
+function loop()
+  local value, now = digitalRead(RX_PIN), millis()
+  if value ~= previous then
+    if value == HIGH then started = now
+    elseif started then
+      print("Pulse ms", now - started)
+      started = nil
+    end
+    previous = value
+  end
+end
+```
+
+</details>
+
+## Serial protocols
+
+Set the baud once in `setup()`. Use `Serial.writeRaw()` for packets and `print()` for web logs. Each recipe below is a complete replacement program.
+
+<details>
+<summary>Binary UART echo</summary>
+
+A quick byte-preservation test at 115200 baud. TX goes to the other device’s RX, RX to its TX, with shared GND and 3.3 V logic.
+
+```lua
+function setup() Serial.begin(115200) end
+function loop()
+  local data = Serial.readBytes(64)
+  if #data > 0 then Serial.writeRaw(data) end
+end
+```
+
+</details>
+
+<details>
+<summary>MAVLink: send a pose to ArduPilot</summary>
+
+Sends a heartbeat at 1 Hz and fresh `VISION_POSITION_ESTIMATE` packets at up to
+10 Hz. Based on the supplied camera-mount example: N = camera Y, E = camera X,
+D = −camera Z, with the empirical Euler offsets below. **That mapping is specific
+to the original mount, not a universal conversion of Mighty’s public body pose.**
+Check axes and attitude against your mounting before consuming the measurements.
+
+Wire Mighty TX → FC serial RX and GND → GND. Set that FC port to MAVLink2
+(`SERIALn_PROTOCOL=2`) at 115200 (`SERIALn_BAUD=115`). Consult ArduPilot’s
+[current external-navigation setup](https://ardupilot.org/dev/docs/mavlink-nongps-position-estimation.html)
+for estimator sources and origin setup. This recipe sends position/attitude,
+not velocity; do not select an external velocity source without supplying one.
+
+The [MAVLink message definition](https://mavlink.io/en/messages/common.html#VISION_POSITION_ESTIMATE)
+describes the packet fields. MAVLink v1 omits covariance/reset-counter extensions;
+pose resets or reference changes need integration-specific handling. Logs go to
+the web editor, never into the binary UART stream.
+
+```lua
+local SYSID, COMPID = 3, 93
+local seq, pose_ms, heartbeat_ms = 0, 0, 0
+local last_timestamp
+local PI = math.pi
+
+local function crc_acc(crc, b)
+  local t = (b ~ (crc & 255)) & 255
+  t = (t ~ ((t << 4) & 255)) & 255
+  return ((crc >> 8) ~ (t << 8) ~ (t << 3) ~ (t >> 4)) & 65535
+end
+local function send(msgid, payload, extra)
+  local header = string.char(#payload, seq, SYSID, COMPID, msgid)
+  seq = (seq + 1) % 256
+  local crc = 65535
+  local body = header .. payload
+  for i = 1, #body do crc = crc_acc(crc, body:byte(i)) end
+  crc = crc_acc(crc, extra)
+  Serial.writeRaw(string.char(254) .. body .. string.pack("<I2", crc))
+end
+local function ned_rpy(q)
+  local x, y, z, w = q.x, q.y, q.z, q.w
+  local roll = math.atan(2*(w*x + y*z), 1 - 2*(x*x + y*y))
+  local pitch = math.asin(math.max(-1, math.min(1, 2*(w*y - z*x))))
+  local yaw = math.atan(2*(w*z + x*y), 1 - 2*(y*y + z*z))
+  -- Empirical original-mount mapping: validate for your installation.
+  return pitch, roll - PI/2, (PI/2 - yaw + PI) % (2*PI) - PI
+end
+function setup()
+  Serial.begin(115200)
+  local ok, result = Mighty.start_vio()
+  assert(ok, result.error)
+  print("MAVLink pose output ready")
+end
+function loop(dt_ms)
+  heartbeat_ms = heartbeat_ms + dt_ms
+  if heartbeat_ms >= 1000 then
+    heartbeat_ms = heartbeat_ms % 1000
+    send(0, string.pack("<I4BBBBB", 0, 18, 8, 0, 4, 3), 50)
+  end
+  pose_ms = pose_ms + dt_ms
+  if pose_ms < 100 then return end
+  pose_ms = pose_ms % 100
+  local p = Mighty.pose()
+  if not p.valid or p.confidence < 0.5 or p.age_ms > 200 then return end
+  if p.timestamp_ns == last_timestamp then return end
+  last_timestamp = p.timestamp_ns
+  -- Remove ns digits before numeric conversion to preserve microsecond precision.
+  local usec = tonumber(p.timestamp_ns:sub(1, -4)) or 0
+  local r, pitch, yaw = ned_rpy(p.orientation_xyzw)
+  send(102, string.pack("<I8ffffff", usec,
+    p.position.y, p.position.x, -p.position.z, r, pitch, yaw), 158)
+end
+```
+
+</details>
+
+<details>
+<summary>CRSF: receive and inspect RC channels</summary>
+
+Connect a receiver’s non-inverted CRSF TX to Mighty RX, with common GND.
+The [TBS CRSF specification](https://github.com/tbs-fpv/tbs-crsf-spec/blob/main/crsf.md)
+uses 416666 baud for the full-duplex receiver/flight-controller link; change
+`BAUD` to 420000 if required by your peer. This is not the inverted, single-wire
+radio-module interface.
+
+The parser accepts fragmented frames, checks CRC, and prints channels 1–4 in
+approximate microseconds. It deliberately does not actuate anything. After a
+one-second gap it reports stale input. Start with a low receiver packet rate:
+the current polled UART path can drop bytes under load.
+
+```lua
+local BAUD = 416666
+local buffer, channels = "", nil
+local received, printed = 0, 0
+local function crc8(data)
+  local crc = 0
+  for i = 1, #data do
+    crc = crc ~ data:byte(i)
+    for bit = 1, 8 do
+      crc = ((crc << 1) ~ ((crc & 128) ~= 0 and 0xD5 or 0)) & 255
+    end
+  end
+  return crc
+end
+
+local function parse()
+  -- Bounded work; incomplete data stays buffered for the next iteration.
+  for attempt = 1, 8 do
+    if #buffer < 2 then return end
+    local n = buffer:byte(2)
+    if buffer:byte(1) ~= 0xC8 or n < 2 or n > 62 then
+      buffer = buffer:sub(2)
+    elseif #buffer < n + 2 then
+      return
+    else
+      local body = buffer:sub(3, n + 1)
+      if crc8(body) ~= buffer:byte(n + 2) then
+        buffer = buffer:sub(2)
+      else
+        buffer = buffer:sub(n + 3)
+        if body:byte(1) == 0x16 and #body >= 23 then
+          local result, bits, acc, offset = {}, 0, 0, 2
+          for ch = 1, 16 do
+            while bits < 11 do
+              acc = acc | (body:byte(offset) << bits)
+              bits, offset = bits + 8, offset + 1
+            end
+            result[ch] = 1500 + ((acc & 2047) - 992) * 5 / 8
+            acc, bits = acc >> 11, bits - 11
+          end
+          channels, received = result, millis()
+        end
+      end
+    end
+  end
+end
+function setup() Serial.begin(BAUD) end
+function loop()
+  buffer = buffer .. Serial.readBytes(64)
+  if #buffer > 256 then buffer = buffer:sub(-256) end
+  parse()
+  local now = millis()
+  if channels and now - received >= 1000 then
+    channels = nil
+    print("CRSF input stale")
+  end
+  if channels and now - printed >= 200 then
+    printed = now
+    print(string.format("CH1 %.0f CH2 %.0f CH3 %.0f CH4 %.0f",
+      channels[1], channels[2], channels[3], channels[4]))
+  end
+end
+```
+
+</details>
+
+<details>
+<summary>CRSF: transmit camera attitude and tracking text</summary>
+
+Connect Mighty TX to a compatible receiver’s telemetry RX, with common GND.
+Use the receiver’s required baud and telemetry configuration. This standalone
+example takes the place of an FC telemetry sender; do not join two TX outputs.
+It sends CRSF attitude (`0x1E`) and flight-mode text (`0x21`), using the latter
+for a VIO status label. These packets are display telemetry, not MAVLink-style
+external-navigation input. Attitude here is the camera body orientation;
+apply your mount transform before treating it as aircraft attitude.
+
+```lua
+local BAUD = 416666
+local attitude_ms, text_ms = 0, 0
+local function crc8(data)
+  local crc = 0
+  for i = 1, #data do
+    crc = crc ~ data:byte(i)
+    for bit = 1, 8 do
+      crc = ((crc << 1) ~ ((crc & 128) ~= 0 and 0xD5 or 0)) & 255
+    end
+  end
+  return crc
+end
+
+local function send(kind, payload)
+  local body = string.char(kind) .. payload
+  Serial.writeRaw(string.char(0xC8, #body + 1) .. body .. string.char(crc8(body)))
+end
+local function angle(value)
+  return math.floor(math.max(-math.pi, math.min(math.pi, value)) * 10000 + 0.5)
+end
+function setup() Serial.begin(BAUD) end
+function loop(dt_ms)
+  attitude_ms, text_ms = attitude_ms + dt_ms, text_ms + dt_ms
+  if text_ms >= 1000 then
+    text_ms = text_ms % 1000
+    local labels = {tracking="VIO TRACK", degraded="VIO WEAK", off="VIO OFF"}
+    send(0x21, (labels[Mighty.vio_state()] or "VIO WAIT") .. "\0")
+  end
+  if attitude_ms < 100 then return end
+  attitude_ms = attitude_ms % 100
+  local p = Mighty.pose()
+  if not p.valid or p.confidence < 0.2 or p.age_ms > 200 then return end
+  local q = p.orientation_xyzw
+  local x, y, z, w = q.x, q.y, q.z, q.w
+  local r = math.atan(2*(w*x + y*z), 1 - 2*(x*x + y*y))
+  local pitch = math.asin(math.max(-1, math.min(1, 2*(w*y - z*x))))
+  local yaw = math.atan(2*(w*z + x*y), 1 - 2*(y*y + z*z))
+  send(0x1E, string.pack(">i2i2i2", angle(pitch), angle(r), angle(yaw)))
+end
+```
+
+</details>
