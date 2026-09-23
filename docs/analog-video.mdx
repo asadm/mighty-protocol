@@ -1,0 +1,123 @@
+---
+title: Analog Video / VTX
+description: See Mighty's live camera and motion telemetry in analog FPV goggles, with a display you can configure.
+---
+
+Analog Out puts Mighty's live grayscale camera image and a white telemetry
+overlay in your goggles. Connect directly to an AV input for a wired setup,
+or send the picture wirelessly through an analog video transmitter (VTX).
+
+Choose the information you want to see: speed, altitude, home direction and
+distance, pitch and roll, tracking warnings, and a session timer. No Lua script
+is required.
+
+<figure style={{ maxWidth: 480, margin: "24px auto" }}>
+  <div style={{ aspectRatio: "4 / 3", overflow: "hidden", borderRadius: 8 }}>
+    <img src="/analog-video/aerial-native-dark-noisy.png" alt="240 by 120 dark grayscale aerial view with the Mighty HUD, displayed at 4:3 with simulated grain and blur." width={240} height={120} style={{ width: "100%", height: "100%", margin: 0, imageRendering: "pixelated" }} />
+  </div>
+</figure>
+
+## What you need
+
+- Mighty with firmware that includes **Analog Out**.
+- Analog goggles or a display with composite video (CVBS) input.
+- For wireless video: an analog VTX, its antenna, a suitable power supply,
+  and goggles with a receiver on the same frequency.
+- Wires or a suitable connector harness for video and ground.
+
+This is a preview feature.
+
+## Connect a VTX
+
+Make the connections with power off. Mighty supplies the video signal;
+the VTX needs its own suitable power connection.
+
+<img src="/analog-video/wiring.svg" alt="Wiring diagram: Mighty PWM to VTX VIDEO IN; Mighty GND, VTX GND, and supply negative joined; supply positive to VTX power input; VTX sends wirelessly to analog goggles." width={960} height={530} style={{ width: "100%", height: "auto" }} />
+
+| Connection | Goes to | Notes |
+| --- | --- | --- |
+| Mighty **PWM** | VTX **VIDEO IN** / composite video input | This carries the camera image and overlay. |
+| Mighty **GND** | VTX **GND** | A shared ground is required, even with separate power supplies. |
+| VTX supply **+** | VTX **POWER IN** | Use the voltage specified for that exact VTX. |
+| VTX supply **−** | VTX **GND** | Join this to the same ground as Mighty. |
+| VTX antenna | VTX antenna connector | Attach before powering the transmitter. |
+
+Use the VTX's pin labels and wiring guide, not wire colors. A camera-power
+output or SmartAudio/control pin is not the video input. Leave unused control
+and camera-power connections disconnected for this basic setup. Power Mighty
+normally; do not connect VTX supply voltage to **PWM** or **FSYNC**.
+
+VTX power requirements vary substantially. For example, BETAFPV lists
+4.5–5.5 V for its M03 and 7–35 V for its A03 in the
+[manufacturer's comparison table](https://betafpv.com/products/a03-400mw-5-8g-vtx).
+Check your model's instructions before choosing a supply. Configure its channel
+using the controls or equipment that model requires; Mighty’s Analog Out toggle
+does not set the VTX channel or transmit power.
+
+### Test directly with an AV cable
+
+For a wired test, skip the VTX. Connect Mighty **PWM** to the composite video
+signal contact and Mighty **GND** to video ground on the goggles' AV cable.
+
+## Enable Analog Out
+
+1. Connect Mighty to the [Visualizer](/viz).
+2. Open **Device Settings** and find **Analog Out**.
+3. If camera synchronization is enabled, disable it first. Camera sync and
+   Analog Out share the **PWM** connection and cannot be used together.
+4. Click **Enable Analog Out** and wait for **Active**.
+5. Check the camera image in your goggles. Start VIO to show motion readings.
+
+While Analog Out is active, the web camera preview pauses. Use the goggles to
+view the image; VIO controls remain available in the Visualizer. Lua continues
+running alongside Analog Out.
+
+The enabled setting is saved on Mighty and survives a restart. Click
+**Disable Analog Out** to return to the web camera preview.
+
+## Configure your display
+
+Click **Configure…** next to the Analog Out toggle. The mock display updates
+as you choose a position for each widget, or select **Off** to hide it.
+
+<video controls playsInline preload="metadata" poster="/analog-video/configure-poster.jpg" style={{ width: "100%", borderRadius: 12 }}>
+  <source src="/analog-video/configure.mp4" type="video/mp4" />
+  <a href="/analog-video/configure.mp4">Watch the display configuration walkthrough</a>
+</video>
+
+The walkthrough uses sample telemetry. **MIGHTY** stays in its fixed position
+before VIO starts and disappears once VIO is running; it is not configurable.
+
+| Widget | What it shows |
+| --- | --- |
+| **Tracking warning** | A blinking warning when tracking needs attention, such as low light or lost tracking. |
+| **Speed** | Estimated speed in meters per second. |
+| **Status & timer** | Tracking state and time accumulated while VIO runs. |
+| **Home direction & distance** | An arrow toward the starting position and distance in meters or kilometers. |
+| **Altitude** | Height relative to the starting position, in meters. |
+| **Pitch & roll** | A central attitude ladder that moves with pitch and rotates with roll. |
+
+**Default position** keeps the original placement. The other positions cover
+the top, middle, and bottom of the display. A margin keeps widgets away from
+the edges. If widgets overlap, the modal highlights the issue with a message;
+choose another position to keep them readable.
+
+Click **Save layout** to apply and save your choices on Mighty. They survive
+reconnects and restarts, and can be changed while Analog Out is on or off.
+**Cancel** discards your edits. **Restore defaults** resets the draft layout;
+press **Save layout** to keep it.
+
+Home and altitude are relative to the current VIO session, not GPS coordinates
+or elevation above sea level. Restarting VIO establishes a new starting
+position. When position tracking is unavailable, the home arrow is hidden
+and unavailable readings show dashes.
+
+## If the picture doesn't look right
+
+| Symptom | What to check |
+| --- | --- |
+| Blue screen or no image | Confirm Analog Out says **Active**. Check PWM-to-video wiring and shared ground. Use AV mode for a cable, or the matching RF channel for a VTX. |
+| Output reports an error | Read the message in Device Settings and use **Retry** if offered. Confirm camera sync is disabled. |
+| Grain or interference | Try direct AV first to separate the wired picture from radio interference. Keep signal and ground wires short, and check VTX power and antenna connections. Some grain can remain in the analog picture. |
+| Text near an edge is cut off | Move that widget inward using **Configure…** and check the goggles' display framing. |
+| Image works but readings show dashes | Start VIO and wait for valid tracking. Improve lighting or aim at an area with visible detail if tracking is lost. |

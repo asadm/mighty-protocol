@@ -1,4 +1,16 @@
 {
   "title": "Docs",
-  "pages": ["index", "start", "recording", "calibration", "loop-closure", "updating-firmware", "multi-camera", "vibration", "lua", "sdk"]
+  "pages": [
+    "index",
+    "start",
+    "recording",
+    "calibration",
+    "loop-closure",
+    "updating-firmware",
+    "analog-video",
+    "multi-camera",
+    "vibration",
+    "lua",
+    "sdk"
+  ]
 }
