@@ -33,8 +33,16 @@ Globals persist until the next reload. `dt_ms` is elapsed device time since the
 previous call and is clamped after long pauses.
 
 The runtime provides selected base, table, string, and math functions. It does
-not provide `io`, `os`, `package`, `debug`, `dofile`, `loadfile`, unrestricted
-`load`, or filesystem access. The Lua heap is fixed at 256 KiB.
+not provide `io`, `os`, `package`, `debug`, `dofile`, `loadfile`, `load`,
+`setmetatable`, `getmetatable`, `collectgarbage`, or general filesystem access.
+The Lua heap is fixed at 256 KiB; scripts are limited to 64 KiB.
+
+Each callback has an execution budget, including native string-pattern work.
+String/table library calls accept string arguments of at most 4096 bytes.
+`pcall` and `xpcall` can catch ordinary errors, but cannot suppress execution
+limits or cancellation. `xpcall` runs its error handler after the failed call
+has unwound. User finalizers and custom metatables are unavailable.
+A failed callback stops the script; use Save + Reload to start it again.
 
 ## Snapshot and command model
 
@@ -353,16 +361,23 @@ local ok, result = Mighty.stop_vio([timeout_ms])
 Recording is available in preview mode, not while VIO is active.
 
 ```lua
-local ok, result = Mighty.start_recording([directory], [timeout_ms])
-local ok, result = Mighty.start_imu_recording([directory], [timeout_ms])
+local ok, result = Mighty.start_recording([filename], [timeout_ms])
+local ok, result = Mighty.start_imu_recording([filename], [timeout_ms])
 local ok, result = Mighty.stop_recording([timeout_ms])
 
 local status = Mighty.recording_status()
 -- { active=true, mode="full"|"imu_only"|"none", path="...", valid=true }
 ```
 
-The default directory is `/mnt/sdcard`. IMU-only recording omits camera frames
-but keeps calibration/noise metadata when available.
+Recordings always go to the mounted SD card. Supply a filename such as
+`"flight-01.bag"`, or omit it for an automatic name. `.bag` is appended if absent.
+Names must start with a letter or digit, contain only ASCII letters, digits,
+underscores, hyphens, or dots, and be at most 64 bytes. Trailing dots, consecutive
+dots, path separators, absolute paths, and relative paths are rejected.
+Existing files and symlinks are refused rather than overwritten. These rules
+also apply to `command` and `command_async` recording requests.
+IMU-only recording omits camera frames but keeps calibration/noise metadata
+when available.
 
 ### Loop closure
 
@@ -543,6 +558,10 @@ Serial.flush()
 ```
 
 `writeRaw` returns the number of bytes submitted. Use it for MAVLink and CRSF.
+Writes accept at most 256 bytes per call and have a short transmission timeout.
+Split larger messages across loop iterations. At low baud rates use smaller
+chunks. A stalled or timed-out write raises an error and may have sent a prefix;
+do not assume an error means no bytes were transmitted.
 The legacy `write`, `writeBytes`, `print`, and `println` insert CR before LF;
 they are not binary-safe. Use plain `print()` for web logs while UART carries
 binary packets, so debug text does not corrupt the protocol stream.
