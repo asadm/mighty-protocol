@@ -9,6 +9,7 @@
     "updating-firmware",
     "analog-video",
     "multi-camera",
+    "apriltags",
     "vibration",
     "lua",
     "sdk"

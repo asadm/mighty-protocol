@@ -1,0 +1,149 @@
+---
+title: AprilTag Support
+description: Use known AprilTags to anchor Mighty poses, correct drift, and align multiple cameras in a shared coordinate frame.
+---
+
+Mighty can use AprilTags as fixed landmarks for visual-inertial odometry (VIO).
+Give each tag a physical size, mounting orientation, and known position. When
+the camera sees a matching tag, it corrects its reported position and orientation
+to match your chosen coordinates.
+VIO continues tracking between sightings.
+
+Once configured, AprilTag support stays active while VIO is running. You can
+close the Visualizer and the camera will continue using your saved tags.
+
+## What you can use it for
+
+- **A repeatable origin:** put a tag at a fixed reference point, such as a
+  workbench or docking station. Looking at it aligns each new VIO session to
+  the same coordinates.
+- **Drift correction at checkpoints:** place known tags along a route so the
+  camera can realign its output when it revisits those locations.
+- **Shared coordinates across cameras:** configure the same tag map on multiple
+  Mighty cameras, then let each camera observe a configured tag. Their reported
+  trajectories can be displayed in the same world frame.
+- **Repeatable experiments and demos:** use a fixed tag to compare trajectories
+  across runs instead of relying on where each camera happened to initialize.
+
+## Prepare a tag
+
+Use a **tag36h11** AprilTag with a one-cell black border. Mount it flat and keep
+it stationary.
+
+Measure one side of the tag's outer black square, excluding the surrounding
+white margin. Enter that measurement in **centimeters**. For example, a black
+square measuring 16.2 cm across needs a size of `16.2`, regardless of the paper
+size. Keep the white margin visible around the tag.
+
+The camera needs a valid saved camera/IMU calibration. Follow
+[Calibration](/docs/calibration) if you have not calibrated it, or if the lens or
+mount has changed.
+
+## Configure tags in the Visualizer
+
+1. Connect the camera and open the [Visualizer](/viz). Wait for it to connect.
+2. If VIO is running, click **Stop VIO**.
+3. Open **Device Settings** and find **Relocalization**.
+4. Click **Relocalize using AprilTags**, or **Edit Tags** to change existing rows.
+5. Fill in the tag's ID, size, orientation, and position using the table below.
+   Use **Add Row** for additional tags and **-** to remove a row.
+6. Click **Save**. The button in Device Settings will show **AprilTags On**.
+7. Click **Start VIO**, allow tracking to initialize, and point the camera at a
+   configured tag.
+
+<img
+  src="/apriltag-relocalization-modal.png"
+  alt="AprilTag Relocalization modal with example tag 7, size 16.2 centimeters, Upright orientation, and X, Y, Z positions of zero. Add Row, Save, and Disable buttons appear below."
+  width={1800}
+  height={412}
+  style={{ width: "100%", height: "auto", borderRadius: 8 }}
+/>
+
+*The Visualizer's configuration modal, rendered with example values.*
+
+| Field | What to enter |
+| --- | --- |
+| **Tag ID** | The printed tag's numeric ID, such as `7`, or `*` to match any ID. An explicit ID takes precedence over a wildcard. |
+| **Size cm** | Side length of the outer black square in centimeters. The default is `16.2`; replace it with your measurement. |
+| **Orientation** | **Upright** for a vertical tag, or **Facing up** for a horizontal tag with its printed face pointing upward. |
+| **X, Y, Z** | Position of the **tag center** in your world frame, in **meters**. These are not the camera's position or the distance from the camera to the tag. |
+
+For a first test, use one upright tag with its actual ID and size, and set
+`X = 0`, `Y = 0`, `Z = 0`. This makes the tag center the origin. The camera's
+reported position will be offset from that origin according to where it is
+relative to the tag.
+
+### Orientation and multiple tags
+
+Rotating the printed tag changes the camera's reported orientation. Choose
+**Upright** or **Facing up** to match how it is mounted. Custom mounting angles
+are not supported. An upright tag faces **+X** in your chosen coordinates; a
+facing-up tag faces **+Z**.
+
+When adding multiple landmarks, measure all tag centers in one common frame
+and mount each tag consistently with its preset. Tags on walls facing different
+directions cannot be described just by choosing **Upright** and changing XYZ.
+Use unique IDs for tags at different positions.
+
+The `*` wildcard is convenient for a single-tag trial, but it assigns the same
+size, orientation, and position to every otherwise unmatched tag. It does not
+automatically discover a map of tags. Use explicit IDs for a room with multiple
+landmarks.
+
+### Saving, editing, and disabling
+
+**Save** stores the settings on the connected camera. They survive a reboot,
+and each camera has its own settings.
+
+**Stop and restart VIO to apply changes.** The **AprilTags On** label confirms
+that your settings are saved. Look for the relocalization notification to confirm
+that the camera has used a tag.
+
+To disable, stop VIO, then click **Disable** in the modal or click **AprilTags On**
+in Device Settings. Both clear the saved tag configuration. Start VIO again to
+track without tag relocalization. Copy down your rows first if you want to reuse
+them; disabling is not a pause that preserves the rows. **Close** dismisses the
+modal without saving draft edits.
+
+## Check frequency
+
+Mighty automatically checks for configured tags about **every 2 seconds** while
+VIO is running and continues tracking between checks. You do not need to trigger
+each check. The check frequency cannot be changed in the Visualizer.
+
+## Check that it is working
+
+Keep a configured tag fully visible and hold the camera steadily for a few
+seconds; a brief glimpse may be missed.
+The Visualizer can show detected tag outlines, and a successful alignment
+produces a notification such as **Tag #7 detected, relocalizing**.
+
+The displayed position and orientation may jump as a tag corrects accumulated
+drift. Tracking continues afterward, and drift can build up again between tag
+sightings.
+
+If you see no alignment, check that VIO has initialized, the calibration is
+installed, the tag is from the correct family, and its ID matches a saved row.
+If the position or orientation is wrong, check the measured size, centimeter
+versus meter units, tag-center coordinates, and mounting rotation. Move closer
+or improve lighting if the corners are small, blurred, obscured, or affected by
+glare. A detection overlay alone does not confirm a successful pose alignment.
+
+## Use multiple cameras in one frame
+
+First follow [Multi-Camera Setup](/docs/multi-camera) to give each camera a
+different USB IP range. Save the same tag map on each camera, then start VIO on
+each and let it see a configured tag. Each camera aligns independently to that
+shared frame. This does not synchronize the camera shutters or perform stereo
+calibration.
+
+The [multi-camera AprilTag Python example](https://github.com/asadm/mighty-protocol/tree/main/examples/python/multi_camera_apriltag)
+shows two camera previews with tag overlays, both VIO trajectories in one 3D
+view, and relocalization notifications. It also supports recording and replaying
+ROS1 bags. Follow the example's setup instructions to try it with two cameras.
+
+## Configure from an application
+
+You can also save tag settings from your own application. See
+[SDK Recipes](/docs/sdk/recipes) for configuration examples. Stop and restart
+VIO after changing settings through the SDK as well.
