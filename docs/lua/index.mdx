@@ -245,6 +245,40 @@ Loop closure, AprilTag relocalization, and explicit pose reset rebase the public
 output alignment. `Mighty.pose()` and the normal `POSE` stream therefore jump
 together on the next publication; the internal estimator state is not mutated.
 
+### High-rate pose output
+
+```lua
+local ok, result = Mighty.set_high_rate_pose_enabled(true, 1000)
+assert(ok, result.error)
+local ok, status = Mighty.high_rate_pose_status(1000)
+-- status.available, status.enabled, status.active, status.rate_hz
+-- Mighty.set_high_rate_pose_enabled(false) restores image-rate output.
+```
+
+Both calls return `ok, result` using the normal command error/timeout contract.
+`available` means the build supports this mode, `enabled` is the requested mode,
+`active` means its publisher is running, and `rate_hz` is the configured target
+(currently 60 Hz), not a measured delivery rate. An active publisher still needs
+initialized tracking and sufficient IMU coverage to produce valid poses. Enable
+can be requested before `Mighty.start_vio()`; it does not itself start VIO.
+
+This is the same session-wide toggle used by the viewer. While active,
+`Mighty.pose()` reads the same smoothed, IMU-predicted body poses as the public
+stream. Image estimation is unchanged. Prediction stops beyond its 200 ms image
+horizon; callers must check `valid`, `age_ms` and confidence. The mailbox holds
+only the latest sample, so a slow script can miss samples. Deduplicate with
+`sequence` or `timestamp_ns`; calling `pose()` does not compute a new estimate.
+
+The Lua scheduler waits 5 ms after each `loop()` callback. Keep callbacks short
+and use buffered serial writes for high-rate forwarding. There is no hard
+60 Hz scheduling guarantee. See the [high-rate UART recipe](/docs/lua/recipes#serial-protocols).
+
+Generic synchronous/asynchronous control is also available via
+`Mighty.command("high_rate_imu", "on")` or
+`Mighty.command_async("high_rate_imu", "off")`; `"status"` queries the mode.
+Generic results expose `value0..value3` as available, enabled, target Hz and active.
+Older firmware does not expose these functions.
+
 ```lua
 function loop()
   local p = Mighty.pose()
@@ -552,6 +586,8 @@ Serial.readBytes(n)       -- binary Lua string
 Serial.write("hello")
 Serial.writeBytes("\x01\x02") -- legacy text-compatible writer
 Serial.writeRaw("\x00\x0A\xFF") -- byte-exact binary packet
+Serial.tryWriteRaw("\x00\x0A\xFF") -- nonblocking: count, or nil, "queue full"
+Serial.availableForWrite() -- free bytes in the 1024-byte software TX queue
 Serial.print(value)
 Serial.println(value)
 Serial.flush()
@@ -562,6 +598,21 @@ Writes accept at most 256 bytes per call and have a short transmission timeout.
 Split larger messages across loop iterations. At low baud rates use smaller
 chunks. A stalled or timed-out write raises an error and may have sent a prefix;
 do not assume an error means no bytes were transmitted.
+
+For high-rate output, `tryWriteRaw(packet)` copies the complete packet into a
+bounded transmit queue and returns its byte count immediately. If there is not
+enough space it returns `nil, "queue full"` and accepts **no bytes**. Packets are
+limited to 256 bytes per call; arbitrary bytes, including NUL, LF and CRLF, are
+preserved exactly. Lua supplies all framing and checksums. A separate worker
+fills the hardware FIFO without making `loop()` wait for each byte.
+
+Admission is not delivery or a receiver acknowledgement. The queue preserves
+order across script reloads; app shutdown discards unsent bytes. Legacy blocking
+writes, `Serial.flush()`, baud changes and GPIO handoff wait for queued output
+to drain, with a bounded timeout. Do not call `flush()` on every high-rate loop.
+Choose a baud rate that accommodates packet size and update rate, and handle a
+full queue explicitly. `availableForWrite()` is advisory; `tryWriteRaw()` makes
+the admission decision atomically. These two new methods require updated firmware.
 The legacy `write`, `writeBytes`, `print`, and `println` insert CR before LF;
 they are not binary-safe. Use plain `print()` for web logs while UART carries
 binary packets, so debug text does not corrupt the protocol stream.

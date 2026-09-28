@@ -35,6 +35,12 @@ Typed controls:
 - `Mighty.start_tracker(rect, [timeout_ms])`
 - `Mighty.stop_tracker([timeout_ms])`
 - `Mighty.set_camera_sync_enabled(enabled, [timeout_ms])`
+- `Mighty.set_high_rate_pose_enabled(enabled, [timeout_ms])`
+- `Mighty.high_rate_pose_status([timeout_ms])` (command returning `ok, result`)
+
+For protocol packets generated in Lua, `Serial.tryWriteRaw(packet)` provides
+nonblocking, whole-packet UART queue admission; `Serial.availableForWrite()`
+reports free queue space. See the [Lua serial API](/docs/lua#serial-api).
 
 Bounded generic controls:
 

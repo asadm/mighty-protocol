@@ -95,6 +95,33 @@ A quick byte-preservation test at 115200 baud. TX goes to the other device’s R
 </details>
 
 <details>
+<summary>High-rate pose over UART (60 Hz target)</summary>
+
+Enables the same high-rate pose mode as the web toggle, starts VIO, and sends
+each fresh smoothed pose once. Image estimation keeps its normal cadence; IMU
+prediction supplies the poses between images. The target is 60 Hz, with actual
+delivery dependent on tracking, script work, scheduling and serial bandwidth.
+
+Connect TX to the receiver's RX with shared GND and 3.3 V logic. Set the receiver
+to **230400 baud, 8N1**. Each packet is
+`POSE,time_ns,sequence,x,y,z,qx,qy,qz,qw` followed by CRLF. Position is in metres
+in `odom`; orientation is the `base_link` quaternion in xyzw order. This custom
+CSV format is not a MAVLink message.
+
+The commented `packet()` function owns the format. Replace it with your own
+binary packing, framing and checksum. `Serial.tryWriteRaw()` preserves every
+byte and admits a whole packet or none; this recipe skips a sample if the
+queue is full. It prints queue counts once per second to web logs. The mode is
+shared with the viewer and remains enabled until disabled or the app restarts.
+Use `Mighty.set_high_rate_pose_enabled(false)` to restore image-rate output.
+
+Requires firmware with the high-rate Lua API and buffered UART writes.
+
+<LuaRecipeCode id="high-rate-pose-uart" />
+
+</details>
+
+<details>
 <summary>MAVLink: send a pose to ArduPilot</summary>
 
 Sends a heartbeat at 1 Hz and fresh `VISION_POSITION_ESTIMATE` packets at up to
