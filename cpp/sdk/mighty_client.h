@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "mighty_calibration.h"
+#include "mighty_apriltags.h"
 #include "mighty_device_io.h"
 #include "../mighty_protocol.h"
 #include "../mighty_protocol_consumer.h"
@@ -457,6 +458,19 @@ class MightyClient {
     out.value.assign(bytes.value.begin(), bytes.value.end());
     out.message = bytes.message;
     return out;
+  }
+
+  ConfigSetResult import_wpilib_field_layout(const std::string& json,
+                                              double tag_size_m = FRC_TAG_SIZE_M) {
+    AprilTagMap map;
+    std::string error;
+    if (!parse_wpilib_field_layout_json(json, &map, &error, tag_size_m)) {
+      ConfigSetResult result;
+      result.key = "apriltags";
+      result.message = error;
+      return result;
+    }
+    return config_set_text("apriltags", serialize_apriltag_map_yaml(map));
   }
 
   CalibrationGetResult get_calibration() {

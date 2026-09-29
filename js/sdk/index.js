@@ -9,6 +9,10 @@ export { MightyWebDevice, DEFAULT_BASE_URLS } from "./device-web.js";
 export { decodeImageToRgb, decodeJpegToRaw, decodeRawToRgb, imageToRaw } from "./image.js";
 export { parseCalibrationYaml } from "./calibration.js";
 export {
+  FRC_TAG_SIZE_M, parseWpilibFieldLayout, serializeApriltagMapYaml,
+  normalizeTagQuaternion, wpilibTagQuaternionToMighty, mightyTagQuaternionToWpilib,
+} from "./apriltags.js";
+export {
   RgbdSynchronizer,
   colorizeDepth,
   depthAtMeters,

@@ -20,6 +20,8 @@ import {
   isUint16MetricDepth,
   rectifyImageToDepth,
   parseCalibrationYaml,
+  FRC_TAG_SIZE_M, parseWpilibFieldLayout, serializeApriltagMapYaml,
+  normalizeTagQuaternion, wpilibTagQuaternionToMighty, mightyTagQuaternionToWpilib,
 } from "./sdk/index.js";
 
 const { default: _coreDefault, ...coreNamed } = core;
@@ -45,6 +47,8 @@ const sdk = {
   isUint16MetricDepth,
   rectifyImageToDepth,
   parseCalibrationYaml,
+  FRC_TAG_SIZE_M, parseWpilibFieldLayout, serializeApriltagMapYaml,
+  normalizeTagQuaternion, wpilibTagQuaternionToMighty, mightyTagQuaternionToWpilib,
 };
 
 const api = {
@@ -76,6 +80,8 @@ export {
   isUint16MetricDepth,
   rectifyImageToDepth,
   parseCalibrationYaml,
+  FRC_TAG_SIZE_M, parseWpilibFieldLayout, serializeApriltagMapYaml,
+  normalizeTagQuaternion, wpilibTagQuaternionToMighty, mightyTagQuaternionToWpilib,
   sdk,
   coreNamed as core,
 };

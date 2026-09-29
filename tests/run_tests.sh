@@ -3,6 +3,8 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BIN_DIR="$HERE/bin"
+APRILTAG_TEST_BIN_DIR="${MIGHTY_TEST_BIN_DIR:-${TMPDIR:-/tmp}/mighty-protocol-tests}"
+mkdir -p "$APRILTAG_TEST_BIN_DIR"
 mkdir -p "$BIN_DIR"
 
 echo "[build] g++ cpp_roundtrip.cpp"
@@ -25,6 +27,18 @@ g++ -std=c++17 -pthread -I"$HERE/.." "$HERE/cpp_depth_test.cpp" -o "$BIN_DIR/cpp
 
 echo "[build] g++ cpp_calibration_test.cpp"
 g++ -std=c++17 -I"$HERE/.." "$HERE/cpp_calibration_test.cpp" -o "$BIN_DIR/cpp_calibration_test"
+
+echo "[build] g++ cpp_apriltags_test.cpp"
+g++ -std=c++17 -pthread -I"$HERE/.." "$HERE/cpp_apriltags_test.cpp" -o "$APRILTAG_TEST_BIN_DIR/cpp_apriltags_test"
+
+echo "[test] cpp AprilTag importer"
+"$APRILTAG_TEST_BIN_DIR/cpp_apriltags_test" "$HERE/fixtures/wpilib-2026-rebuilt-welded.json"
+
+echo "[test] node AprilTag importer"
+node "$HERE/node_apriltags.test.js"
+
+echo "[test] python AprilTag importer"
+python3 "$HERE/python_apriltags_test.py"
 
 echo "[test] cpp sdk unit"
 "$BIN_DIR/cpp_sdk_test"
@@ -73,6 +87,9 @@ python3 "$HERE/python_calibration_test.py"
 
 echo "[test] python pose contract"
 python3 "$HERE/python_pose_contract_test.py"
+
+echo "[test] cross-client AprilTag parity"
+python3 "$HERE/cross_client_apriltag_parity_test.py"
 
 echo "[test] cross-client pose parity"
 python3 "$HERE/cross_client_pose_parity_test.py"

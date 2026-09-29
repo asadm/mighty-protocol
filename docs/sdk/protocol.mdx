@@ -412,6 +412,46 @@ apriltags:
       position: [ 0, 0, 0 ]
 ```
 
+### Full AprilTag poses in `apriltags` config
+
+The `apriltags` key also accepts full tag rotations. Existing `upright` and
+`facingup` rows remain valid. A full-pose row uses:
+
+```yaml
+%YAML:1.0
+---
+apriltags:
+  - tag_id: 7
+    size_m: 0.1651
+    position_m: [2.5, 1.0, 0.8]
+    orientation: quaternion
+    orientation_xyzw: [-0.5, 0.5, -0.5, 0.5]
+```
+
+`position` and `position_m` specify the tag center in world coordinates, in
+meters. `size_cm` and `size_m` specify the black-square edge length.
+`orientation_xyzw` is a world-from-tag quaternion in XYZW order. It must contain
+exactly four finite values and be nonzero; the device normalizes it. The device
+tag axes are **+X right, +Y down, +Z out of the printed face**. The example is
+identical to the Upright shortcut: normal +X, top +Z in world coordinates.
+
+WPILib's tag axes are +X normal, +Y left, +Z up. SDK field-layout helpers return
+poses in WPILib's convention and their YAML serializers convert the rotation:
+
+`q_world_deviceTag = q_world_wpilibTag * [-0.5, 0.5, -0.5, 0.5]` (XYZW).
+
+Positions and field origins are unchanged. Do not copy WPILib's rotation into
+raw device YAML without this conversion. The SDK's `orientation: quaternion`
+marker is required for generated full-pose rows, so older firmware rejects the
+map instead of applying its default Upright rotation. When a quaternion is
+present, any supplied orientation marker must be `quaternion`; that marker
+without a quaternion is invalid.
+
+Stop VIO before `SET` and restart it after success. `GET` returns the saved YAML;
+empty `SET` still clears the map. This extends the config value schema without
+changing command framing or the `POSE` wire format. See
+[AprilTag Support](/docs/apriltags) for import and UI examples.
+
 ## 4. Low-Level API Surface by Language
 
 ### JavaScript (`js/core/protocol.js`)

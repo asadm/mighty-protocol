@@ -9,6 +9,7 @@ import { MightyOccupancyGridWorker } from "./occupancy-worker.js";
 import { toU8, encodeText, decodeText, sleep, isAbortError } from "./utils.js";
 import { RgbdSynchronizer } from "./depth.js";
 import { parseCalibrationYaml } from "./calibration.js";
+import { parseWpilibFieldLayout, serializeApriltagMapYaml } from "./apriltags.js";
 import { decodeJpegToRaw } from "./image.js";
 
 export const VIO_STATE = protocol.VIO_STATE;
@@ -278,6 +279,16 @@ export class MightyClient {
         data: new Uint8Array(),
       };
     }
+  }
+
+  async importWpilibFieldLayout(source, opts = {}) {
+    let value;
+    try {
+      value = serializeApriltagMapYaml(parseWpilibFieldLayout(source, opts));
+    } catch (error) {
+      return { ok: false, key: "apriltags", value: new Uint8Array(), message: error.message };
+    }
+    return this.configSet("apriltags", value);
   }
 
   async configGet(key, opts = {}) {

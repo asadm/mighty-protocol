@@ -6,6 +6,7 @@ import mighty_protocol as mp
 from dispatcher import FrameDispatcher
 
 from .calibration import parse_calibration_yaml
+from .apriltags import FRC_TAG_SIZE_M, parse_wpilib_field_layout, serialize_apriltag_map_yaml
 from .loopclosure import LoopClosureError, NativeLoopClosure
 from .depth import RgbdSynchronizer
 from .image import decode_jpeg_to_raw
@@ -300,6 +301,17 @@ class MightyClient:
                 "value": value_bytes,
                 "message": str(exc),
             }
+
+    def import_wpilib_field_layout(self, source, tag_size_m=FRC_TAG_SIZE_M) -> Dict[str, Any]:
+        """Validate a complete layout, then replace the saved AprilTag map.
+
+        Stop VIO before calling; firmware enforces this configuration rule.
+        """
+        try:
+            value = serialize_apriltag_map_yaml(parse_wpilib_field_layout(source, tag_size_m))
+        except (TypeError, ValueError) as exc:
+            return {"ok": False, "key": "apriltags", "value": b"", "message": str(exc)}
+        return self.config_set("apriltags", value)
 
     def get_calibration(self) -> Dict[str, Any]:
         raw = self.config_get("calib", as_text=True)

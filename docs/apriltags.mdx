@@ -4,7 +4,8 @@ description: Use known AprilTags to anchor Mighty poses, correct drift, and alig
 ---
 
 Mighty can use AprilTags as fixed landmarks for visual-inertial odometry (VIO).
-Give each tag a physical size, mounting orientation, and known position. When
+Give each tag a physical size and full pose: its center position and mounting
+rotation. You can enter poses manually or import a WPILib field layout. When
 the camera sees a matching tag, it corrects its reported position and orientation
 to match your chosen coordinates.
 VIO continues tracking between sightings.
@@ -63,10 +64,10 @@ mount has changed.
    configured tag.
 
 <img
-  src="/apriltag-relocalization-modal.png"
-  alt="AprilTag Relocalization modal with example tag 7, size 16.2 centimeters, Upright orientation, and X, Y, Z positions of zero. Add Row, Save, and Disable buttons appear below."
-  width={1800}
-  height={412}
+  src="/apriltag-preset-modal.png"
+  alt="AprilTag configuration with Upright selected, position fields in meters, and an Import WPILib JSON button."
+  width={1160}
+  height={286}
   style={{ width: "100%", height: "auto", borderRadius: 8 }}
 />
 
@@ -76,7 +77,8 @@ mount has changed.
 | --- | --- |
 | **Tag ID** | The printed tag's numeric ID, such as `7`, or `*` to match any ID. An explicit ID takes precedence over a wildcard. |
 | **Size cm** | Side length of the outer black square in centimeters. The default is `16.2`; replace it with your measurement. |
-| **Orientation** | **Upright** for a vertical tag, or **Facing up** for a horizontal tag with its printed face pointing upward. |
+| **Orientation** | **Upright** or **Facing up** shortcuts, or **Custom Pose3d** for any mounting rotation. |
+| **Roll, Pitch, Yaw** | For Custom Pose3d, enter angles in **degrees**. Zero rotation is an upright tag facing +X with its top toward +Z. |
 | **X, Y, Z** | Position of the **tag center** in your world frame, in **meters**. These are not the camera's position or the distance from the camera to the tag. |
 
 For a first test, use one upright tag with its actual ID and size, and set
@@ -84,22 +86,64 @@ For a first test, use one upright tag with its actual ID and size, and set
 reported position will be offset from that origin according to where it is
 relative to the tag.
 
-### Orientation and multiple tags
+### Full Pose3d and orientation shortcuts
 
-Rotating the printed tag changes the camera's reported orientation. Choose
-**Upright** or **Facing up** to match how it is mounted. Custom mounting angles
-are not supported. An upright tag faces **+X** in your chosen coordinates; a
-facing-up tag faces **+Z**.
+**Upright** faces **+X** with the top of the printed tag toward **+Z**.
+**Facing up** faces **+Z** and preserves the existing shortcut's mounting
+rotation. Choose **Custom Pose3d** for tilted tags, tags facing another wall,
+or tags rotated in their own plane.
 
-When adding multiple landmarks, measure all tag centers in one common frame
-and mount each tag consistently with its preset. Tags on walls facing different
-directions cannot be described just by choosing **Upright** and changing XYZ.
-Use unique IDs for tags at different positions.
+For custom poses, XYZ is the tag center in meters. Roll, pitch, and yaw use the
+WPILib `Rotation3d` convention: `Rz(yaw) × Ry(pitch) × Rx(roll)`, with angles
+entered in degrees. The tag's local axes are **+X out of the printed face**,
+**+Y left**, and **+Z toward the top**. For example, roll `0`, pitch `0`, yaw
+`90` describes an upright tag facing +Y.
 
-The `*` wildcard is convenient for a single-tag trial, but it assigns the same
-size, orientation, and position to every otherwise unmatched tag. It does not
-automatically discover a map of tags. Use explicit IDs for a room with multiple
-landmarks.
+<img
+  src="/apriltag-pose3d-modal.png"
+  alt="Custom Pose3d selected with editable roll, pitch, yaw and tag-center position."
+  width={1160}
+  height={310}
+  style={{ width: "100%", height: "auto", borderRadius: 8 }}
+/>
+
+Measure all tags in one common frame and use unique IDs for different
+landmarks. The `*` wildcard assigns the same size and pose to every otherwise
+unmatched tag; it does not discover a map automatically.
+
+### Import a WPILib field layout for FRC
+
+Mighty uses **tag36h11**, the family used on FRC fields since 2024. Standard FRC
+tags measure **6.5 inches (16.51 cm)** across the black square. See
+[WPILib's AprilTag introduction](https://docs.wpilib.org/en/stable/docs/software/vision-processing/apriltag/apriltag-intro.html).
+
+1. Download your field's WPILib AprilTag layout JSON. For a concrete example,
+   use the official [2026 REBUILT welded-field layout](https://github.com/wpilibsuite/allwpilib/blob/v2026.2.2/apriltag/src/main/native/resources/edu/wpi/first/apriltag/2026-rebuilt-welded.json).
+   Choose the layout that matches your actual field and season.
+2. Stop VIO and open the AprilTag configuration modal.
+3. Click **Import WPILib JSON** and select the file. It replaces the draft rows
+   with the file's tag IDs, positions, and full rotations.
+4. Review the imported rows. The importer uses **16.51 cm** for tag size because
+   WPILib layout files do not include a size. Change it for nonstandard tags.
+5. Click **Save**, then restart VIO. Importing alone does not change the device.
+
+<img
+  src="/apriltag-wpilib-import-modal.png"
+  alt="Official 2026 WPILib field layout imported as 32 Custom Pose3d rows, ready to review and save."
+  width={1160}
+  height={790}
+  style={{ width: "100%", height: "auto", borderRadius: 8 }}
+/>
+
+The importer preserves the JSON's field origin and axes. It does not change
+origins for alliance color. See WPILib's
+[AprilTagFieldLayout coordinate convention](https://github.wpilib.org/allwpilib/docs/release/java/edu/wpi/first/apriltag/AprilTagFieldLayout.html).
+To return a robot-center pose, your application must also account for the
+Mighty camera/IMU's mounting transform relative to the robot.
+
+Use firmware with full tag-pose support. Older firmware rejects these imports;
+it cannot apply arbitrary tag rotations. Existing Upright and Facing up
+configurations continue to work.
 
 ### Saving, editing, and disabling
 
@@ -155,6 +199,58 @@ ROS1 bags. Follow the example's setup instructions to try it with two cameras.
 
 ## Configure from an application
 
-You can also save tag settings from your own application. See
-[SDK Recipes](/docs/sdk/recipes) for configuration examples. Stop and restart
-VIO after changing settings through the SDK as well.
+Python, JavaScript, and C++ provide a WPILib importer with no WPILib runtime
+dependency. Each validates the entire layout, normalizes rotations, and uploads
+one complete `apriltags` configuration. Invalid layouts are rejected before
+sending a configuration. The call replaces the saved tag map.
+
+Stop VIO before importing, check the result, and restart VIO after a successful
+save. The helpers do not stop or restart tracking automatically.
+
+```python
+from pathlib import Path
+from mighty_sdk import parse_wpilib_field_layout
+
+layout_json = Path("2026-rebuilt-welded.json").read_text()
+tag_map = parse_wpilib_field_layout(layout_json)  # inspect before upload
+# tag_map["tags"][0]: tag_id, size_m, position_m, orientation_xyzw
+# orientation_xyzw here uses WPILib's tag axes.
+result = client.import_wpilib_field_layout(layout_json, tag_size_m=0.1651)
+if not result["ok"]:
+    raise RuntimeError(result["message"])
+```
+
+```js
+import { parseWpilibFieldLayout } from "mighty-protocol";
+
+const layoutJson = await file.text(); // browser File selected by your user
+const tagMap = parseWpilibFieldLayout(layoutJson); // inspect before upload
+// tagMap.tags[0]: tagId, sizeM, positionM, orientationXyzw
+const result = await client.importWpilibFieldLayout(layoutJson, { tagSizeM: 0.1651 });
+if (!result.ok) throw new Error(result.message);
+```
+
+```cpp
+#include <fstream>
+#include <iterator>
+#include <stdexcept>
+#include "mighty_sdk.h"
+
+std::ifstream file("2026-rebuilt-welded.json");
+std::string json((std::istreambuf_iterator<char>(file)), {});
+mighty_protocol::sdk::AprilTagMap map;
+std::string error;
+if (!mighty_protocol::sdk::parse_wpilib_field_layout_json(json, &map, &error))
+  throw std::runtime_error(error);
+auto result = client.import_wpilib_field_layout(json, 0.1651);
+if (!result.ok) throw std::runtime_error(result.message);
+```
+
+To upload an edited map, use `serialize_apriltag_map_yaml` (Python),
+`serializeApriltagMapYaml` (JavaScript), or `serialize_apriltag_map_yaml` (C++)
+and the existing config-set method with key `apriltags`. These serializers
+convert WPILib tag axes into the device's tag convention; do not upload the
+WPILib quaternion directly as raw device YAML.
+
+See [SDK API Reference](/docs/sdk/api-reference) for signatures and
+[SDK Recipes](/docs/sdk/recipes) for the legacy shortcut configuration.

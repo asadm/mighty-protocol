@@ -339,7 +339,11 @@ console.log(await client.configGet("example.key", { as: "text" }));
 console.log(await client.configSet("example.key", "value"));
 ```
 
-AprilTag relocalization uses the standard `apriltags` config key:
+AprilTag relocalization uses the standard `apriltags` config key. For full poses
+or a WPILib JSON layout, use the [AprilTag import helpers](/docs/apriltags#configure-from-an-application)
+in Python, JavaScript, or C++. Stop VIO before updating the map and restart it
+after a successful save. Legacy mounting shortcuts can still be configured as
+follows:
 
 ```python
 yaml_text = """%YAML:1.0
