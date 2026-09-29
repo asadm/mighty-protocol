@@ -6,6 +6,7 @@
 #include <cmath>
 #include <iomanip>
 #include <locale>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -80,13 +81,10 @@ inline void validate(const AprilTagPose3d& tag, std::set<int>& seen) {
 inline bool parse_wpilib_field_layout_json(const std::string& json,
                                            AprilTagMap* out,
                                            std::string* error = nullptr,
-                                           double tag_size_m = FRC_TAG_SIZE_M) {
+                                           std::optional<double> tag_size_m = std::nullopt) {
   if (error) error->clear();
   try {
     if (!out) throw std::invalid_argument("missing output map");
-    if (!std::isfinite(tag_size_m) || tag_size_m <= 0) {
-      throw std::invalid_argument("tag size must be positive and finite");
-    }
     picojson::value layout;
     std::string parse_error;
     auto end = picojson::parse(layout, json.begin(), json.end(), &parse_error);
@@ -96,6 +94,17 @@ inline bool parse_wpilib_field_layout_json(const std::string& json,
         throw std::invalid_argument("invalid JSON: trailing content");
       }
     }
+    double size_m = tag_size_m.value_or(FRC_TAG_SIZE_M);
+    if (layout.contains("mighty")) {
+      const auto& metadata = layout.get("mighty");
+      if (!metadata.is<picojson::object>()) throw std::invalid_argument("mighty metadata must be an object");
+      if (metadata.contains("tagFamily") && (!metadata.get("tagFamily").is<std::string>() ||
+          metadata.get("tagFamily").get<std::string>() != "tag36h11")) {
+        throw std::invalid_argument("Mighty requires tag36h11 tags");
+      }
+      if (!tag_size_m && metadata.contains("tagSizeM")) size_m = apriltag_detail::number(metadata.get("tagSizeM"));
+    }
+    if (!std::isfinite(size_m) || size_m <= 0) throw std::invalid_argument("tag size must be positive and finite");
     const auto& rows = apriltag_detail::member(layout, "tags");
     if (!rows.is<picojson::array>() || rows.get<picojson::array>().empty()) {
       throw std::invalid_argument("WPILib layout must contain a nonempty tags array");
@@ -109,7 +118,7 @@ inline bool parse_wpilib_field_layout_json(const std::string& json,
         throw std::invalid_argument("tag ID must be a non-negative 32-bit integer");
       }
       tag.tag_id = static_cast<int>(id);
-      tag.size_m = tag_size_m;
+      tag.size_m = size_m;
       const auto& pose = apriltag_detail::member(row, "pose");
       const auto& p = apriltag_detail::member(pose, "translation");
       const auto& q = apriltag_detail::member(apriltag_detail::member(pose, "rotation"), "quaternion");

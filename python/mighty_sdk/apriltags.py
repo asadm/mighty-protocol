@@ -47,16 +47,24 @@ def _tag(tag, seen):
             "orientation_xyzw": _quaternion(tag.get("orientation_xyzw"))}
 
 
-def parse_wpilib_field_layout(source, tag_size_m=FRC_TAG_SIZE_M):
+def parse_wpilib_field_layout(source, tag_size_m=None):
     """Read JSON text/bytes or a dict. Returned rotations use WPILib tag axes.
 
     Keep the file's field origin and units (meters). WPILib JSON does not
-    include tag size; pass the measured black-square size for custom layouts.
+    include tag size; Mighty mapper files carry it in optional mighty metadata.
+    An explicit tag_size_m overrides metadata; other files default to FRC size.
     """
     if isinstance(source, (str, bytes, bytearray)):
         source = json.loads(source)
     if not isinstance(source, dict) or not isinstance(source.get("tags"), list) or not source["tags"]:
         raise ValueError("WPILib layout must contain a nonempty tags array")
+    metadata = source.get("mighty", {})
+    if not isinstance(metadata, dict):
+        raise ValueError("mighty metadata must be an object")
+    if metadata.get("tagFamily", "tag36h11") != "tag36h11":
+        raise ValueError("Mighty requires tag36h11 tags")
+    if tag_size_m is None:
+        tag_size_m = metadata.get("tagSizeM", FRC_TAG_SIZE_M)
     size = _number(tag_size_m, "tag_size_m")
     if size <= 0:
         raise ValueError("tag_size_m must be positive")

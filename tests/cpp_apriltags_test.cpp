@@ -44,6 +44,14 @@ int main(int argc, char** argv) {
   const std::string one = R"({"tags":[{"ID":7,"pose":{"translation":{"x":1,"y":2,"z":3},"rotation":{"quaternion":{"X":0,"Y":0,"Z":0,"W":1}}}}]})";
   assert(parse_wpilib_field_layout_json(one, &custom, &error));
   assert(serialize_apriltag_map_yaml(custom).find("orientation_xyzw: [-0.5, 0.5, -0.5, 0.5]") != std::string::npos);
+  const std::string measured = one.substr(0, one.size()-1) + R"(,"mighty":{"tagFamily":"tag36h11","tagSizeM":0.12}})";
+  assert(parse_wpilib_field_layout_json(measured, &custom, &error));
+  assert(custom.tags[0].size_m == 0.12);
+  assert(parse_wpilib_field_layout_json(measured, &custom, &error, 0.1651));
+  assert(custom.tags[0].size_m == 0.1651);
+  for (const std::string metadata : {"null", "[]", "{\"tagSizeM\":0}", "{\"tagSizeM\":\"0.12\"}", "{\"tagSizeM\":null}", "{\"tagFamily\":\"tag16h5\"}"}) {
+    assert(!parse_wpilib_field_layout_json(one.substr(0, one.size()-1) + ",\"mighty\":" + metadata + "}", &custom, &error));
+  }
   std::vector<std::string> bad{"{}", "{broken", "{\"tags\":[]}", source + "garbage"};
   for (const auto& replacement : {std::string("-1"), std::string("0.5"), std::string("true")}) {
     auto input = one; auto p = input.find("\"ID\":7"); input.replace(p, 6, "\"ID\":" + replacement); bad.push_back(input);
@@ -65,6 +73,9 @@ int main(int argc, char** argv) {
   assert(client.import_wpilib_field_layout(source).ok);
   for (const auto& input : bad) assert(!client.import_wpilib_field_layout(input).ok);
   assert(device->writes == 1);
+  assert(parse_wpilib_field_layout_json(measured, &custom, &error));
+  device->expected = serialize_apriltag_map_yaml(custom);
+  assert(client.import_wpilib_field_layout(measured).ok);
   if (argc >= 3) { std::ofstream output(argv[2]); output << yaml; }
   std::cout << "C++ AprilTag importer: official 32-tag layout, full poses, validation, and upload passed\n";
 }

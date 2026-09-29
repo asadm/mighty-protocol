@@ -242,7 +242,7 @@ Command/config:
 
 ### JavaScript AprilTag field layouts
 
-`parseWpilibFieldLayout(source, { tagSizeM = 0.1651 } = {})` returns
+`parseWpilibFieldLayout(source, { tagSizeM } = {})` returns
 `{ tags: [{ tagId, sizeM, positionM, orientationXyzw }], field: { length?, width? } }`.
 Positions are meters; rotations are normalized XYZW quaternions using WPILib
 tag axes (+X normal, +Y left, +Z up). Field coordinates are unchanged.
@@ -252,6 +252,10 @@ tag axes (+X normal, +Y left, +Z up). Field coordinates are unchanged.
 `importWpilibFieldLayout` parses and uploads in one call. Validation failures
 return `ok: false` without writing. Stop VIO before calling and restart it after
 success. See [AprilTag Support](/docs/apriltags) for a complete example.
+
+The optional size argument overrides `mighty.tagSizeM` metadata from the
+[Phone Tag Mapper](/tagsmapper). With neither, size defaults to 0.1651 m.
+Metadata must specify `tag36h11` if it includes a family.
 
 ### JavaScript calibration
 
@@ -676,7 +680,7 @@ Command/config:
   - keys: `ok: bool`, `found: bool`, `key: str`, `value: bytes | str`, `message: str`
 - `config_set(key: str, value: Any) -> dict[str, Any]`
   - keys: `ok: bool`, `key: str`, `value: bytes`, `message: str`
-- `import_wpilib_field_layout(source: str | bytes | dict, tag_size_m: float = 0.1651) -> dict[str, Any]`
+- `import_wpilib_field_layout(source: str | bytes | dict, tag_size_m: float | None = None) -> dict[str, Any]`
   - keys: `ok: bool`, `key: str`, `value: bytes`, `message: str`
 - `get_calibration() -> dict[str, Any]`
   - keys: `ok: bool`, `found: bool`, `value: dict | None`, `message: str`
@@ -691,7 +695,7 @@ Command/config:
 
 ### Python AprilTag field layouts
 
-`parse_wpilib_field_layout(source, tag_size_m=0.1651)` accepts JSON text, bytes,
+`parse_wpilib_field_layout(source, tag_size_m=None)` accepts JSON text, bytes,
 or a dict and returns `{ "tags": [{ "tag_id", "size_m", "position_m",
 "orientation_xyzw" }], "field": { "length"?, "width"? } }`. Rotations use
 WPILib tag axes (+X normal, +Y left, +Z up); positions are meters in the file's
@@ -700,6 +704,10 @@ YAML for `config_set("apriltags", yaml)`. The client import method validates and
 uploads in one call, returning `ok: False` without writing on invalid input.
 Stop VIO before calling and restart it after success. See
 [AprilTag Support](/docs/apriltags).
+
+An explicit `tag_size_m` overrides mapper `mighty.tagSizeM` metadata. Passing
+`None` uses that metadata, or 0.1651 m for standard WPILib files. Unsupported tag
+families in metadata are rejected.
 
 ### Python calibration
 
@@ -1151,7 +1159,7 @@ Command/config:
 - `CommandResult command(const std::string& name, const std::vector<uint8_t>& data = {})`
 - `ConfigGetResult config_get(const std::string& key)`
 - `ConfigGetTextResult config_get_text(const std::string& key)`
-- `ConfigSetResult import_wpilib_field_layout(const std::string& json, double tag_size_m = 0.1651)`
+- `ConfigSetResult import_wpilib_field_layout(const std::string& json, std::optional<double> tag_size_m = std::nullopt)`
 - `CalibrationGetResult get_calibration()`
 - `ConfigSetResult config_set(const std::string& key, const std::vector<uint8_t>& value)`
 - `ConfigSetResult config_set_text(const std::string& key, const std::string& value)`
@@ -1175,12 +1183,16 @@ dimension means it was absent. Quaternions use WPILib tag axes (+X normal,
 +Y left, +Z up); positions are meters in the file's field frame.
 
 `bool parse_wpilib_field_layout_json(const std::string& json, AprilTagMap* out,
-std::string* error = nullptr, double tag_size_m = 0.1651)` validates the layout
+std::string* error = nullptr, std::optional<double> tag_size_m = std::nullopt)` validates the layout
 and leaves `out` unchanged on failure. `std::string
 serialize_apriltag_map_yaml(const AprilTagMap& map)` converts it to device YAML
 and throws `std::invalid_argument` for invalid maps. The client import method
 validates before uploading and returns `ok = false` on failure. Stop VIO before
 calling and restart it after success. See [AprilTag Support](/docs/apriltags).
+
+An explicit size overrides mapper `mighty.tagSizeM` metadata. `std::nullopt`
+uses the metadata, or 0.1651 m for standard WPILib files. Unsupported tag families
+in metadata are rejected.
 
 ### C++ calibration
 

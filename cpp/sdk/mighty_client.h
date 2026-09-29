@@ -461,7 +461,7 @@ class MightyClient {
   }
 
   ConfigSetResult import_wpilib_field_layout(const std::string& json,
-                                              double tag_size_m = FRC_TAG_SIZE_M) {
+                                              std::optional<double> tag_size_m = std::nullopt) {
     AprilTagMap map;
     std::string error;
     if (!parse_wpilib_field_layout_json(json, &map, &error, tag_size_m)) {

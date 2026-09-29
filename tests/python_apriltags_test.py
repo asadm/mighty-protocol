@@ -27,6 +27,15 @@ for magnitude in (1e-300, 1e300):
     scaled['tags'][0]['pose']['rotation']['quaternion'] = dict(X=0, Y=0, Z=magnitude, W=magnitude)
     q = parse_wpilib_field_layout(scaled)['tags'][0]['orientation_xyzw']
     assert abs(q[2] - math.sqrt(0.5)) < 1e-14
+measured = copy.deepcopy(layout)
+measured['mighty'] = {'tagFamily': 'tag36h11', 'tagSizeM': 0.12}
+assert parse_wpilib_field_layout(measured)['tags'][0]['size_m'] == 0.12
+assert parse_wpilib_field_layout(measured, 0.1651)['tags'][0]['size_m'] == 0.1651
+for metadata in (None, [], {'tagSizeM': 0}, {'tagSizeM': '0.12'}, {'tagSizeM': None}, {'tagFamily': 'tag16h5'}):
+    invalid = dict(measured, mighty=metadata)
+    try: parse_wpilib_field_layout(invalid)
+    except ValueError: pass
+    else: raise AssertionError('invalid metadata accepted')
 bad = [{}, {'tags': []}, source + 'garbage', '{broken']
 for path, value in [
     (('ID',), -1), (('ID',), 0.5), (('ID',), True), (('ID',), 10**400),
@@ -63,5 +72,9 @@ assert client.import_wpilib_field_layout(source)['ok']
 for value in bad: assert not client.import_wpilib_field_layout(value)['ok']
 assert not client.import_wpilib_field_layout(source, 0)['ok']
 assert device.writes == 1, 'invalid layouts must not upload partial maps'
+original_yaml = yaml
+yaml = serialize_apriltag_map_yaml(parse_wpilib_field_layout(measured))
+assert client.import_wpilib_field_layout(measured)['ok']
+yaml = original_yaml
 if len(sys.argv) > 1: Path(sys.argv[1]).write_text(yaml)
 print('python AprilTag importer: official 32-tag layout, full poses, validation, and upload passed')

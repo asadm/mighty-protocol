@@ -49,17 +49,28 @@ function normalizeTag(tag, seen) {
     orientationXyzw: normalizeTagQuaternion(tag.orientationXyzw) };
 }
 
-export function parseWpilibFieldLayout(source, { tagSizeM = FRC_TAG_SIZE_M } = {}) {
+export function parseWpilibFieldLayout(source, { tagSizeM } = {}) {
   const layout = typeof source === "string" ? JSON.parse(source) : source;
   if (!layout || !Array.isArray(layout.tags) || !layout.tags.length) {
     throw new Error("WPILib layout must contain a nonempty tags array");
   }
+  if (layout.mighty !== undefined) {
+    if (!layout.mighty || typeof layout.mighty !== "object" || Array.isArray(layout.mighty)) {
+      throw new Error("mighty metadata must be an object");
+    }
+    if (layout.mighty.tagFamily !== undefined && layout.mighty.tagFamily !== "tag36h11") {
+      throw new Error("Mighty requires tag36h11 tags");
+    }
+  }
+  // WPILib ignores this optional extension. Explicit size overrides take priority.
+  const sizeM = tagSizeM === undefined ? (layout.mighty?.tagSizeM ?? FRC_TAG_SIZE_M) : tagSizeM;
+  if (layout.mighty?.tagSizeM === null && tagSizeM === undefined) throw new Error("tagSizeM must be a finite number");
   const seen = new Set();
   const tags = layout.tags.map((row) => {
     const p = row?.pose?.translation;
     const q = row?.pose?.rotation?.quaternion;
     if (!p || !q) throw new Error("each tag must contain ID, translation and quaternion");
-    return normalizeTag({ tagId: row.ID, sizeM: tagSizeM,
+    return normalizeTag({ tagId: row.ID, sizeM,
       positionM: [p.x, p.y, p.z], orientationXyzw: [q.X, q.Y, q.Z, q.W] }, seen);
   });
   const field = {};

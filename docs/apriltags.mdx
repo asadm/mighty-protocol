@@ -51,6 +51,66 @@ The camera needs a valid saved camera/IMU calibration. Follow
 [Calibration](/docs/calibration) if you have not calibrated it, or if the lens or
 mount has changed.
 
+## Map your own tags with a phone
+
+Open the [**Phone Tag Mapper**](/tagsmapper) on your phone to build a map of tags
+in a room, workshop, or warehouse. The guided tool tracks your phone, detects
+**tag36h11** tags, and exports their center positions and full rotations as a
+WPILib-style JSON layout. **You do not need a connected Mighty camera to map tags.**
+
+Open the page over **HTTPS** in **[XRViewer](https://apps.apple.com/us/app/webxr-viewer/id1295998056) on iPhone or iPad**, or **Chrome on an
+ARCore-compatible Android phone**. In XRViewer, allow **Camera access** for
+computer vision as well as AR tracking. If tracking starts but the preview stays
+blank, enable Camera access for this site in XRViewer and restart the scan.
+iPhone Safari cannot run this mapper. Camera frames are processed
+locally in a worker; they are not uploaded. **Explore an example map** lets you
+try the interface without camera access; example exports are labeled as examples.
+
+1. Mount flat tags with **unique IDs** and visible white margins. Use one common
+   physical size, then enter the measured **outer black square** size in centimeters.
+   Correct size is needed to estimate distance and pose.
+2. Tap **Enable camera & tracking** and allow the requested permissions. Let
+   tracking settle while looking at a well-lit, textured surface.
+3. Hold the **rear camera at your chosen origin**, keep the phone upright, and
+   aim it along your desired **+X** direction. Tap **Start mapping**. The camera
+   position becomes `(0, 0, 0)`, including its height; **Y points left** and
+   **Z points up**. To make the floor Z=0, start with the camera at floor level.
+4. Walk slowly around the tags. Detected outlines and IDs appear in the camera
+   preview; the 3D map shows the phone path and averaged tag poses. See each tag
+   from several positions and angles, keep its whole border visible, and revisit
+   earlier tags. Drag the 3D view, pinch to zoom, or use **Frame map / Top view**.
+5. Tap **Tags** to review XYZ in meters and roll, pitch, and yaw in degrees.
+   **Delete** clears a tag's observations. A new camera sighting adds it again.
+   Small tags, blur, glare, or lost tracking need a closer, steadier view.
+6. Tap **Finish** to refine each tag pose against its recorded image corners,
+   then review the map and **Download WPILib JSON**. The last completed map is
+   saved in this browser for review, including edits made after finishing.
+7. In the [Visualizer](/viz), stop VIO and open **Device Settings → Edit Tags**.
+   **Import WPILib JSON**, review the poses and size, then **Save** and restart VIO.
+
+<div style={{ display: "flex", gap: 16, flexWrap: "wrap", justifyContent: "center" }}>
+  <img src="/tagsmapper-welcome-mobile.png" alt="Phone Tag Mapper setup asks for a common measured tag size and explains camera permissions." width={390} height={844} style={{ width: "min(100%, 225px)", height: "auto", border: "1px solid #ccc" }} />
+  <img src="/tagsmapper-scan-mobile.png" alt="Mobile mapper shows a phone trajectory, numbered tags, camera detection overlay, and Finish button." width={390} height={844} style={{ width: "min(100%, 225px)", height: "auto", border: "1px solid #ccc" }} />
+  <img src="/tagsmapper-tags-mobile.png" alt="Mobile tag drawer lists each full pose, observation count, and Delete action." width={390} height={844} style={{ width: "min(100%, 225px)", height: "auto", border: "1px solid #ccc" }} />
+  <img src="/tagsmapper-export-mobile.png" alt="Completed map offers JSON download and instructions for importing into the Mighty Visualizer." width={390} height={844} style={{ width: "min(100%, 225px)", height: "auto", border: "1px solid #ccc" }} />
+</div>
+
+The mapper uses one gravity-aligned frame for the whole scan. Finish optimizes
+**tag poses with the WebXR camera poses held fixed**; it does not jointly optimize
+the camera trajectory or remove accumulated AR drift. Observation spread and
+pixel reprojection error describe consistency, not guaranteed world accuracy.
+Keep scans compact and verify known distances and mounting angles before using
+the map as a reference. Surveyed poses remain preferable when precise absolute
+positioning is required.
+
+Exports preserve the origin you chose, including negative coordinates. The
+`field.length` and `field.width` values estimate the map's extent; they are not
+surveyed room dimensions. An optional `mighty` metadata object carries
+`tagFamily: "tag36h11"` and `tagSizeM`. WPILib ignores this extension; Mighty's
+Visualizer and **Python, JavaScript, and C++ SDKs** use it to preserve your
+measured size. Standard WPILib files still default to **16.51 cm**, and an explicit
+SDK size argument overrides the metadata.
+
 ## Configure tags in the Visualizer
 
 1. Connect the camera and open the [Visualizer](/viz). Wait for it to connect.
@@ -124,7 +184,8 @@ tags measure **6.5 inches (16.51 cm)** across the black square. See
 3. Click **Import WPILib JSON** and select the file. It replaces the draft rows
    with the file's tag IDs, positions, and full rotations.
 4. Review the imported rows. The importer uses **16.51 cm** for tag size because
-   WPILib layout files do not include a size. Change it for nonstandard tags.
+   standard WPILib layout files do not include a size. Phone Mapper exports
+   prefill the measured size instead. Change it for other nonstandard tags.
 5. Click **Save**, then restart VIO. Importing alone does not change the device.
 
 <img
@@ -201,7 +262,9 @@ ROS1 bags. Follow the example's setup instructions to try it with two cameras.
 
 Python, JavaScript, and C++ provide a WPILib importer with no WPILib runtime
 dependency. Each validates the entire layout, normalizes rotations, and uploads
-one complete `apriltags` configuration. Invalid layouts are rejected before
+one complete `apriltags` configuration. Mapper exports supply the measured tag
+size automatically; omit the optional size argument to use that metadata.
+Invalid layouts are rejected before
 sending a configuration. The call replaces the saved tag map.
 
 Stop VIO before importing, check the result, and restart VIO after a successful

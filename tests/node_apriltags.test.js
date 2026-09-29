@@ -20,6 +20,13 @@ for (const q of [[0, 0, 0, 1], [1, 0, 0, 1], [0.2, -0.3, 0.4, 0.5], [0, 0, 1e-30
   const norm = Math.hypot(...q.map(v => v / scale));
   actual.forEach((v, i) => assert.ok(Math.abs(v - q[i] / scale / norm) < 1e-14));
 }
+const measured = JSON.parse(source);
+measured.mighty = { tagFamily: "tag36h11", tagSizeM: 0.12 };
+assert.equal(parseWpilibFieldLayout(measured).tags[0].sizeM, 0.12);
+assert.equal(parseWpilibFieldLayout(measured, {tagSizeM: 0.1651}).tags[0].sizeM, 0.1651);
+for (const metadata of [null, [], {tagSizeM: 0}, {tagSizeM: "0.12"}, {tagSizeM: null}, {tagFamily: "tag16h5"}]) {
+  assert.throws(() => parseWpilibFieldLayout({...measured, mighty: metadata}));
+}
 const bad = [];
 for (const mutate of [
   m => m.tags.push(m.tags[0]), m => m.tags[0].ID = -1,
@@ -50,6 +57,14 @@ const device = {
 const client = new proto.MightyClient(device, { commandTimeoutMs: 0 });
 assert.equal((await client.importWpilibFieldLayout(source)).ok, true);
 for (const input of bad) assert.equal((await client.importWpilibFieldLayout(input)).ok, false);
+const measuredYaml = serializeApriltagMapYaml(parseWpilibFieldLayout(measured));
+const measuredClient = new proto.MightyClient({...device, async sendCommandPayload(payload) {
+  const cmd = proto.decodeCommandPayload(payload);
+  const cfg = proto.decodeConfigRequestPayload(cmd.data);
+  assert.equal(new TextDecoder().decode(cfg.value), measuredYaml);
+  return proto.buildCommandResponsePayload({reqId:cmd.reqId, status:0, data:proto.buildConfigResponsePayload({version:1,op:cfg.op,success:1,key:cfg.key,hasValue:true,value:cfg.value})});
+}}, {commandTimeoutMs:0});
+assert.equal((await measuredClient.importWpilibFieldLayout(measured)).ok, true);
 assert.equal(writes, 1, "invalid layouts must not write a partial map");
 if (process.argv[2]) fs.writeFileSync(process.argv[2], yaml);
 console.log("node AprilTag importer: official 32-tag layout, full poses, validation, and upload passed");
