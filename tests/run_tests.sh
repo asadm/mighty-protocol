@@ -96,3 +96,10 @@ python3 "$HERE/cross_client_pose_parity_test.py"
 
 echo "[test] docs/sdk examples conformance"
 python3 "$HERE/docs_conformance_test.py"
+
+# Metadata-only dropped image frames and SDK decode bypass.
+echo "[test] image-drop protocol"
+g++ -std=c++17 -I"$HERE/.." "$HERE/cpp_image_drop_test.cpp" -o "$BIN_DIR/cpp_image_drop_test"
+"$BIN_DIR/cpp_image_drop_test"
+node "$HERE/node_image_drop.test.js"
+python3 "$HERE/python_image_drop_test.py"

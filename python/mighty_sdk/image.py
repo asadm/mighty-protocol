@@ -11,7 +11,7 @@ def select_primary_image(
     include_reference: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """Return the mono/primary member of a Mighty image event."""
-    if not image:
+    if not image or image.get("dropped"):
         return None
     kind = image.get("kind")
     if kind == "jpg" and image.get("is_reference") and not include_reference:

@@ -521,3 +521,39 @@ Run all protocol + SDK tests from repo root:
 ```bash
 ./tests/run_tests.sh
 ```
+
+## Dropped image frames (`IDRP`)
+
+A live image suppressed for a slow connection is represented by a metadata-only
+image frame. JPEG/RAW/reference formats are unchanged. Older clients can ignore
+this new packet type. The image **data is empty**, with an explicit dropped flag:
+
+| Field | Wire encoding |
+| --- | --- |
+| timestamp | u64 big-endian, sensor nanoseconds of last skipped frame |
+| flags | u8, bit 0 = dropped (currently exactly 1) |
+| dropped count | u64 big-endian, cumulative per channel and stream connection |
+| channel length | u8 |
+| channel | UTF-8 bytes |
+| image data | zero bytes |
+
+C++, JS and Python SDK `image` events expose `dropped: true`, empty `data`, and
+`droppedCount` / `dropped_count`. Do not decode or record these as JPEGs, feed
+them into mapping/depth, or clear the last good preview. Counts may jump because
+unsent notifications are coalesced. Counters restart on a new connection;
+reference images are not suppressible. A stereo RAW packet counts as one frame
+on channel `stereo`; depth uses `depth`.
+
+Viz reports preview drop percentage as `(server drops + browser skips) /
+(received images + server drops)`. Browser skips occur when a newer preview
+replaces the single pending decode, or when decoding fails. This is a display
+metric, not the percentage of camera frames processed by VIO. Unsent markers
+cannot be delivered to a client that remains stalled until disconnection.
+
+On RV1106, TCP backpressure first suppresses preview/depth images and coalesces
+unsent live pose/state updates, preserving partially transmitted packets and
+ordered events/reference data. Image admission steps through 50%, 25%, and 0%, with two seconds at each
+level while the socket remains backpressured. If it still cannot drain at 0%,
+the server disconnects that client. Recovery restores one level every two
+seconds without backpressure. Existing hard queue bounds remain
+as a fallback for durable traffic. Other clients and VIO do not wait for it.

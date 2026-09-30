@@ -70,6 +70,8 @@ struct JpegImageFrame {
   std::string channel_alias;
   bool is_reference = false;
   std::vector<uint8_t> data;
+  bool dropped = false;
+  uint64_t dropped_count = 0;
 };
 
 struct ImageFrame {
@@ -884,6 +886,19 @@ class MightyClient {
     const bool wants_any = has_any_listener();
 
     try {
+      if (type == "IDRP") {
+        JpegImageFrame jpeg;
+        jpeg.dropped = true;
+        if (!decode_image_drop_payload(frame.payload, jpeg.timestamp_ns, jpeg.channel, jpeg.dropped_count))
+          throw std::runtime_error("Image-drop decode failed");
+        jpeg.channel_alias = map_channel_alias(jpeg.channel);
+        ImageFrame evt;
+        evt.kind = ImageFrame::Kind::kJpeg;
+        evt.jpeg = std::move(jpeg);
+        emit(image_handlers_, evt);
+        if (wants_any) emit_any(AnyEvent{"image", "", {}});
+        return;
+      }
       if (type == "JPG " || type == "RJPG") {
         if (image_handlers_.empty() && !wants_any && !opts_.loopclosure) return;
         JpegImageFrame jpeg;

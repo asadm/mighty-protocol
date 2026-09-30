@@ -587,6 +587,31 @@ struct VioState {
   uint32_t degraded_reason_flags = 0;
 };
 
+// Image-drop notification. Existing image formats stay byte-compatible; old
+// clients ignore IDRP rather than attempting to decode an empty JPEG.
+constexpr char TYPE_IDRP[4] = {'I', 'D', 'R', 'P'};
+inline std::vector<uint8_t> build_image_drop_payload(uint64_t timestamp_ns,
+    const std::string& channel, uint64_t dropped_count) {
+  const size_t n = std::min<size_t>(255, channel.size());
+  std::vector<uint8_t> out(18 + n);
+  write_u64_be(out.data(), timestamp_ns);
+  out[8] = 1; // bit 0: dropped; no image bytes follow the channel
+  write_u64_be(out.data() + 9, dropped_count);
+  out[17] = static_cast<uint8_t>(n);
+  std::memcpy(out.data() + 18, channel.data(), n);
+  return out;
+}
+
+inline bool decode_image_drop_payload(const std::vector<uint8_t>& payload,
+    uint64_t& timestamp_ns, std::string& channel, uint64_t& dropped_count) {
+  if (payload.size() < 18 || payload.size() != size_t(18 + payload[17]) || payload[8] != 1)
+    return false;
+  timestamp_ns = read_u64_be(payload.data());
+  dropped_count = read_u64_be(payload.data() + 9);
+  channel.assign(reinterpret_cast<const char*>(payload.data() + 18), payload[17]);
+  return true;
+}
+
 // --------------------------------------------------------------------------
 // Payload builders
 // --------------------------------------------------------------------------

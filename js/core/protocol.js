@@ -7,6 +7,7 @@ const textDecoder = typeof TextDecoder !== "undefined" ? new TextDecoder() : nul
 
 const TYPE = {
   JPG: "JPG ",
+  IDRP: "IDRP",
   RJPG: "RJPG",
   RAW: "RAW ",
   SRAW: "SRAW",
@@ -338,6 +339,30 @@ class FrameDispatcher {
 // ---------------------------------------------------------------------------
 // Payload builders
 // ---------------------------------------------------------------------------
+function buildImageDropPayload({ timestampNs = 0n, channel = "preview", droppedCount = 0n }) {
+  const bytes = (textEncoder || new TextEncoder()).encode(channel).subarray(0, 255);
+  const out = new Uint8Array(18 + bytes.length);
+  const view = new DataView(out.buffer);
+  view.setBigUint64(0, BigInt(timestampNs), false);
+  out[8] = 1;
+  view.setBigUint64(9, BigInt(droppedCount), false);
+  out[17] = bytes.length;
+  out.set(bytes, 18);
+  return fromU8(out);
+}
+
+function decodeImageDropPayload(payload) {
+  const u8 = toU8(payload);
+  if (u8.length < 18 || u8.length !== 18 + u8[17] || u8[8] !== 1)
+    throw new Error("Invalid image-drop payload");
+  return {
+    timestampNs: readBigU64BE(u8, 0), dropped: true,
+    droppedCount: readBigU64BE(u8, 9),
+    channel: (textDecoder || new TextDecoder()).decode(u8.subarray(18)),
+    data: fromU8(new Uint8Array()),
+  };
+}
+
 function buildJpgPayload({ timestampNs = 0n, channel = "preview", data = new Uint8Array(), isRef = false }) {
   const dataU8 = toU8(data);
   const tsBuf = new Uint8Array(8);
@@ -1896,6 +1921,8 @@ const api = {
   makePacket,
   parseFrames,
   FrameDispatcher,
+  buildImageDropPayload,
+  decodeImageDropPayload,
   buildJpgPayload,
   buildRawPayload,
   buildDepthPayload,
@@ -1962,6 +1989,8 @@ export {
   makePacket,
   parseFrames,
   FrameDispatcher,
+  buildImageDropPayload,
+  decodeImageDropPayload,
   buildJpgPayload,
   buildRawPayload,
   buildDepthPayload,

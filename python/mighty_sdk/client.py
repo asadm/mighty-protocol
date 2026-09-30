@@ -508,6 +508,13 @@ class MightyClient:
         wants_loopclosure = self._loopclosure is not None
 
         try:
+            if frame_type == "IDRP":
+                mapped = {**mp.decode_image_drop_payload(payload), "kind": "jpg", "is_reference": False}
+                mapped["channel_alias"] = self._map_channel_alias(mapped["channel"])
+                self._emit("image", mapped)
+                if wants_any:
+                    self._emit_any({"type": "image", "data": mapped})
+                return
             if frame_type in ("JPG ", "RJPG"):
                 if not self._has_listeners("image") and not wants_any and not wants_loopclosure:
                     return

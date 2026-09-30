@@ -850,6 +850,14 @@ export class MightyClient {
 
     try {
       switch (frame.type) {
+        case protocol.TYPE.IDRP: {
+          const marker = protocol.decodeImageDropPayload(frame.payload);
+          const mapped = { ...marker, kind: "jpg", isReference: false,
+            channelAlias: this._mapChannelAlias(marker.channel) };
+          this._emit("image", mapped);
+          if (wantsAny) this._emitAny({ type: "image", data: mapped });
+          return;
+        }
         case protocol.TYPE.JPG:
         case protocol.TYPE.RJPG: {
           if (!this._hasListeners("image") && !wantsAny && !wantsLoopclosure) return;

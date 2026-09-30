@@ -191,6 +191,8 @@ class RgbdSynchronizer:
             cache.pop(next(iter(cache)))
 
     def push_image(self, image: Dict[str, Any]) -> None:
+        if image and image.get("dropped"):
+            return
         if image and image.get("kind") == "jpg" and image.get("is_reference"):
             return
         if image and image.get("kind") == "stereo_raw":

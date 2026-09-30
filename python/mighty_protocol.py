@@ -10,6 +10,7 @@ FOOTER_MAGIC = bytes([0xFE, 0xED, 0xFA, 0xCE])
 
 TYPE = {
     "JPG": b"JPG ",
+    "IDRP": b"IDRP",
     "RJPG": b"RJPG",
     "RAW": b"RAW ",
     "SRAW": b"SRAW",
@@ -296,6 +297,13 @@ def build_stereo_raw_payload(left_timestamp_ns: int,
     return header + left_data + right_data
 
 # Payload decoders
+def decode_image_drop_payload(payload: bytes):
+    if len(payload) < 18 or len(payload) != 18 + payload[17] or payload[8] != 1:
+        raise ValueError("Invalid image-drop payload")
+    return {"timestamp_ns": struct.unpack_from(">Q", payload, 0)[0],
+            "dropped": True, "dropped_count": struct.unpack_from(">Q", payload, 9)[0],
+            "channel": payload[18:].decode("utf-8"), "data": b""}
+
 def decode_jpg_payload(payload: bytes, is_ref: bool):
     if len(payload) < 8:
         raise ValueError("payload too short")
