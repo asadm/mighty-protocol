@@ -78,12 +78,16 @@ try the interface without camera access; example exports are labeled as examples
 4. Walk slowly around the tags. Detected outlines and IDs appear in the camera
    preview; the 3D map shows the phone path and averaged tag poses. See each tag
    from several positions and angles, keep its whole border visible, and revisit
-   earlier tags. Drag the 3D view, pinch to zoom, or use **Frame map / Top view**.
+   earlier tags. Move sideways around a tag rather than only moving closer or
+   rotating the phone. Tags needing more viewpoints are marked in the list.
+   Drag the 3D view, pinch to zoom, or use **Frame map / Top view**.
 5. Tap **Tags** to review XYZ in meters and roll, pitch, and yaw in degrees.
    **Delete** clears a tag's observations. A new camera sighting adds it again.
    Small tags, blur, glare, or lost tracking need a closer, steadier view.
 6. Tap **Finish** to refine each tag pose against its recorded image corners,
-   then review the map and **Download WPILib JSON**. The last completed map is
+   then review the map and **Download WPILib JSON**. Tags with unresolved poses or
+   too little viewpoint diversity are excluded from the download. If none are
+   ready, start another scan and capture more viewpoints. The last completed map is
    saved in this browser for review, including edits made after finishing.
 7. In the [Visualizer](/viz), stop VIO and open **Device Settings → Edit Tags**.
    **Import WPILib JSON**, review the poses and size, then **Save** and restart VIO.
@@ -244,6 +248,9 @@ If the position or orientation is wrong, check the measured size, centimeter
 versus meter units, tag-center coordinates, and mounting rotation. Move closer
 or improve lighting if the corners are small, blurred, obscured, or affected by
 glare. A detection overlay alone does not confirm a successful pose alignment.
+If a tag is nearly square-on to the camera, move sideways to give it a clearer
+angle and hold the view steadily. An uncertain pose may be ignored until a
+clearer view is available.
 
 ## Use multiple cameras in one frame
 
