@@ -6,8 +6,8 @@ description: Use known AprilTags to anchor Mighty poses, correct drift, and alig
 Mighty can use AprilTags as fixed landmarks for visual-inertial odometry (VIO).
 Give each tag a physical size and full pose: its center position and mounting
 rotation. You can enter poses manually or import a WPILib field layout. When
-the camera sees a matching tag, it corrects its reported position and orientation
-to match your chosen coordinates.
+the camera obtains a usable pose from a matching tag, it corrects its reported
+position and orientation to match your chosen coordinates.
 VIO continues tracking between sightings.
 
 Once configured, AprilTag support stays active while VIO is running. You can
@@ -172,7 +172,9 @@ entered in degrees. The tag's local axes are **+X out of the printed face**,
 />
 
 Measure all tags in one common frame and use unique IDs for different
-landmarks. The `*` wildcard assigns the same size and pose to every otherwise
+landmarks. Choose **Z pointing up**, in agreement with gravity. Use the same
+origin and axes for every tag, including tags imported from another layout.
+The `*` wildcard assigns the same size and pose to every otherwise
 unmatched tag; it does not discover a map automatically.
 
 ### Import a WPILib field layout for FRC
@@ -234,7 +236,10 @@ each check. The check frequency cannot be changed in the Visualizer.
 ## Check that it is working
 
 Keep a configured tag fully visible and hold the camera steadily for a few
-seconds; a brief glimpse may be missed.
+seconds; a brief glimpse may be missed. Initial alignment and large corrections
+can require consistent sightings across several checks. Keep the tag in view
+until the relocalization notification appears; seeing its outline once is not
+enough. VIO continues tracking while a tag pose is being checked or ignored.
 The Visualizer can show detected tag outlines, and a successful alignment
 produces a notification such as **Tag #7 detected, relocalizing**.
 
@@ -251,6 +256,11 @@ glare. A detection overlay alone does not confirm a successful pose alignment.
 If a tag is nearly square-on to the camera, move sideways to give it a clearer
 angle and hold the view steadily. An uncertain pose may be ignored until a
 clearer view is available.
+
+If multiple configured tags are visible, check that their saved poses agree in
+the same coordinate frame. Conflicting tag positions or mounting rotations can
+prevent an alignment. Verify each tag's measured position and mounting rotation
+before trying again.
 
 ## Use multiple cameras in one frame
 
