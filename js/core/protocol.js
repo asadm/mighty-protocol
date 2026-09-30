@@ -799,7 +799,11 @@ function buildVizPayload(viz) {
 function buildImuPayload(samples = []) {
   if (!samples.length) return fromU8(new Uint8Array());
   const stride = 8 + 6 * 8;
-  const buf = new Uint8Array(4 + samples.length * stride);
+  const validTemperature = (s) => Number.isFinite(s.temperatureC) &&
+    Number.isFinite(Math.fround(s.temperatureC));
+  const hasTemperature = samples.some(validTemperature);
+  const buf = new Uint8Array(4 + samples.length * stride +
+    (hasTemperature ? 12 + samples.length * 4 : 0));
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   dv.setUint32(0, samples.length >>> 0, false);
   let off = 4;
@@ -811,6 +815,14 @@ function buildImuPayload(samples = []) {
     dv.setFloat64(off, s.gx, false); off += 8;
     dv.setFloat64(off, s.gy, false); off += 8;
     dv.setFloat64(off, s.gz, false); off += 8;
+  }
+  if (hasTemperature) {
+    buf.set([0x54, 0x45, 0x4d, 0x50], off); off += 4; // TEMP
+    dv.setUint32(off, 0x00010001, false); off += 4; // version 1, flags 1
+    dv.setUint32(off, samples.length, false); off += 4;
+    for (const s of samples) {
+      dv.setFloat32(off, validTemperature(s) ? s.temperatureC : NaN, false); off += 4;
+    }
   }
   return fromU8(buf);
 }
@@ -1542,8 +1554,10 @@ function decodeVizPayload(payload) {
 
 function decodeImuPayload(payload) {
   const u8 = toU8(payload);
+  if (u8.length < 4) throw new Error("IMU payload too short");
   let off = 0;
   const count = readU32BE(u8, off); off += 4;
+  if (count > Math.floor((u8.length - 4) / 56)) throw new Error("Truncated IMU samples");
   const samples = [];
   for (let i = 0; i < count; ++i) {
     const timestampNs = readBigU64BE(u8, off); off += 8;
@@ -1554,6 +1568,16 @@ function decodeImuPayload(payload) {
     const gy = readF64BE(u8, off); off += 8;
     const gz = readF64BE(u8, off); off += 8;
     samples.push({ timestampNs, ax, ay, az, gx, gy, gz });
+  }
+  if (u8.length - off >= 12 && readU32BE(u8, off) === 0x54454d50 &&
+      readU32BE(u8, off + 4) === 0x00010001 && readU32BE(u8, off + 8) === count &&
+      count <= Math.floor((u8.length - off - 12) / 4)) {
+    const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+    off += 12;
+    for (let i = 0; i < count; i += 1, off += 4) {
+      const temperatureC = dv.getFloat32(off, false);
+      if (Number.isFinite(temperatureC)) samples[i].temperatureC = temperatureC;
+    }
   }
   return samples;
 }

@@ -273,7 +273,16 @@ struct ImuSample {
   double gx;
   double gy;
   double gz;
+  // Celsius, absent on firmware/datasources without temperature support.
+  std::optional<double> temperature_c;
 };
+
+// Bitwise check also works in firmware built with -ffast-math.
+inline bool imu_temperature_is_finite(double value) {
+  uint64_t bits;
+  std::memcpy(&bits, &value, sizeof(bits));
+  return (bits & UINT64_C(0x7ff0000000000000)) != UINT64_C(0x7ff0000000000000);
+}
 
 // WGS84 fix, corresponding to sensor_msgs/NavSatFix when replayed from ROS.
 // flags bit 0: altitude is valid; bit 1: position_covariance is present.
@@ -1070,6 +1079,25 @@ inline std::vector<uint8_t> build_imu_payload(const std::vector<ImuSample>& batc
     write_f64_be(buf, s.gx); std::memcpy(payload.data() + offset, buf, 8); offset += 8;
     write_f64_be(buf, s.gy); std::memcpy(payload.data() + offset, buf, 8); offset += 8;
     write_f64_be(buf, s.gz); std::memcpy(payload.data() + offset, buf, 8); offset += 8;
+  }
+  const auto valid_temperature = [](const ImuSample& s) {
+    return s.temperature_c && imu_temperature_is_finite(*s.temperature_c) &&
+           std::abs(*s.temperature_c) <= std::numeric_limits<float>::max();
+  };
+  if (std::any_of(batch.begin(), batch.end(), valid_temperature)) {
+    // Append after ALL legacy 56-byte samples; older readers ignore the trailer.
+    payload.resize(offset + 12 + 4 * count);
+    std::memcpy(payload.data() + offset, "TEMP", 4); offset += 4;
+    write_u32_be(payload.data() + offset, 0x00010001); offset += 4; // version 1, flags 1
+    write_u32_be(payload.data() + offset, count); offset += 4;
+    for (const auto& s : batch) {
+      if (valid_temperature(s)) {
+        write_f32_be(payload.data() + offset, static_cast<float>(*s.temperature_c));
+      } else {
+        write_u32_be(payload.data() + offset, 0x7fc00000); // unavailable slot
+      }
+      offset += 4;
+    }
   }
   return payload;
 }
@@ -1906,9 +1934,9 @@ inline bool decode_viz_payload(const std::vector<uint8_t>& payload, VizPayload& 
 inline bool decode_imu_payload(const std::vector<uint8_t>& payload,
                                std::vector<ImuSample>& out) {
   if (payload.size() < 4) return false;
-  uint32_t count = (payload[0] << 24) | (payload[1] << 16) | (payload[2] << 8) | payload[3];
+  uint32_t count = read_u32_be(payload.data());
   const size_t stride = 8 + 6 * sizeof(double);
-  if (payload.size() < 4 + stride * static_cast<size_t>(count)) return false;
+  if (count > (payload.size() - 4) / stride) return false;
   out.clear();
   out.reserve(count);
   size_t off = 4;
@@ -1925,6 +1953,19 @@ inline bool decode_imu_payload(const std::vector<uint8_t>& payload,
     rd_f64(s.ax); rd_f64(s.ay); rd_f64(s.az);
     rd_f64(s.gx); rd_f64(s.gy); rd_f64(s.gz);
     out.push_back(s);
+  }
+  if (payload.size() - off >= 12 &&
+      std::memcmp(payload.data() + off, "TEMP", 4) == 0 &&
+      read_u32_be(payload.data() + off + 4) == 0x00010001 &&
+      read_u32_be(payload.data() + off + 8) == count &&
+      count <= (payload.size() - off - 12) / 4) {
+    off += 12;
+    for (uint32_t i = 0; i < count; ++i, off += 4) {
+      // Check the wire bits before conversion: NaN/Inf means unavailable.
+      if ((read_u32_be(payload.data() + off) & 0x7f800000) != 0x7f800000) {
+        out[i].temperature_c = read_f32_be(payload.data() + off);
+      }
+    }
   }
   return true;
 }

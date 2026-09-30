@@ -181,10 +181,27 @@ Protocol evolution rule:
 
 ### 3.3 IMU (`IMU `)
 
-Batch payload containing repeated samples:
-- `timestamp_ns` (u64)
-- accel `(ax, ay, az)` (f32)
-- gyro `(gx, gy, gz)` (f32)
+All multibyte values are big-endian. The legacy prefix is a `u32` sample
+count followed by that many 56-byte samples: `u64 timestamp_ns`, three `f64`
+acceleration values (m/s²), and three `f64` gyro values (rad/s).
+
+Temperature-capable senders optionally append this trailer **after all samples**:
+
+```text
+char[4] magic = "TEMP"
+u16 version = 1
+u16 flags = 1             # bit 0: Celsius float32 array
+u32 count                # must match the legacy sample count
+f32[count] temperature_c # same sample order; NaN slots are unavailable
+```
+
+The trailer is omitted when no temperature is available. Older readers ignore
+trailing bytes; new readers accept the legacy prefix without temperature. Unknown,
+truncated or inconsistent trailers are ignored while preserving the IMU samples.
+SDK samples expose finite readings as optional `temperatureC` (JavaScript) or
+`temperature_c` (Python and C++; C++ uses `std::optional<double>`). Missing or
+nonfinite readings do not imply 0°C. ROS bags use `/imu0/temperature` with
+`sensor_msgs/Temperature`, Celsius, variance 0 (unknown), and the matching IMU stamp.
 
 ### 3.4 GPS (`GPS `)
 

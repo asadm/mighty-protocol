@@ -666,12 +666,21 @@ def decode_imu_payload(payload: bytes):
     off = 4
     samples = []
     stride = 8 + 6*8
+    if count > (len(payload) - 4) // stride:
+        raise ValueError("truncated IMU samples")
     for _ in range(count):
         if off + stride > len(payload):
             break
         ts = struct.unpack(">Q", payload[off:off+8])[0]; off += 8
         ax, ay, az, gx, gy, gz = struct.unpack(">dddddd", payload[off:off+48]); off += 48
         samples.append({"timestamp_ns": ts, "ax": ax, "ay": ay, "az": az, "gx": gx, "gy": gy, "gz": gz})
+    if (len(payload) - off >= 12 and payload[off:off+4] == b"TEMP" and
+            struct.unpack_from(">II", payload, off + 4) == (0x00010001, count) and
+            count <= (len(payload) - off - 12) // 4):
+        for sample, (temperature,) in zip(samples, struct.iter_unpack(
+                ">f", payload[off+12:off+12+count*4])):
+            if math.isfinite(temperature):
+                sample["temperature_c"] = temperature
     return samples
 
 def build_gps_payload(timestamp_ns: int = 0,

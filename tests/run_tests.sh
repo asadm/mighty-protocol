@@ -73,6 +73,9 @@ node "$HERE/node_pose_contract.test.js"
 echo "[test] python consumer"
 python3 "$HERE/python_consumer_test.py"
 
+echo "[test] optional IMU temperature compatibility"
+python3 "$HERE/imu_temperature_parity_test.py"
+
 echo "[test] python sdk"
 python3 "$HERE/python_sdk_test.py"
 
