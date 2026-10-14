@@ -564,6 +564,19 @@ class MightyClient:
                     self._emit_any({"type": "depth", "data": mapped})
                 return
 
+            if frame_type == "SJPG":
+                if not self._has_listeners("image") and not wants_any and not wants_loopclosure:
+                    return
+                pair = mp.decode_stereo_jpg_payload(payload)
+                def member(image):
+                    return {**image, "kind": "jpg", "channel_alias": self._map_channel_alias(image["channel"])}
+                mapped = {"kind": "stereo_jpg", "left": member(pair["left"]), "right": member(pair["right"])}
+                self._push_loopclosure_image(mapped["left"])
+                self._emit("image", mapped)
+                if wants_any:
+                    self._emit_any({"type": "image", "data": mapped})
+                return
+
             if frame_type == "SRAW":
                 if not self._has_listeners("image") and not wants_any and not wants_loopclosure:
                     return

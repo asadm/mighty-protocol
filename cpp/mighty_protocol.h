@@ -19,6 +19,7 @@ inline constexpr char TYPE_JPG[4]  = {'J','P','G',' '};
 inline constexpr char TYPE_RJPG[4] = {'R','J','P','G'};
 inline constexpr char TYPE_RAW[4]  = {'R','A','W',' '};
 inline constexpr char TYPE_SRAW[4] = {'S','R','A','W'};
+inline constexpr char TYPE_SJPG[4] = {'S','J','P','G'};
 inline constexpr char TYPE_DPT[4]  = {'D','P','T',' '};
 inline constexpr char TYPE_POSE[4] = {'P','O','S','E'};
 inline constexpr char TYPE_UPOSE[4]= {'U','P','O','S'};
@@ -651,6 +652,24 @@ inline std::vector<uint8_t> build_jpg_payload(uint64_t timestamp_ns,
       std::memcpy(payload.data() + offset, data, len);
     }
   }
+  return payload;
+}
+
+// One replaceable packet holds a complete pair. Each member uses the existing
+// JPG payload (timestamp, channel, JPEG), prefixed by two big-endian lengths.
+inline std::vector<uint8_t> build_stereo_jpg_payload(
+    uint64_t left_ts, uint64_t right_ts,
+    const uint8_t* left_data, size_t left_len,
+    const uint8_t* right_data, size_t right_len,
+    const std::string& left_channel = "cam0",
+    const std::string& right_channel = "cam1") {
+  const auto left = build_jpg_payload(left_ts, false, left_channel, left_data, left_len);
+  const auto right = build_jpg_payload(right_ts, false, right_channel, right_data, right_len);
+  std::vector<uint8_t> payload(8 + left.size() + right.size());
+  write_u32_be(payload.data(), static_cast<uint32_t>(left.size()));
+  write_u32_be(payload.data() + 4, static_cast<uint32_t>(right.size()));
+  std::memcpy(payload.data() + 8, left.data(), left.size());
+  std::memcpy(payload.data() + 8 + left.size(), right.data(), right.size());
   return payload;
 }
 
@@ -1481,6 +1500,21 @@ inline bool decode_jpg_payload(const std::vector<uint8_t>& payload,
   offset += clen;
   data.assign(payload.begin() + offset, payload.end());
   return true;
+}
+
+inline bool decode_stereo_jpg_payload(const std::vector<uint8_t>& payload,
+    uint64_t& left_ts, std::string& left_channel, std::vector<uint8_t>& left_data,
+    uint64_t& right_ts, std::string& right_channel, std::vector<uint8_t>& right_data) {
+  if (payload.size() < 8) return false;
+  const size_t left_len = read_u32_be(payload.data());
+  const size_t right_len = read_u32_be(payload.data() + 4);
+  if (left_len < 10 || right_len < 10 || left_len > payload.size() - 8 ||
+      right_len != payload.size() - 8 - left_len) return false;
+  const std::vector<uint8_t> left(payload.begin() + 8, payload.begin() + 8 + left_len);
+  const std::vector<uint8_t> right(payload.begin() + 8 + left_len, payload.end());
+  return decode_jpg_payload(left, false, left_ts, left_channel, left_data) &&
+         decode_jpg_payload(right, false, right_ts, right_channel, right_data) &&
+         !left_data.empty() && !right_data.empty();
 }
 
 inline bool decode_raw_payload(const std::vector<uint8_t>& payload,

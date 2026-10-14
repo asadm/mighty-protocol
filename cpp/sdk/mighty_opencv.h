@@ -96,7 +96,7 @@ inline bool decode_image_to_bgr(const ImageFrame& image,
                                 DecodedImageFrame* output,
                                 bool include_reference = false) {
   if (!output) return false;
-  if (image.kind == ImageFrame::Kind::kJpeg) {
+  if (image.kind == ImageFrame::Kind::kJpeg || image.kind == ImageFrame::Kind::kStereoJpeg) {
     if (image.jpeg && image.jpeg->is_reference && !include_reference) return false;
     if (!image.jpeg || !decode_jpeg_to_bgr(*image.jpeg, &output->bgr)) return false;
     output->timestamp_ns = image.jpeg->timestamp_ns;
@@ -135,7 +135,7 @@ inline bool decode_jpeg_to_gray8_raw(const JpegImageFrame& jpeg,
 inline const RawImageFrame* image_to_raw(const ImageFrame& image,
                                          RawImageFrame* decoded_jpeg,
                                          bool include_reference = false) {
-  if (image.kind == ImageFrame::Kind::kJpeg) {
+  if (image.kind == ImageFrame::Kind::kJpeg || image.kind == ImageFrame::Kind::kStereoJpeg) {
     if (image.jpeg && image.jpeg->is_reference && !include_reference) {
       return nullptr;
     }

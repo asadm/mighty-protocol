@@ -222,6 +222,7 @@ function parseCamera(text, id) {
     topic: scalarText(text, "rostopic") || "",
     timeShiftCameraImuS,
     cameraFromImu,
+    cameraFromPrevious: transform(matrixForKey(text, "T_cn_cnm1")),
     bodyFromCamera,
     valid: Number.isFinite(intrinsics.fx) && intrinsics.fx > 0 &&
       Number.isFinite(intrinsics.fy) && intrinsics.fy > 0 &&

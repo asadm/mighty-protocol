@@ -902,6 +902,17 @@ export class MightyClient {
           if (wantsAny) this._emitAny({ type: "depth", data: mapped });
           return;
         }
+        case protocol.TYPE.SJPG: {
+          if (!this._hasListeners("image") && !wantsAny && !wantsLoopclosure) return;
+          const pair = protocol.decodeStereoJpgPayload(frame.payload);
+          const map = (image) => ({ ...image, kind: "jpg", data: toU8(image.data),
+            channelAlias: this._mapChannelAlias(image.channel) });
+          const mapped = { kind: "stereo_jpg", left: map(pair.left), right: map(pair.right) };
+          this._pushLoopclosureImage(mapped.left);
+          this._emit("image", mapped);
+          if (wantsAny) this._emitAny({ type: "image", data: mapped });
+          return;
+        }
         case protocol.TYPE.SRAW: {
           if (!this._hasListeners("image") && !wantsAny && !wantsLoopclosure) return;
           const stereo = protocol.decodeStereoRawPayload(frame.payload);

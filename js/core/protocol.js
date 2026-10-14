@@ -11,6 +11,7 @@ const TYPE = {
   RJPG: "RJPG",
   RAW: "RAW ",
   SRAW: "SRAW",
+  SJPG: "SJPG",
   DPT: "DPT ",
   POSE: "POSE",
   UPOSE: "UPOS",
@@ -516,6 +517,30 @@ function buildDepthPayload({
     }
   }
   return fromU8(out);
+}
+
+function buildStereoJpgPayload({ left = {}, right = {} } = {}) {
+  const l = toU8(buildJpgPayload({ ...left, channel: left.channel || "cam0", isRef: false }));
+  const r = toU8(buildJpgPayload({ ...right, channel: right.channel || "cam1", isRef: false }));
+  const out = new Uint8Array(8 + l.length + r.length);
+  const view = new DataView(out.buffer);
+  view.setUint32(0, l.length, false);
+  view.setUint32(4, r.length, false);
+  out.set(l, 8);
+  out.set(r, 8 + l.length);
+  return fromU8(out);
+}
+
+function decodeStereoJpgPayload(payload) {
+  const bytes = toU8(payload);
+  if (bytes.length < 8) throw new Error("SJPG payload too short");
+  const l = readU32BE(bytes, 0), r = readU32BE(bytes, 4);
+  if (l < 10 || r < 10 || l > bytes.length - 8 || r !== bytes.length - 8 - l)
+    throw new Error("invalid SJPG lengths");
+  const left = decodeJpgPayload(bytes.subarray(8, 8 + l), false);
+  const right = decodeJpgPayload(bytes.subarray(8 + l), false);
+  if (!left.data.length || !right.data.length) throw new Error("empty SJPG member");
+  return { left, right };
 }
 
 function buildStereoRawPayload({ left = {}, right = {} } = {}) {
@@ -1951,6 +1976,7 @@ const api = {
   buildRawPayload,
   buildDepthPayload,
   buildStereoRawPayload,
+  buildStereoJpgPayload,
   buildPosePayload,
   buildGpsPayload,
   buildConstraintsPayload,
@@ -1973,6 +1999,7 @@ const api = {
   decodeRawPayload,
   decodeDepthPayload,
   decodeStereoRawPayload,
+  decodeStereoJpgPayload,
   decodePosePayload,
   decodeGpsPayload,
   decodeConstraintsPayload,
@@ -2019,6 +2046,7 @@ export {
   buildRawPayload,
   buildDepthPayload,
   buildStereoRawPayload,
+  buildStereoJpgPayload,
   buildPosePayload,
   buildGpsPayload,
   buildConstraintsPayload,
@@ -2041,6 +2069,7 @@ export {
   decodeRawPayload,
   decodeDepthPayload,
   decodeStereoRawPayload,
+  decodeStereoJpgPayload,
   decodePosePayload,
   decodeGpsPayload,
   decodeConstraintsPayload,

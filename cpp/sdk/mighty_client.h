@@ -79,10 +79,12 @@ struct ImageFrame {
     kJpeg,
     kRaw,
     kStereoRaw,
+    kStereoJpeg,
   };
 
   Kind kind = Kind::kRaw;
   std::optional<JpegImageFrame> jpeg;
+  std::optional<JpegImageFrame> right_jpeg;
   RawImageFrame left;
   std::optional<RawImageFrame> right;
 };
@@ -953,6 +955,31 @@ class MightyClient {
         evt.kind = ImageFrame::Kind::kRaw;
         evt.left = std::move(raw);
         emit(image_handlers_, evt);
+        if (wants_any) emit_any(AnyEvent{"image", "", {}});
+        return;
+      }
+
+      if (type == "SJPG") {
+        if (image_handlers_.empty() && !wants_any && !opts_.loopclosure) return;
+        JpegImageFrame left, right;
+        if (!decode_stereo_jpg_payload(frame.payload, left.timestamp_ns,
+            left.channel, left.data, right.timestamp_ns, right.channel, right.data))
+          throw std::runtime_error("SJPG decode failed");
+        left.channel_alias = map_channel_alias(left.channel);
+        right.channel_alias = map_channel_alias(right.channel);
+        if (opts_.loopclosure && opts_.jpeg_decoder) {
+          RawImageFrame raw;
+          if (opts_.jpeg_decoder(left, &raw)) {
+            if (!raw.timestamp_ns) raw.timestamp_ns = left.timestamp_ns;
+            if (raw.channel.empty()) raw.channel = left.channel;
+            if (raw.channel_alias.empty()) raw.channel_alias = left.channel_alias;
+            push_loopclosure_image(raw);
+          }
+        }
+        ImageFrame event;
+        event.kind = ImageFrame::Kind::kStereoJpeg;
+        event.jpeg = std::move(left); event.right_jpeg = std::move(right);
+        emit(image_handlers_, event);
         if (wants_any) emit_any(AnyEvent{"image", "", {}});
         return;
       }

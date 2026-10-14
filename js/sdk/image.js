@@ -127,6 +127,9 @@ export async function decodeJpegToRaw(frame) {
 export async function imageToRaw(frame, { jpegDecoder, includeReference = false } = {}) {
   if (!frame || frame.dropped) return null;
   if (frame.kind === "raw") return frame;
+  if (frame.kind === "stereo_jpg") {
+    return imageToRaw(frame.left, { jpegDecoder, includeReference });
+  }
   if (frame.kind === "stereo_raw") {
     const candidates = [frame.left, frame.right].filter(Boolean);
     const primary = candidates.find((candidate) => {

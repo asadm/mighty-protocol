@@ -14,6 +14,7 @@ TYPE = {
     "RJPG": b"RJPG",
     "RAW": b"RAW ",
     "SRAW": b"SRAW",
+    "SJPG": b"SJPG",
     "DPT": b"DPT ",
     "POSE": b"POSE",
     "UPOSE": b"UPOS",
@@ -314,6 +315,27 @@ def decode_jpg_payload(payload: bytes, is_ref: bool):
     channel = payload[9:9+clen].decode("utf-8")
     data = payload[9+clen:]
     return {"timestamp_ns": ts, "channel": channel, "data": data}
+
+def build_stereo_jpg_payload(left, right):
+    def member(image, fallback):
+        channel = image.get("channel", fallback).encode("utf-8")[:255]
+        return struct.pack(">QB", int(image.get("timestamp_ns", 0)), len(channel)) + channel + bytes(image["data"])
+    l, r = member(left, "cam0"), member(right, "cam1")
+    return struct.pack(">II", len(l), len(r)) + l + r
+
+
+def decode_stereo_jpg_payload(payload):
+    if len(payload) < 8:
+        raise ValueError("SJPG payload too short")
+    l, r = struct.unpack_from(">II", payload)
+    if l < 10 or r < 10 or l > len(payload) - 8 or r != len(payload) - 8 - l:
+        raise ValueError("invalid SJPG lengths")
+    left = decode_jpg_payload(payload[8:8+l], False)
+    right = decode_jpg_payload(payload[8+l:], False)
+    if not left["data"] or not right["data"]:
+        raise ValueError("empty SJPG member")
+    return {"left": left, "right": right}
+
 
 def decode_raw_payload(payload: bytes):
     if len(payload) < 8 + 4 + 4 + 1 + 1:

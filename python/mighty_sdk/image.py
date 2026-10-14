@@ -18,7 +18,7 @@ def select_primary_image(
         return None
     if kind in ("raw", "jpg"):
         return image
-    if kind != "stereo_raw":
+    if kind not in ("stereo_raw", "stereo_jpg"):
         return None
     left = image.get("left") or {}
     right = image.get("right") or {}

@@ -31,6 +31,7 @@ Bulk-frame CRC compatibility rule:
 - `RJPG`: reference JPEG image
 - `RAW `: mono raw image
 - `SRAW`: stereo raw image (left + right)
+- `SJPG`: paired stereo JPEG images (left + right)
 - `DPT `: calibrated metric depth image
 - `POSE`: canonical public body pose (`T_odom_body`)
 - `UPOS`: reserved/internal pose stream (not part of public API)
@@ -90,6 +91,25 @@ Formats (SDK constant: `RAW_FORMAT`):
 #### `SRAW`
 - left raw image payload
 - right raw image payload
+
+#### `SJPG`
+
+```text
+u32 left_payload_bytes
+u32 right_payload_bytes
+left JPG payload
+right JPG payload
+```
+
+Each member uses the `JPG ` layout: `u64 timestamp_ns`, `u8 channel_bytes`,
+channel UTF-8 bytes, then JPEG bytes. The lengths include each member's timestamp
+and channel fields. Both members must be nonempty and the lengths must consume
+the entire payload. `SJPG` uses the normal packet CRC.
+
+The pair is one replaceable preview frame under transport backpressure. Each
+camera keeps its capture timestamp; pairing does not imply equal timestamps or
+prove aligned exposures. JS/Python SDK image events use `kind: "stereo_jpg"`
+with `left` and `right` JPEG members. Existing mono `JPG ` remains unchanged.
 
 #### `DPT `
 

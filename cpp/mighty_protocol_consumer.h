@@ -116,6 +116,12 @@ class DecodedDispatcher {
   using RawHandler = std::function<void(uint64_t timestamp_ns, uint32_t width, uint32_t height, uint8_t format,
                                         const std::string& channel, const std::vector<uint8_t>& data)>;
   using StereoRawHandler = std::function<void(const RawFrame& left, const RawFrame& right)>;
+  struct JpgFrame {
+    uint64_t timestamp_ns;
+    std::string channel;
+    std::vector<uint8_t> data;
+  };
+  using StereoJpgHandler = std::function<void(const JpgFrame&, const JpgFrame&)>;
   using DepthHandler = std::function<void(const DepthFrame&)>;
   using PoseHandler = std::function<void(const Pose&, bool is_unoptimized)>;
   using ConstraintsHandler = std::function<void(const Constraints&)>;
@@ -135,6 +141,7 @@ class DecodedDispatcher {
   void on_jpg(JpgHandler h) { jpg_handler_ = std::move(h); }
   void on_raw(RawHandler h) { raw_handler_ = std::move(h); }
   void on_stereo_raw(StereoRawHandler h) { stereo_raw_handler_ = std::move(h); }
+  void on_stereo_jpg(StereoJpgHandler h) { stereo_jpg_handler_ = std::move(h); }
   void on_depth(DepthHandler h) { depth_handler_ = std::move(h); }
   void on_pose(PoseHandler h) { pose_handler_ = std::move(h); }
   void on_constraints(ConstraintsHandler h) { constraints_handler_ = std::move(h); }
@@ -179,6 +186,16 @@ class DecodedDispatcher {
       uint64_t ts; uint32_t w, h; uint8_t fmt; std::string ch; std::vector<uint8_t> data;
       if (decode_raw_payload(f.payload, ts, w, h, fmt, ch, data)) {
         raw_handler_(ts, w, h, fmt, ch, data);
+      }
+    } else if (type == "SJPG") {
+      JpgFrame left{}, right{};
+      if (decode_stereo_jpg_payload(f.payload, left.timestamp_ns, left.channel,
+          left.data, right.timestamp_ns, right.channel, right.data)) {
+        if (stereo_jpg_handler_) stereo_jpg_handler_(left, right);
+        else if (jpg_handler_) {
+          jpg_handler_(left.timestamp_ns, left.channel, left.data, false);
+          jpg_handler_(right.timestamp_ns, right.channel, right.data, false);
+        }
       }
     } else if (type == "SRAW") {
       uint64_t lts, rts;
@@ -293,6 +310,7 @@ class DecodedDispatcher {
   JpgHandler jpg_handler_;
   RawHandler raw_handler_;
   StereoRawHandler stereo_raw_handler_;
+  StereoJpgHandler stereo_jpg_handler_;
   DepthHandler depth_handler_;
   PoseHandler pose_handler_;
   ConstraintsHandler constraints_handler_;
