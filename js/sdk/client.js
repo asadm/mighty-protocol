@@ -842,6 +842,19 @@ export class MightyClient {
     return "other";
   }
 
+  _previewReadyCallback(timestampNs, channel) {
+    // Bind the stream ID now: a delayed decode from an old connection must
+    // never grant credit to a newly connected viewer.
+    const payload = this.device.previewAcknowledgementPayload?.(timestampNs, channel);
+    if (!payload) return undefined;
+    let acknowledged = false;
+    return () => {
+      if (acknowledged) return;
+      acknowledged = true;
+      void this.command("preview_ready", payload);
+    };
+  }
+
   _handleFrame(frame) {
     this._stats.rxFrames += 1;
 
@@ -871,6 +884,8 @@ export class MightyClient {
             isReference: frame.type === protocol.TYPE.RJPG,
             data: toU8(jpg.data),
           };
+          const ready = !mapped.isReference && this._previewReadyCallback(jpg.timestampNs, channel);
+          if (ready) mapped.acknowledgePreview = ready;
           this._pushLoopclosureJpegImage(mapped);
           this._emit("image", mapped);
           if (wantsAny) this._emitAny({ type: "image", data: mapped });
@@ -892,6 +907,7 @@ export class MightyClient {
           this._pushLoopclosureImage(mapped);
           this._emit("image", mapped);
           if (wantsAny) this._emitAny({ type: "image", data: mapped });
+          this._previewReadyCallback(raw.timestampNs, raw.channel)?.();
           return;
         }
         case protocol.TYPE.DPT: {
@@ -908,6 +924,14 @@ export class MightyClient {
           const map = (image) => ({ ...image, kind: "jpg", data: toU8(image.data),
             channelAlias: this._mapChannelAlias(image.channel) });
           const mapped = { kind: "stereo_jpg", left: map(pair.left), right: map(pair.right) };
+          const ready = this._previewReadyCallback(pair.left.timestampNs, `${pair.left.channel}+${pair.right.channel}`);
+          if (ready) {
+            let remaining = 2;
+            for (const image of [mapped.left, mapped.right]) {
+              let done = false;
+              image.acknowledgePreview = () => { if (!done) { done = true; if (--remaining === 0) ready(); } };
+            }
+          }
           this._pushLoopclosureImage(mapped.left);
           this._emit("image", mapped);
           if (wantsAny) this._emitAny({ type: "image", data: mapped });
@@ -940,6 +964,7 @@ export class MightyClient {
           this._pushLoopclosureImage(mapped);
           this._emit("image", mapped);
           if (wantsAny) this._emitAny({ type: "image", data: mapped });
+          this._previewReadyCallback(left.timestampNs, `${left.channel}+${right.channel}`)?.();
           return;
         }
         case protocol.TYPE.POSE:

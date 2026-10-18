@@ -49,6 +49,7 @@ export class MightyWebDevice {
     baseUrl = "",
     baseUrls = null,
     streamPath = "/stream",
+    previewFeedback = false,
     commandPath = "/command",
     fetchImpl = null,
     headers = null,
@@ -56,6 +57,8 @@ export class MightyWebDevice {
     this.baseUrls = resolveBaseUrls(baseUrl, baseUrls);
     this.baseUrl = this.baseUrls[0] || "";
     this.streamPath = streamPath || "/stream";
+    this.previewFeedback = !!previewFeedback;
+    this._previewStreamId = null;
     this.commandPath = commandPath || "/command";
     this.fetchImpl = fetchImpl || getDefaultFetch();
     this.headers = headers && typeof headers === "object" ? { ...headers } : null;
@@ -113,11 +116,12 @@ export class MightyWebDevice {
 
     for (const base of bases) {
       try {
-        const response = await this.fetchImpl(this._url(base, this.streamPath), {
-          method: "GET",
-          headers,
-          signal,
-        });
+        const request = { method: "GET", headers, signal };
+        let response = await this.fetchImpl(this._url(base, this.previewFeedback
+          ? `${this.streamPath}?preview=ack` : this.streamPath), request);
+        if (this.previewFeedback && (response?.status === 404 || response?.status === 405)) {
+          response = await this.fetchImpl(this._url(base, this.streamPath), request);
+        }
 
         if (!response || !response.ok) {
           const status = response ? `${response.status}` : "no_response";
@@ -126,6 +130,8 @@ export class MightyWebDevice {
         }
 
         this._activeBaseUrl = base;
+        const id = this.previewFeedback ? response.headers?.get?.("X-Mighty-Stream-Id") : null;
+        this._previewStreamId = id && /^\d+$/.test(id) ? BigInt(id) : null;
         const body = response.body;
         if (!body) return;
 
@@ -168,7 +174,20 @@ export class MightyWebDevice {
     throw new Error("stream request failed (no host)");
   }
 
+  previewAcknowledgementPayload(timestampNs, channel) {
+    if (this._previewStreamId === null) return null;
+    const name = new TextEncoder().encode(channel || "cam0").subarray(0, 255);
+    const payload = new Uint8Array(17 + name.length);
+    const view = new DataView(payload.buffer);
+    view.setBigUint64(0, this._previewStreamId, false);
+    view.setBigUint64(8, BigInt(timestampNs), false);
+    payload[16] = name.length;
+    payload.set(name, 17);
+    return payload;
+  }
+
   async disconnect() {
+    this._previewStreamId = null;
     if (this._abortController) {
       try {
         this._abortController.abort();
