@@ -1,0 +1,191 @@
+---
+title: ArduPilot setup
+description: Wire Mighty to ArduPilot, calibrate the mounting, and configure an external-navigation source.
+---
+
+This guide describes a first installation on an ArduCopter aircraft using EKF3.
+Keep your existing GPS navigation configuration available while verifying Mighty
+as a second source. Port assignments and available parameters depend on the FC
+board and ArduPilot release.
+
+ArduPilot already supports the required MAVLink telemetry and external-odometry
+messages. No custom ArduPilot firmware patch is required when those features are
+included in your firmware build. This guide is an integration procedure, not a
+claim of completed flight qualification for your aircraft.
+
+## 1. Mount and wire Mighty
+
+Mount Mighty securely with an unobstructed camera view. Keep its camera and IMU
+rigidly connected and control motor vibration. The camera can face downward,
+forward, or at another fixed angle; the mounting wizard determines the rotation.
+
+| Mighty connection | Flight controller / supply |
+| --- | --- |
+| TX | Spare telemetry UART RX |
+| RX | Same UART TX |
+| GND | Common ground |
+| Power | A regulated supply connected to a supported Mighty power input |
+
+Both UART directions are required for the calibration wizard and the standard
+saved-calibration bridge. Verify the connector pinout and compatible logic
+levels on your actual board revisions. Do not confuse the power-supply voltage
+with the UART signal voltage. USB power is an option during initial bench setup.
+
+## 2. Configure the FC telemetry port
+
+The example below assumes the physical connector maps to **SERIAL2**. Check your
+FC board documentation: the connector label or MCU UART number may differ from
+ArduPilot's logical SERIAL number.
+
+| Parameter | Value | Meaning |
+| --- | --- | --- |
+| `SERIAL2_PROTOCOL` | `2` | MAVLink 2 |
+| `SERIAL2_BAUD` | `230` | 230400 baud |
+| `SERIAL2_OPTIONS` | `0` | Normal, non-inverted serial |
+| `BRD_SER2_RTSCTS`, if present and applicable | `0` | Disable hardware flow control; RTS/CTS are not wired |
+
+Reboot after changing parameters that require it. The standard Mighty bridge
+requests FC attitude/rate telemetry at 50 Hz and the FC hardware identity.
+ArduPilot scheduling and link traffic can reduce the delivered rate. Check the
+wizard's readiness indications before beginning.
+
+The bridge currently uses unsigned MAVLink. If signing is enforced on this
+port, configure the dedicated link appropriately for your security policy;
+signed-message support is not implemented in this bridge.
+
+## 3. Set up Mighty and its Lua bridge
+
+1. Update Mighty to the latest firmware.
+2. Complete [camera/IMU calibration](/docs/calibration).
+3. Open [Calibrate mounting](/calib-airframe) and connect to Mighty.
+4. Choose **Set up the Lua UART bridge…**, then select **ArduPilot**.
+5. Review the program. Download a backup of any existing Lua program before
+   replacing it, then install the bridge.
+
+The bridge runs on Mighty and owns its UART. It continues receiving FC data when
+no mounting calibration exists; it simply withholds odometry output. Once a matching
+saved calibration and FC connection are ready, it automatically starts VIO,
+including while the aircraft is disarmed. Advanced users can merge the bridge into an existing
+program using the [Lua API](/docs/lua/mavlink).
+
+The default source system ID is `1`, with component ID `197`. Adjust the Lua
+program if your vehicle uses a different system ID. The bridge discovers the FC
+from its heartbeat and requests its hardware identity. The controller's own
+board orientation must already be configured correctly.
+
+## 4. Calibrate the mounting
+
+Keep the aircraft disarmed and remove its propellers.
+
+- Wait for the camera calibration, Mighty IMU, FC identity, FC angular velocity,
+  and disarmed checks to become ready.
+- Click **Begin mounting calibration** and hold still.
+- Gently pitch, roll, and turn the aircraft until all three motion indicators are
+  complete. Follow the illustrated directions in any order.
+- Click **Calculate mounting**, then perform fresh movements around at least two
+  axes for verification.
+- Click **Verify alignment**, then **Save calibration on Mighty**.
+
+A successful save persists on the device. Cancelling keeps the previous saved
+file. Poor motion, stale data, arming, or inconsistent measurements prevent a
+new calibration from being saved. Recalibrate after changing the physical mount,
+the FC board orientation, or the camera/IMU calibration.
+
+## 5. Enable external navigation
+
+Use EKF3 (`AHRS_EKF_TYPE=3`, `EK3_ENABLE=1` where applicable) and configure:
+
+| Parameter | Value | Why |
+| --- | --- | --- |
+| `VISO_TYPE` | `3` | ArduPilot's documented VOXL-compatible odometry backend |
+| `VISO_ORIENT` | `0` | Mighty already applies the saved mounting rotation |
+| `VISO_SCALE` | `1` | Mighty supplies metric positions |
+
+`VISO_TYPE=3` selects a compatible interface; it does not require VOXL hardware.
+Avoid applying a second camera mounting rotation in ArduPilot.
+
+Mount Mighty close to the flight controller. For a compact installation with
+both IMUs within about 15 cm of each other, you can generally leave
+`VISO_POS_X/Y/Z` at `0` initially. If Mighty is mounted farther away, enter its
+position offset so ArduPilot can compensate for movement during rotation. See
+[ArduPilot’s sensor-offset guide](https://ardupilot.org/copter/docs/common-sensor-offset-compensation.html)
+for measuring and entering those values.
+
+For initial bench setup, use ArduPilot’s default visual-odometry delay, noise,
+and quality settings. These are advanced tuning options; you do not need to
+calculate them to connect Mighty and check its output. Validate the settings
+with flight-controller logs before flight; the defaults are not yet a tested
+Mighty flight preset. Do not lower quality checks just to clear a navigation error.
+
+## 6. Make Mighty a selectable source
+
+Retain the aircraft's working GPS configuration in source set 1. A conservative
+initial source set 2 uses Mighty for horizontal position and velocity while
+keeping barometer altitude and compass heading:
+
+```text
+EK3_SRC2_POSXY = 6
+EK3_SRC2_VELXY = 6
+EK3_SRC2_POSZ  = 1
+EK3_SRC2_VELZ  = 0
+EK3_SRC2_YAW   = 1
+```
+
+Assign an unused RC channel's `RCx_OPTION=90` to source selection. Configure all
+accessible switch positions deliberately; do not leave source set 3 accidentally
+selectable with no usable source. For isolated evaluation, clear bit 0 of
+`EK3_SRC_OPTIONS` so the fuse-all-velocities option does not mix in another source.
+
+Mighty's local heading is arbitrary. Follow ArduPilot's visual-odometry alignment
+procedure before takeoff. An unused `RCx_OPTION=80` action can request alignment
+of visual odometry to the FC heading. Physical mounting calibration and local
+navigation-heading alignment are separate operations.
+
+If operating without GPS, establish the EKF geographic origin before navigation.
+In Mission Planner, use the **Set EKF Origin Here** map action as appropriate.
+An origin anchors the local coordinate system; it does not make Mighty an
+absolute GPS sensor. Handle the vehicle's home position separately.
+
+## 7. Check the combined system
+
+The standard bridge starts Mighty VIO automatically after calibration and FC
+identification. Wait for valid tracking before flight. Arming, disarming and
+brief FC link loss do not stop or restart it. If you stop VIO manually, restart it
+from the visualizer or reload the bridge; automatic startup runs only once per
+bridge session after a successful start or detection of existing VIO.
+
+On the bench, verify:
+
+- Moving the aircraft forward, left, and upward produces the expected motion.
+- The FC is actually receiving and accepting external odometry, at a suitable
+  measured rate. A received packet alone does not prove EKF fusion.
+- Heading and position remain consistent when selecting the intended source.
+- Noise, delay, and sensor-origin offsets are reasonable in FC logs.
+- Interrupting camera tracking or the link produces the intended navigation-loss
+  behavior. Selecting another source is not an automatic GPS fallback policy.
+
+Mighty withholds stale/invalid odometry. ArduPilot must be configured to handle
+that loss appropriately. Complete physical UART, EKF innovation, and controlled
+flight validation for your aircraft before relying on position hold or RTL.
+
+## Troubleshooting
+
+| Wizard indication | Check |
+| --- | --- |
+| Camera calibration missing | Run `/calib`; the device needs valid camera-to-IMU calibration. |
+| Mighty IMU waiting | Keep the device's normal live camera/IMU pipeline running. Recorded bags are not a live calibration source. |
+| FC waiting | Cross TX/RX, connect ground, check the UART port and baud rate, and install/run the Lua bridge. |
+| FC identified, rates waiting | Verify requested telemetry is available and serial traffic is not saturating the link. |
+| FC identity waiting | The controller must return a nonzero hardware UID in AUTOPILOT_VERSION. |
+| Aircraft armed | Disarm before calibration. |
+| More motion needed | Rotate around each illustrated axis; a single repeated movement is insufficient. |
+| Verification failed | Repeat smoothly; check for mount flex, dropped telemetry, or substantial vibration. |
+| Saved calibration mismatches | Reconnect the calibrated FC or recalibrate this device/FC combination. |
+
+## References
+
+- [ArduPilot external position estimation](https://ardupilot.org/dev/docs/mavlink-nongps-position-estimation.html)
+- [Serial port configuration](https://ardupilot.org/copter/docs/common-serial-options.html)
+- [Requesting telemetry messages](https://ardupilot.org/dev/docs/mavlink-requesting-data.html)
+- [EKF source selection](https://ardupilot.org/copter/docs/common-ekf-sources.html)
+- [VOXL-compatible external navigation and heading alignment](https://ardupilot.org/copter/docs/common-modalai-voxl.html)

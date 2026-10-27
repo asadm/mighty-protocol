@@ -1,4 +1,8 @@
 {
   "title": "Lua",
-  "pages": ["index", "recipes"]
+  "pages": [
+    "index",
+    "recipes",
+    "mavlink"
+  ]
 }

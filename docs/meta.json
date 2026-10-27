@@ -5,6 +5,7 @@
     "start",
     "recording",
     "calibration",
+    "flight-controller",
     "loop-closure",
     "updating-firmware",
     "analog-video",

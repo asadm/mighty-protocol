@@ -1,0 +1,227 @@
+---
+title: Odometry and MAVLink
+description: Read local odometry, receive FC telemetry, and send MAVLink packets while Lua owns the UART.
+---
+
+For the feature overview and wiring workflow, start with
+[Flight-controller integration](/docs/flight-controller). Use
+[/calib-airframe](/calib-airframe) to save the mounting orientation.
+
+These APIs require ARM Lua firmware containing the odometry and mounting
+calibration feature. They are not available in the legacy MCU Lua runtime.
+
+## Create a link
+
+```lua
+local fc = MAVLink.new {
+  profile = "ardupilot", -- "px4" or "betaflight" also accepted
+  system_id = 1,
+  component_id = 197,
+  mount = "saved",
+}
+```
+
+`mount="saved"` is the default. Creating the link succeeds without a calibration
+so incoming telemetry and the calibration wizard can still operate. Odometry
+encoding is blocked until a matching calibration and FC identity are available.
+
+`fc:profile()` returns `name`, `rate_hz`, and `requires_receiver_patch`. Suggested
+rates are 20 Hz for ArduPilot/Betaflight and 50 Hz for PX4. The Betaflight profile
+requires a custom FC receiver; selecting it does not add stock Betaflight support.
+
+For a deliberately configured manual mount, supply a unit quaternion instead:
+
+```lua
+local fc = MAVLink.new {
+  profile = "ardupilot",
+  body_from_camera_flu_xyzw = {x=0, y=0, z=0, w=1},
+}
+```
+
+An explicit quaternion is an advanced override. Identity is correct only when
+camera FLU and aircraft FLU axes coincide. A missing quaternion no longer falls
+back to identity. Do not combine `mount="saved"` with a manual quaternion.
+
+## Receive FC telemetry
+
+```lua
+local available = math.min(Serial.available(), 256)
+if available > 0 then
+  fc:ingest(Serial.readBytes(available))
+end
+```
+
+`ingest(bytes)` accepts at most 512 bytes per call and handles packets split
+across calls. It validates checksums and forwards supported heartbeat,
+attitude/angular-rate, and hardware-identity messages to the device's mounting
+calibration service. It does not access UART hardware itself.
+
+```lua
+Serial.tryWriteRaw(fc:request_telemetry())
+```
+
+`request_telemetry()` returns a MAVLink command packet. Successive calls alternate
+between requesting ATTITUDE at 50 Hz and requesting AUTOPILOT_VERSION. Call it
+periodically, for example once per second, while acquiring the FC link. The FC
+must provide a nonzero hardware UID. Signed inbound packets are not supported.
+
+## Enable and read odometry
+
+```lua
+Mighty.configure_odometry {rate_hz=fc:profile().rate_hz}
+local o = Mighty.odometry()
+```
+
+Rates 0–60 are accepted; 0 disables publication. This API alone does not start
+VIO; the complete bridge below starts it automatically once the saved mounting
+calibration and FC connection are ready. Requested rate is a ceiling, not a
+guarantee of unique measurements at that frequency.
+
+| Field | Meaning |
+| --- | --- |
+| `valid`, `position_valid`, `velocity_valid`, `orientation_valid` | Measurement validity |
+| `status` | `off`, `initializing`, `tracking`, `degraded`, or `lost` |
+| `position` | `{x,y,z}`, metres, local frame, Mighty IMU origin |
+| `orientation_xyzw` | `{x,y,z,w}`, camera FLU to local frame |
+| `linear_velocity_body` | `{x,y,z}`, camera FLU, m/s |
+| `angular_velocity_body` | `{x,y,z}`, camera FLU, rad/s |
+| `timestamp_ns`, `visual_timestamp_ns` | Exact decimal strings |
+| `session_id`, `sequence` | Exact decimal strings |
+| `reset_counter` | Eight-bit reset indicator |
+| `age_ms`, `visual_age_ms` | State and visual-correction ages |
+| `predicted` | Propagated beyond the last visual correction |
+| `quality` | Heuristic quality; not a metric error bound |
+| `rate_hz` | Requested publication rate |
+| `covariance_known` | Currently false |
+| `parent_frame`, `child_frame` | `local_flu`, `camera_flu_at_imu` |
+
+Camera FLU means forward through the lens, left in the calibrated image, and up
+in the calibrated image. The encoder applies mounting rotation and converts to
+MAVLink LOCAL_FRD pose / BODY_FRD twist. Position remains at the Mighty IMU origin.
+
+## Encode and transmit
+
+```lua
+local packet, reason = fc:odometry(Mighty.odometry())
+if packet then Serial.tryWriteRaw(packet) end
+```
+
+Returns an unsigned MAVLink 2 ODOMETRY packet (245 bytes), or `nil, reason`.
+Examples of mounting-related reasons:
+
+- `mount_calibration_missing`
+- `mount_calibration_in_progress`
+- `mount_fc_identity_required`
+- `mount_calibration_fc_mismatch`
+
+It also rejects invalid, stale, duplicate, out-of-order, or non-finite odometry.
+A snapshot retained in Lua continues to age. Editing its Lua display fields does
+not change the native measurement used by the encoder. Staleness bounds are
+100 ms state age and 200 ms visual-correction age.
+
+Saving/reloading a mounting calibration changes the output reset indication.
+Unknown covariance is sent as NaN. The receiver must configure measurement noise
+and sensor-origin offset. There is no automatic FC parameter configuration,
+heartbeat scheduler, GPS emulation, or signed output in this API.
+
+`Serial.tryWriteRaw` accepts up to 280 bytes and queues the complete packet or
+returns `nil, reason`. Drop samples when the queue is full; do not build a backlog.
+A successful return means queued, not yet physically transmitted. Use 230400
+baud or higher for the standard bridge.
+
+## Calibration status
+
+```lua
+local json = Mighty.mount_calibration()
+```
+
+Returns a JSON status string, including stage, stream readiness, saved-file
+status, and whether the identified FC matches. The web wizard uses the device
+command `airframe_calibration` for status and guided actions. Lua continues to
+own telemetry reception throughout.
+
+The saved file is `userdata/calibration/camera-to-airframe.json` (normally
+`/build/userdata/calibration/camera-to-airframe.json`). It is loaded into memory;
+it is not read from disk for every packet. Replacing the camera/IMU calibration
+invalidates a saved mounting calibration.
+
+## Automatic startup
+
+`fc:mount_ready()` returns `true` when the link's mounting requirements are met,
+or `false, reason`. With `mount="saved"`, this requires valid camera/IMU calibration,
+a matching saved mount and a freshly identified FC. It is false during mounting
+calibration or after a calibration error. An explicit manual quaternion bypasses
+saved-file and FC identity checks, but not an active calibration. This method
+checks readiness only; it does not start VIO or consume an odometry sample.
+
+The standard bridge starts VIO asynchronously once these requirements are met,
+including while disarmed. UART reception continues while startup is pending.
+Odometry is sent only once the estimate is valid and fresh.
+
+- Already-running VIO is adopted without a restart.
+- Arming, disarming and FC link loss do not stop or restart VIO.
+- Reconnecting restores output once the matching FC is identified again.
+- Explicit startup failures are retried at most once every five seconds; an
+  unresolved request is never duplicated.
+- Once VIO has started or been adopted, a manual stop is respected. Start it again
+  manually, or reload the bridge to re-enable automatic startup.
+
+This is customizable Lua behavior. `Mighty.configure_odometry` and the MAVLink
+encoder do not control VIO themselves. Calibration needs only the sensor streams;
+VIO does not need to be running to complete it.
+
+## Complete UART bridge
+
+```lua
+-- Bidirectional FC link. Mounting calibration is saved by /calib-airframe.
+-- UART remains owned by this script. Change the profile for PX4/Betaflight.
+local fc = MAVLink.new { profile = "ardupilot", mount = "saved",
+                        system_id = 1, component_id = 197 }
+local last_pose, last_request = 0, -1000
+local last_start_check, retry_after = -1000, 0
+local start_request, startup_done = nil, false
+local interval = math.floor(1000 / fc:profile().rate_hz)
+local function update_startup(now)
+  if start_request then
+    local ok, result = Mighty.command_result(start_request)
+    if ok ~= nil then
+      start_request = nil
+      startup_done = ok
+      retry_after = now + 5000
+      if not ok then print("VIO startup: " .. (result.error or result.message or "failed")) end
+    end
+    -- Never retry an unresolved command: it may still start VIO.
+    return
+  end
+  if startup_done or now - last_start_check < 1000 then return end
+  last_start_check = now
+  local state = Mighty.state()
+  if not state.valid then return end
+  if state.vio_state ~= "off" then
+    startup_done = true -- Adopt existing VIO without resetting its local frame.
+  elseif now >= retry_after and not state.recording and fc:mount_ready() then
+    start_request = Mighty.command_async("start_vio")
+    retry_after = now + 5000
+  end
+end
+function setup()
+  Serial.begin(230400)
+  Mighty.configure_odometry { rate_hz = fc:profile().rate_hz }
+  -- Start once when ready, even while disarmed. Never stop on FC link/arm changes.
+end
+function loop()
+  local available = math.min(Serial.available(), 256)
+  if available > 0 then fc:ingest(Serial.readBytes(available)) end
+  local now = millis()
+  if now - last_request >= 1000 then
+    last_request = now
+    Serial.tryWriteRaw(fc:request_telemetry())
+  end
+  update_startup(now) -- Asynchronous: UART reception continues during startup.
+  if now - last_pose >= interval then
+    last_pose = now
+    local packet = fc:odometry(Mighty.odometry())
+    if packet then Serial.tryWriteRaw(packet) end
+  end
+end
+```

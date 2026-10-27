@@ -1,0 +1,132 @@
+---
+title: Flight-controller integration
+description: Give your aircraft a local motion estimate from Mighty Camera, over the UART you already have.
+---
+
+Mighty can act as an external motion sensor for a flight controller. It estimates
+its movement using the camera and onboard IMU, then sends position, orientation,
+and velocity over a serial connection. The flight controller combines those
+measurements with its own sensors and remains responsible for flight control.
+
+This provides a local navigation input for applications such as position hold
+where GPS is unavailable. It does not require a prebuilt map or an internet
+connection. Local odometry can drift; it is not an absolute geographic position
+or a guarantee of return-to-home performance.
+
+[Open mounting calibration](/calib-airframe) · [ArduPilot setup guide](/docs/flight-controller/ardupilot)
+
+## How the pieces connect
+
+```text
+Mighty Camera                     Flight controller
+Camera + onboard IMU              Own IMU + other navigation sensors
+        │                                      ▲
+        └── local motion → UART / MAVLink ──────┘
+                              │
+                     Navigation and control
+```
+
+Use Lua to tailor what Mighty sends to your flight controller. Start with a
+ready-made integration profile, then customize the output and update rate to suit
+your controller and application. Your program runs directly on Mighty, so once
+setup and calibration are complete, it works without a connected browser.
+
+## Calibrate the mounting
+
+Mighty needs to know how its camera is mounted relative to the aircraft. A camera
+looking down has different axes from one looking forward. Mounting calibration
+records that fixed relationship so the output describes movement in the correct
+aircraft directions.
+
+> **Before you begin:** Complete [camera and IMU calibration](/docs/calibration).
+> Mounting calibration is a separate step; it does not replace camera calibration
+> or the flight controller's own sensor calibration.
+
+The [airframe calibration wizard](/calib-airframe) walks you through six steps:
+
+1. **Mount Mighty securely in its final position on the aircraft**, then connect
+   the flight controller directly to Mighty over UART (TX, RX, and ground), not
+   USB.
+2. **Connect the browser to Mighty** over USB networking or your local network.
+   Wait for the wizard to detect the controller’s identity and motion data.
+3. **Hold still** while both sensors settle.
+4. **Rotate** the aircraft gently in pitch, roll, and yaw, following the illustrations.
+5. **Verify** the result with a fresh set of movements.
+6. **Save** the calibration on Mighty.
+
+Perform this with the aircraft disarmed and propellers removed. The page checks
+for fresh sensor data and refuses to save an incomplete or failed calibration.
+You do not need to enter quaternion values or match exact rotation angles.
+
+## Saved on your device
+
+A successful result is stored in Mighty’s persistent userdata and survives a
+restart. The page reports **Calibration saved** only after the device verifies
+the write. Closing the browser does not remove it.
+
+The result is associated with the device’s camera/IMU calibration and the
+identified flight controller. Changing the camera/IMU calibration or connecting
+a different FC requires a matching mounting calibration. Recalibrate after
+physically moving the mount or changing the FC’s board orientation; physical
+changes cannot be detected automatically.
+
+The standard Lua bridge uses the saved calibration. If it is missing, does not
+match, or is currently being recalibrated, it withholds odometry packets and
+returns a reason. The serial connection remains available so you can complete
+calibration. It never silently assumes a forward-facing camera.
+
+## What Mighty outputs
+
+| Measurement | Output |
+| --- | --- |
+| Position | Local X, Y, Z in metres |
+| Orientation | Aircraft orientation as a quaternion |
+| Linear velocity | Aircraft-body velocity in metres per second |
+| Angular velocity | Aircraft-body rotation rate in radians per second |
+| Timing | Measurement timestamp |
+| Quality and resets | Quality indication and estimate-reset notifications |
+
+The wire format is **MAVLink 2 ODOMETRY**. Position uses a local, down-positive
+frame with arbitrary heading; body velocity uses forward, right, down axes.
+The measurement origin is Mighty’s IMU. Configure the corresponding sensor
+position offset on the flight controller.
+
+The quality field is not a distance-accuracy guarantee. Calibrated measurement
+covariance is not currently supplied, so receiver noise settings must be
+configured and validated. Output is withheld when motion estimates are invalid
+or stale; the aircraft must have an appropriate response to navigation-data loss.
+
+## Integration profiles
+
+| Profile | Requested output rate | Integration |
+| --- | --- | --- |
+| ArduPilot | 20 Hz | Existing external-navigation interface; see the [detailed guide](/docs/flight-controller/ardupilot). |
+| PX4 | 50 Hz | Existing external-vision interface; configure the receiver for the selected fusion sources. |
+| Betaflight / DroneForge | 20 Hz | Requires custom MAVLink telemetry and odometry receiver integration. |
+
+These are requested rates, not guaranteed achieved rates. Available sensor
+updates and device load determine the actual rate. The standard bridge uses
+230400 baud. Current packets are unsigned; a receiver requiring signed traffic
+will need a compatible integration.
+
+## After calibration
+
+The standard Lua bridge automatically starts motion tracking once the saved
+calibration and flight-controller connection are ready—even while disarmed.
+Wait for valid tracking before flight, and verify that the FC receives motion
+with the correct direction and scale.
+
+Tracking stays running through arming, disarming, and temporary FC link loss.
+Reconnecting does not restart tracking or deliberately reset the local position
+frame. If you stop tracking manually, the bridge respects that choice; restart
+it from the [visualizer](/viz), or reload the bridge to enable automatic startup
+again.
+
+Mounting calibration alone does not enable flight-control fusion, start an autonomous mode, or prove
+that a particular aircraft is ready to fly.
+
+The first wired installation should verify actual packet rate, sensor offsets,
+heading alignment, delay, and behavior when tracking is interrupted. Follow the
+[ArduPilot guide](/docs/flight-controller/ardupilot) for the receiver setup.
+
+For custom on-device programs, see the [Lua MAVLink API](/docs/lua/mavlink).
