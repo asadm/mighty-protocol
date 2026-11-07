@@ -106,3 +106,7 @@ g++ -std=c++17 -I"$HERE/.." "$HERE/cpp_image_drop_test.cpp" -o "$BIN_DIR/cpp_ima
 "$BIN_DIR/cpp_image_drop_test"
 node "$HERE/node_image_drop.test.js"
 python3 "$HERE/python_image_drop_test.py"
+
+echo "[test] automatic SD recording command"
+node --test "$HERE/node_auto_record.test.js"
+python3 "$HERE/python_auto_record_test.py"

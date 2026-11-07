@@ -1,3 +1,4 @@
+import json
 import threading
 import time
 from typing import Any, Callable, Dict, Optional
@@ -330,6 +331,27 @@ class MightyClient:
             result["message"] = "invalid calibration: {}".format(exc)
             self._emit_error("calibration", "decode_failed", result["message"], exc)
         return result
+
+    def set_auto_record_with_vio(self, enabled: bool) -> Dict[str, Any]:
+        """Persist automatic SD recording with VIO; decoded status is in value."""
+        if not isinstance(enabled, bool):
+            raise TypeError("enabled must be a boolean")
+        return self._auto_record_with_vio(b"on" if enabled else b"off")
+
+    def get_auto_record_with_vio(self) -> Dict[str, Any]:
+        return self._auto_record_with_vio(b"status")
+
+    def _auto_record_with_vio(self, action: bytes) -> Dict[str, Any]:
+        result = self.command("auto_record_vio", action)
+        if not result.get("ok"):
+            return result
+        try:
+            value = json.loads(bytes(result["data"]).decode("utf-8"))
+            if not isinstance(value, dict) or not isinstance(value.get("enabled"), bool) or not isinstance(value.get("active"), bool):
+                raise ValueError("invalid recording status")
+            return {**result, "value": value}
+        except (ValueError, TypeError, KeyError) as exc:
+            return {**result, "ok": False, "message": "Invalid auto-record status: {}".format(exc)}
 
     def start_vio(self) -> Dict[str, Any]:
         return self.command("start_vio")
