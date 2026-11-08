@@ -530,6 +530,18 @@ class MightyClient {
     return config_set(key, std::vector<uint8_t>(value.begin(), value.end()));
   }
 
+  // Response data is UTF-8 JSON: enabled, active, sd_present, image_paused,
+  // recording_fps, error. Older firmware returns an unsupported command error.
+  CommandResult set_auto_record_with_vio(bool enabled) {
+    const std::string action = enabled ? "on" : "off";
+    return command("auto_record_vio", std::vector<uint8_t>(action.begin(), action.end()));
+  }
+
+  CommandResult get_auto_record_with_vio() {
+    const std::string action = "status";
+    return command("auto_record_vio", std::vector<uint8_t>(action.begin(), action.end()));
+  }
+
   CommandResult start_vio() {
     return command("start_vio");
   }

@@ -395,6 +395,13 @@ TRACKING rectangle if they want to visualize the last known location.
 Standard command names:
 - `device_id` / `device-id`: returns the device's stable permanent identifier as UTF-8 text in both the `CRES` message and data fields.
 - `start_vio` / `stop_vio`: start a fresh VIO session or return to preview.
+- `auto_record_vio`: persist automatic SD-card recording with VIO. Send UTF-8
+  `on`, `off`, or `status`. A successful response contains UTF-8 JSON in `data`:
+  `enabled`, `active`, `image_paused`, and `sd_present` are booleans;
+  `recording_fps` is `10`; `error` is an empty string or a recording failure reason.
+  `enabled` is the saved preference; `active` means an automatic recording is
+  actually running. Always check these separately.
+
 - `start_tracker`: starts the object tracker in preview mode. Data is exactly 8 bytes,
   four big-endian u16 values in primary-image pixels: `x`, `y`, `width`,
   `height`. The rectangle is clipped to the next primary camera frame and must
@@ -414,6 +421,41 @@ Standard command names:
   pending.
 - `high_rate_imu`: controls high-rate pose propagation where supported. Data is
   `on`, `off`, `toggle`, `status`, or `get`.
+
+#### Automatic SD recording with VIO
+
+**Experimental:** recording affects VIO quality and speed. The 10 FPS setting
+is a camera target; actual saved-image throughput can be lower under load.
+
+Automatic recording creates a new ROS bag on the mounted SD card for each VIO
+session and finalizes it when VIO stops. Enabling the setting during VIO starts
+recording immediately; disabling it closes an automatically started recording.
+It does not stop a manually started recording. A missing SD card does not block
+VIO; insert a card and restart VIO to begin recording. Recording uses a 10 FPS
+camera rate, then restores the previous rate when stopped. Live image streaming
+is paused while full recording is active; pose and status updates continue.
+The setting survives restarts. New devices default to disabled.
+
+SDK helpers:
+
+```javascript
+await client.setAutoRecordWithVio(true);
+const result = await client.getAutoRecordWithVio();
+if (result.ok) console.log(result.value);
+```
+
+```python
+client.set_auto_record_with_vio(True)
+result = client.get_auto_record_with_vio()
+if result["ok"]:
+    print(result["value"])
+```
+
+C++ provides `set_auto_record_with_vio(bool)` and `get_auto_record_with_vio()`;
+read the JSON status from the returned command result's data. Older firmware
+returns an unknown-command error. The web visualizer exposes this setting under
+**Device settings → Record to SD card automatically with VIO**, and overlays an
+explanation on the image area while recording pauses the preview.
 
 #### `CFGQ`
 - `version` (u8)

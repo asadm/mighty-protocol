@@ -397,6 +397,29 @@ export class MightyClient {
     return result;
   }
 
+  /** Persist automatic SD recording with VIO. Firmware returns status in value. */
+  async setAutoRecordWithVio(enabled) {
+    if (typeof enabled !== "boolean") throw new TypeError("enabled must be a boolean");
+    return this._autoRecordWithVio(enabled ? "on" : "off");
+  }
+
+  async getAutoRecordWithVio() {
+    return this._autoRecordWithVio("status");
+  }
+
+  async _autoRecordWithVio(action) {
+    const result = await this.command("auto_record_vio", encodeText(action));
+    if (!result.ok) return result;
+    try {
+      const value = JSON.parse(decodeText(result.data));
+      if (typeof value.enabled !== "boolean" || typeof value.active !== "boolean")
+        throw new Error("invalid recording status");
+      return { ...result, value };
+    } catch (error) {
+      return { ...result, ok: false, message: `Invalid auto-record status: ${error.message}` };
+    }
+  }
+
   async startVio() {
     return this.command("start_vio");
   }
