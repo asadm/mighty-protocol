@@ -8,6 +8,26 @@ Keep your existing GPS navigation configuration available while verifying Mighty
 as a second source. Port assignments and available parameters depend on the FC
 board and ArduPilot release.
 
+## Quick path
+
+1. Remove propellers, power the FC and Mighty, and identify the FC UART connected
+   to Mighty. Confirm the UART voltage and Mighty supply voltage for the exact
+   hardware revisions.
+2. Set that FC UART to MAVLink 2 at the baud rate used by Mighty. Reboot if
+   required, then confirm the bridge identifies the FC in the mounting page.
+3. Back up the current Lua program. Install the ArduPilot bridge from **Calibrate
+   mounting → Set up the Lua UART bridge… → ArduPilot**.
+4. Calibrate and save the Mighty-to-FC mounting rotation with propellers removed.
+5. Configure `VISO_TYPE=3`. First verify odometry while keeping your current
+   navigation sources. Then set up a separate EKF source set for Mighty, if the
+   aircraft has another valid source to retain as a fallback.
+6. Check fresh ODOMETRY, EKF health, directions, scale, offsets, origin and loss
+   behavior on the bench. Do not test Loiter or RTL until those checks pass.
+
+Use the detailed sections below for the parameter workflow and checks. The
+Pavo-specific configuration later in this guide is an exception to the generic
+GPS-preserving source-set approach.
+
 ArduPilot already supports the required MAVLink telemetry and external-odometry
 messages. No custom ArduPilot firmware patch is required when those features are
 included in your firmware build. This guide is an integration procedure, not a
@@ -35,7 +55,9 @@ with the UART signal voltage. USB power is an option during initial bench setup.
 
 The example below assumes the physical connector maps to **SERIAL2**. Check your
 FC board documentation: the connector label or MCU UART number may differ from
-ArduPilot's logical SERIAL number.
+ArduPilot's logical SERIAL number. The serial index and baud rate are
+board-specific; use the Mighty bridge's configured baud rate on the matching
+FC port. Do not copy these example values without checking both ends.
 
 | Parameter | Value | Meaning |
 | --- | --- | --- |
@@ -49,9 +71,82 @@ requests FC attitude/rate telemetry at 50 Hz and the FC hardware identity.
 ArduPilot scheduling and link traffic can reduce the delivered rate. Check the
 wizard's readiness indications before beginning.
 
+In QGroundControl, connect over USB, open **Vehicle Setup → Parameters**, search
+for each `SERIALx_*` parameter, write the values, and reboot the FC if prompted.
+Mission Planner offers the equivalent **Config/Tuning → Full Parameter List**
+view. Reconnect and read the values back. Select the serial index that maps to
+the physical UART; the printed connector name (for example `TX4/RX4`) does not
+necessarily mean ArduPilot calls it `SERIAL4` on every board. Set the matching
+baud on both FC and Mighty bridge. Do not change a UART still used by the RC
+receiver, GPS, or another peripheral.
+
 The bridge currently uses unsigned MAVLink. If signing is enforced on this
 port, configure the dedicated link appropriately for your security policy;
 signed-message support is not implemented in this bridge.
+
+### Example: BETAFPV Pavo Pico II / F4 2–3S 20A AIO
+
+On the documented Pavo Pico II O4/UART4 connection, use:
+
+| Parameter | Value |
+| --- | ---: |
+| `SERIAL4_PROTOCOL` | `2` (MAVLink 2) |
+| `SERIAL4_BAUD` | `230` (230400 baud) |
+| `SERIAL4_OPTIONS` | `0` |
+
+Wire FC TX4 to Mighty RX, FC RX4 to Mighty TX, and ground to ground. Confirm
+the O4 connector power voltage against the specific Mighty revision; do not
+assume its power pin is 5 V. The Pavo example uses `VISO_TYPE=3` and disables
+GPS (`GPS1_TYPE=0`), so it does not preserve GPS as a fallback source. Its
+EKF source set 1 is configured as:
+
+```text
+EK3_SRC1_POSXY = 6   # ExternalNav
+EK3_SRC1_VELXY = 6   # ExternalNav
+EK3_SRC1_POSZ  = 1   # Barometer
+EK3_SRC1_VELZ  = 0   # None
+EK3_SRC1_YAW   = 6   # ExternalNav
+```
+
+This is a Pavo-specific bench configuration, not the generic GPS-preserving
+source-set-2 procedure below and not a flight-qualified preset. Confirm the
+FC receives fresh ODOMETRY and reports healthy ExternalNav position and yaw
+before using a position-required mode. For other aircraft, keep their working
+GPS setup and follow the source-set-2 procedure below unless deliberately
+configuring a GPS-denied vehicle.
+
+### Allow Stabilize arming while VIO is unavailable
+
+On ArduCopter 4.7 and later, `ARMING_SKIPCHK` uses a bitmask of checks to skip.
+For this GPS-denied Pavo setup, setting only the VisualOdometry check bit lets
+you arm in a manual mode such as Stabilize while Mighty is starting or has lost
+tracking:
+
+```text
+ARMING_SKIPCHK = existing_value | 262144   # add check 18: VisualOdometry
+```
+
+Preserve any existing skip bits; do not replace the whole bitmask blindly. On
+this Pavo, the existing value was `4` (GPS-lock check skipped because
+`GPS1_TYPE=0`), so the resulting value is `262148`. Keep all other existing
+arming checks active. This does not make VIO healthy or provide position
+control: Loiter may be selectable while disarmed, but ArduPilot still reports
+`Need Position Estimate` and prevents arming in Loiter until the EKF has a
+usable position estimate. Other pre-arm failures, including an unhealthy EKF
+attitude, battery, radio, or logging, can still prevent arming. Do not set
+`ARMING_SKIPCHK=-1` or disable all arming checks. On ArduPilot versions before
+4.7, the parameter was named `ARMING_CHECK` and had the opposite sense; do not
+copy this value to those versions.
+
+In QGroundControl, open **Vehicle Setup → Parameters**, search for
+`ARMING_SKIPCHK`, OR the current value with `262144` (for this Pavo, set
+`262148`), write the parameter, and reboot if requested. Read it back and
+confirm that only the intended VisualOdometry bit was added. Keep the
+transmitter in Stabilize during manual arming. With propellers removed, verify
+the FC reports no `VisOdom: not healthy` failure while VIO is unavailable, and
+verify that arming in Loiter is still blocked by `Need Position Estimate`.
+Do not attempt a flight until the normal sensor, battery, radio, motor, and
+failsafe checks pass and the aircraft has been validated in a controlled area.
 
 ## 3. Set up Mighty and its Lua bridge
 
@@ -117,6 +212,14 @@ calculate them to connect Mighty and check its output. Validate the settings
 with flight-controller logs before flight; the defaults are not yet a tested
 Mighty flight preset. Do not lower quality checks just to clear a navigation error.
 
+Set `VISO_TYPE` after confirming that the installed firmware exposes it. In
+QGroundControl's Parameters page or Mission Planner's Full Parameter List,
+write the value, reboot if requested, reconnect, and read it back. If the
+parameter is absent, install a firmware build that includes the visual-odometry
+feature before continuing. `VISO_TYPE` enables the ArduPilot backend; it does not
+select ExternalNav as an EKF source and does not prove that valid odometry is
+arriving.
+
 ## 6. Make Mighty a selectable source
 
 Retain the aircraft's working GPS configuration in source set 1. A conservative
@@ -135,6 +238,22 @@ Assign an unused RC channel's `RCx_OPTION=90` to source selection. Configure all
 accessible switch positions deliberately; do not leave source set 3 accidentally
 selectable with no usable source. For isolated evaluation, clear bit 0 of
 `EK3_SRC_OPTIONS` so the fuse-all-velocities option does not mix in another source.
+
+Keep the existing working source set unchanged while setting up source set 2.
+For the common GPS fallback configuration, set `EK3_SRC2_POSXY`,
+`EK3_SRC2_VELXY`, and `EK3_SRC2_YAW` to `6`, keep `EK3_SRC2_POSZ=1` for the
+barometer, and set `EK3_SRC2_VELZ=0` unless Mighty supplies validated vertical
+velocity. Configure the RC switch in **all** positions and confirm the selected
+source set shown by the ground station before arming. Selecting a source set is
+a deliberate operator action; it does not create an automatic fallback policy.
+
+For initial checks, leave the vehicle disarmed and propellers removed. Confirm
+the VIO output is fresh and stable, then select the Mighty source set and inspect
+EKF status and messages. If horizontal position or yaw is not healthy, switch
+back to the known-good source while still disarmed and diagnose packet rate,
+frame IDs, time stamps, reset counter, origin, offsets and innovations. Do not
+resolve a failed health check by disabling arming checks or lowering quality
+gates.
 
 Mighty's local heading is arbitrary. Follow ArduPilot's visual-odometry alignment
 procedure before takeoff. An unused `RCx_OPTION=80` action can request alignment
