@@ -1767,7 +1767,14 @@ function decodeVioStatePayload(payload) {
     translationObservability01 = dv.getFloat32(off, false); off += 4;
     degradedReasonFlags = dv.getUint32(off, false); off += 4;
   }
+  let hasTof = false, hasWifi = false;
+  if (version >= 9) {
+    if (off + 2 > u8.length) throw new Error("VSTA capabilities truncated");
+    hasTof = dv.getUint8(off++) !== 0;
+    hasWifi = dv.getUint8(off++) !== 0;
+  }
   return {
+    hasTof, hasWifi,
     version,
     state,
     flags,

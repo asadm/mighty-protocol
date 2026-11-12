@@ -710,6 +710,8 @@ class MightyClient:
                     "translation_confidence01": s.get("translation_confidence01"),
                     "translation_observability01": s.get("translation_observability01"),
                     "degraded_reason_flags": s.get("degraded_reason_flags"),
+                    "has_tof": s.get("has_tof", False),
+                    "has_wifi": s.get("has_wifi", False),
                 }
                 self._emit("vio_state", mapped)
                 if wants_any:

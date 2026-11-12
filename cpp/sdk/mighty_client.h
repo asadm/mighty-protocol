@@ -139,6 +139,8 @@ struct VioStateFrame {
   std::optional<float> translation_confidence01;
   std::optional<float> translation_observability01;
   std::optional<uint32_t> degraded_reason_flags;
+  bool has_tof = false;
+  bool has_wifi = false;
   VioInitReasonCode init_reason = VioInitReasonCode::kNone;
 };
 
@@ -1146,6 +1148,8 @@ class MightyClient {
           }
           evt.degraded_reason_flags = raw.degraded_reason_flags;
         }
+        evt.has_tof = raw.has_tof;
+        evt.has_wifi = raw.has_wifi;
         evt.init_reason = static_cast<VioInitReasonCode>(raw.init_reason_code);
         emit(vio_state_handlers_, evt);
         if (wants_any) emit_any(AnyEvent{"vio_state", "", {}});

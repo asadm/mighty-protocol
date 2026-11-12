@@ -998,7 +998,13 @@ def decode_vio_state_payload(payload: bytes):
         translation_confidence01 = struct.unpack(">f", payload[off:off+4])[0]; off += 4
         translation_observability01 = struct.unpack(">f", payload[off:off+4])[0]; off += 4
         degraded_reason_flags = struct.unpack(">I", payload[off:off+4])[0]; off += 4
+    has_tof = has_wifi = False
+    if version >= 9:
+        if off + 2 > len(payload):
+            raise ValueError("VSTA capabilities truncated")
+        has_tof, has_wifi = bool(payload[off]), bool(payload[off + 1])
     return {
+        "has_tof": has_tof, "has_wifi": has_wifi,
         "version": version,
         "state": state,
         "flags": flags,

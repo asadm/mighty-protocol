@@ -344,7 +344,9 @@ int main() {
   device->emit_packet(make_packet(build_gps_payload(gps), TYPE_GPS));
 
   VioState vsta;
-  vsta.version = 8;
+  vsta.version = 9;
+  vsta.has_tof = true;
+  vsta.has_wifi = true;
   vsta.state = 2;
   vsta.flags = 3;
   vsta.timestamp_ns = 13;
@@ -464,6 +466,7 @@ int main() {
   assert(last_gps->position_covariance[4] == 9.0);
   assert(seen.vsta.load() == 1);
   assert(last_vsta.has_value());
+  assert(last_vsta->has_tof && last_vsta->has_wifi);
   assert(last_vsta->init_reason_code == static_cast<uint8_t>(VioInitReasonCode::kNone));
   assert(last_vsta->init_reason == VioInitReasonCode::kNone);
   assert(last_vsta->translation_confidence01.has_value());

@@ -636,3 +636,55 @@ level while the socket remains backpressured. If it still cannot drain at 0%,
 the server disconnects that client. Recovery restores one level every two
 seconds without backpressure. Existing hard queue bounds remain
 as a fallback for durable traffic. Other clients and VIO do not wait for it.
+
+### VSTA v9 hardware capabilities
+
+After the v8 fields, v9 appends `u8 has_tof`, then `u8 has_wifi` (0/1).
+These report hardware presence, independently of streaming or network connection
+state. C++ exposes `has_tof` / `has_wifi`; JavaScript exposes `hasTof` / `hasWifi`;
+Python exposes `has_tof` / `has_wifi`. Decoders default both to false for v1–v8.
+Older clients can ignore the appended fields.
+
+### Wi-Fi command
+
+The `wifi` CMD request is UTF-8 text. Responses carry JSON in CRES `data`; a
+nonzero CRES status indicates an error. Credentials are never returned.
+
+- `get`: saved `mode`, `ssid`, `busy`, `error`, and supplicant `status`.
+- `scan`: start a scan; `results`: fetch the supplicant's tab-separated scan table
+  in the `results` string after a few seconds. Scanning an active AP is rejected;
+  save `off` first if switching away from AP mode.
+- `set\nMODE\nSSID_HEX\nPASSWORD_HEX`: persist and apply a configuration. MODE is
+  `off`, `station`, or `ap`; SSID and password are lowercase hex-encoded UTF-8
+  bytes, without an extra trailing line. SSID is 1–32 bytes. A password is empty
+  for an open network, or 8–63 printable ASCII characters for personal WPA/WPA2.
+  For `off`, send empty SSID and password. Enterprise and WPA3-only networks are
+  not supported by this command.
+
+Successful `set` returns `{ "saved": true, "applying": true }` before changing
+the network. This acknowledges durable storage, not successful association.
+Reconnect and query `get` to check the outcome. Wi-Fi may disconnect during
+application; USB is an independent recovery/configuration connection. AP mode
+serves the device at `192.168.43.1/24` and supplies DHCP; it does not route Internet
+traffic. Configuration is restored at boot. Firmware must supply the
+`mighty-wifi-apply` helper and Wi-Fi init service as well as hostapd,
+wpa_supplicant, wpa_cli, udhcpd, udhcpc and start-stop-daemon.
+
+### ToF depth and timestamp association
+
+ToF uses the existing DPT v1 format with `source_channel="tof0"`, ray-range
+convention, and `frame_id="tof0_optical_uncalibrated"`. Its timestamp is the
+sensor's V4L2 monotonic capture timestamp, in the same SoC clock domain as live
+camera and IMU samples. It is not replaced by userspace receipt time or by the
+matched image timestamp. The raw range preview has no calibrated camera model
+or rectification flag and must not be projected onto the RGB image or fused as
+calibrated camera depth. Amplitude/ambient confidence filtering is not applied.
+
+At each processed image, the producer selects an unused queued ToF frame within
+50 ms (nearest available timestamp) and broadcasts it alongside image traffic.
+The queue holds at most 12 captures; old/unmatched frames are discarded. A
+`tof_sync` EVNT gives `sourceChannel`, `timestampNs`, `imageTimestampNs`,
+`imuTimestampNs` as decimal strings and `hardwareSync: false`. The IMU timestamp
+is the closest available sample within 10 ms, or `"0"` if unmatched. This is
+software timestamp association, not a simultaneous-exposure guarantee. `tof_error`
+events report capture failures. Viz shows a separate ToF tile and timing offsets.

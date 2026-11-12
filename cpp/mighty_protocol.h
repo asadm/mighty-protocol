@@ -595,6 +595,9 @@ struct VioState {
   float translation_confidence01 = 1.0f;
   float translation_observability01 = 1.0f;
   uint32_t degraded_reason_flags = 0;
+  // Version 9 appends two u8 booleans: hardware presence, not connectivity.
+  bool has_tof = false;
+  bool has_wifi = false;
 };
 
 // Image-drop notification. Existing image formats stay byte-compatible; old
@@ -1272,7 +1275,8 @@ inline std::vector<uint8_t> build_vio_state_payload(const VioState& s) {
                  (include_split_init_reasons ? 2 : 0) +
                  (include_memory ? (8 + 8 + 8) : 0) +
                  (include_light ? (4 + 4) : 0) +
-                 (include_translation_confidence ? (4 + 4 + 4) : 0));
+                 (include_translation_confidence ? (4 + 4 + 4) : 0) +
+                 (s.version >= 9 ? 2 : 0));
   size_t off = 0;
   payload[off++] = s.version;
   payload[off++] = s.state;
@@ -1316,6 +1320,10 @@ inline std::vector<uint8_t> build_vio_state_payload(const VioState& s) {
     write_f32_be(payload.data() + off, s.translation_confidence01); off += 4;
     write_f32_be(payload.data() + off, s.translation_observability01); off += 4;
     write_u32_be(payload.data() + off, s.degraded_reason_flags); off += 4;
+  }
+  if (s.version >= 9) {
+    payload[off++] = s.has_tof ? 1 : 0;
+    payload[off++] = s.has_wifi ? 1 : 0;
   }
   return payload;
 }
@@ -2178,6 +2186,13 @@ inline bool decode_vio_state_payload(const std::vector<uint8_t>& payload, VioSta
     out.degraded_reason_flags = 0;
     for (int i = 0; i < 4; ++i) out.degraded_reason_flags = (out.degraded_reason_flags << 8) | payload[off + i];
     off += 4;
+  }
+  out.has_tof = false;
+  out.has_wifi = false;
+  if (out.version >= 9) {
+    if (payload.size() < off + 2) return false;
+    out.has_tof = payload[off++] != 0;
+    out.has_wifi = payload[off++] != 0;
   }
   return true;
 }

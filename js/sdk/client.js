@@ -1061,6 +1061,8 @@ export class MightyClient {
             translationConfidence01: s.version >= 8 ? s.translationConfidence01 : undefined,
             translationObservability01: s.version >= 8 ? s.translationObservability01 : undefined,
             degradedReasonFlags: s.version >= 8 ? s.degradedReasonFlags : undefined,
+            hasTof: s.hasTof,
+            hasWifi: s.hasWifi,
           };
           this._emit("vio_state", mapped);
           if (wantsAny) this._emitAny({ type: "vio_state", data: mapped });
