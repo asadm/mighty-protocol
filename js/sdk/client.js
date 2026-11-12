@@ -1107,6 +1107,7 @@ export class MightyClient {
         }
         case protocol.TYPE.VXL1: {
           const update=protocol.decodeVoxelPayload(frame.payload);
+          update.wirePayload=frame.payload;
           this._handleOccupancyGridUpdate(update);
           return;
         }
