@@ -1,3 +1,4 @@
+import { projectTofOccupancy } from "./tof-occupancy.js";
 import { RAW_FORMAT } from "../core/protocol.js";
 import { parseCalibrationYaml } from "./calibration.js";
 import { imageToRaw } from "./image.js";
@@ -286,6 +287,26 @@ class NativeOccupancyGrid {
     }
   }
 
+  processDepth(frame, points) {
+    if (!points?.xyz.length) return null;
+    const m=this.module, l=this.layout;
+    if (typeof m._ma_occupancy_process_depth !== "function") throw new Error("Update occupancy WASM for ToF support");
+    const posePtr=m._malloc(l.poseSize), updatePtr=m._malloc(l.updateSize);
+    const xyzPtr=m._malloc(points.xyz.byteLength), rgbPtr=m._malloc(points.rgb.byteLength), originPtr=m._malloc(12);
+    try {
+      clearMemory(m,posePtr,l.poseSize); clearMemory(m,updatePtr,l.updateSize);
+      this._writePose(posePtr,{...frame.pose.pose,timestampNs:frame.depth.timestampNs});
+      m.HEAPU8.set(new Uint8Array(points.xyz.buffer),xyzPtr);
+      m.HEAPU8.set(points.rgb,rgbPtr);
+      m.HEAPU8.set(new Uint8Array(points.origin.buffer),originPtr);
+      this._check(m._ma_occupancy_process_depth(this.handle,posePtr,xyzPtr,rgbPtr,points.xyz.length/3,originPtr,updatePtr),"ToF occupancy integration");
+      return this._readUpdate(updatePtr);
+    } finally {
+      m._ma_occupancy_update_destroy(updatePtr);
+      [posePtr,updatePtr,xyzPtr,rgbPtr,originPtr].forEach(p=>m._free(p));
+    }
+  }
+
   processFrames(frames) {
     if (!frames.length) return null;
     const m = this.module;
@@ -441,6 +462,10 @@ export class MightyOccupancyGrid {
     }
     this.client = client;
     this.options = { ...options };
+    this.tofCalibration = options.tofCalibration || null;
+    this.camera = selectCamera(options.calibration || options.calibrationYaml, options.cameraId);
+    this.depths = [];
+    this.lastDepthTimestamp = 0n;
     this.jpegDecoder = typeof options.jpegDecoder === "function" ? options.jpegDecoder : null;
     this.native = new NativeOccupancyGrid(
       module,
@@ -470,6 +495,7 @@ export class MightyOccupancyGrid {
     this.onError = typeof options.onError === "function" ? options.onError : null;
     this.unsubscribers = [
       client.onImage((image) => this._receiveImage(image)),
+      ...(this.tofCalibration && client.onDepth ? [client.onDepth((depth) => this._enqueue({ type: "depth", depth }))] : []),
       client.onPose((pose) => this._enqueuePose(pose)),
       client.onVioState((metrics) => this._enqueue({ type: "metrics", metrics })),
       client.onReset(() => this._enqueue({ type: "reset" })),
@@ -483,6 +509,8 @@ export class MightyOccupancyGrid {
     this.queue.length = 0;
     this.pendingImages.length = 0;
     this.poses.length = 0;
+    this.depths.length = 0;
+    this.lastDepthTimestamp = 0n;
     this.native.close();
   }
 
@@ -491,6 +519,8 @@ export class MightyOccupancyGrid {
     this.queue.length = 0;
     this.pendingImages.length = 0;
     this.poses.length = 0;
+    this.depths.length = 0;
+    this.lastDepthTimestamp = 0n;
     this.queuedImages = 0;
     const update = this.native.clear();
     this._emitUpdate(update);
@@ -516,6 +546,9 @@ export class MightyOccupancyGrid {
           this.native.updatePose(event.pose);
           this.poses.push({ pose: event.pose, metrics: { ...this.latestMetrics } });
           if (this.poses.length > POSE_HISTORY_LIMIT) this.poses.splice(0, this.poses.length - POSE_HISTORY_LIMIT);
+        } else if (event.type === "depth") {
+          this.depths.push(event.depth);
+          if (this.depths.length > 32) this.depths.shift();
         } else if (event.type === "image") {
           this.pendingImages.push(event.image);
           if (this.maxPendingFrames != null && this.pendingImages.length > this.maxPendingFrames) {
@@ -526,13 +559,23 @@ export class MightyOccupancyGrid {
         } else if (event.type === "reset") {
           this.pendingImages.length = 0;
           this.poses.length = 0;
+          this.depths.length = 0;
+          this.lastDepthTimestamp = 0n;
           this._emitUpdate(this.native.clear());
         }
       }
 
       const ready = this._matchFrames();
-      const update = this.native.processFrames(ready);
-      if (update) this._emitUpdate(update);
+      if (this.tofCalibration) {
+        for (const frame of ready) {
+          const points=projectTofOccupancy(frame.image,frame.depth,this.tofCalibration,this.camera);
+          const update=this.native.processDepth(frame,points);
+          if(update) this._emitUpdate(update);
+        }
+      } else {
+        const update = this.native.processFrames(ready);
+        if (update) this._emitUpdate(update);
+      }
       return true;
     } finally {
       this.processing = false;
@@ -553,7 +596,7 @@ export class MightyOccupancyGrid {
     const selected = selectRawImage(image);
     if (!selected || !primaryChannel(selected) || timestampNs(selected.timestampNs) === 0n) return;
     if (selected.kind === "jpg") {
-      void imageToRaw(selected, { jpegDecoder: this.jpegDecoder }).then((decoded) => {
+      return imageToRaw(selected, { jpegDecoder: this.jpegDecoder }).then((decoded) => {
         if (!this.closed && decoded) this._enqueueImage(decoded);
       }).catch((error) => this._reportError(error));
       return;
@@ -609,7 +652,23 @@ export class MightyOccupancyGrid {
     const ready = [];
     for (let imageIndex = 0; imageIndex < this.pendingImages.length;) {
       const image = this.pendingImages[imageIndex];
-      const imageTimestamp = timestampNs(image.timestampNs);
+      let imageTimestamp = timestampNs(image.timestampNs);
+      let depth = null;
+      if (this.tofCalibration) {
+        let delta=20_000_001n;
+        for (const candidate of this.depths) {
+          const ts=timestampNs(candidate.timestampNs);
+          if(ts<=this.lastDepthTimestamp) continue;
+          const diff=ts>imageTimestamp?ts-imageTimestamp:imageTimestamp-ts;
+          if(diff<delta) {depth=candidate;delta=diff;}
+        }
+        if(!depth) {
+          const newest=timestampNs(this.depths.at(-1)?.timestampNs);
+          if(newest>imageTimestamp+20_000_000n) {this.pendingImages.splice(imageIndex,1);this.droppedFrames++;continue;}
+          imageIndex++;continue;
+        }
+        imageTimestamp=timestampNs(depth.timestampNs);
+      }
       let bestIndex = -1;
       let bestDelta = null;
       for (let poseIndex = 0; poseIndex < this.poses.length; poseIndex += 1) {
@@ -621,7 +680,8 @@ export class MightyOccupancyGrid {
         }
       }
       if (bestIndex >= 0 && bestDelta <= MATCH_TOLERANCE_NS) {
-        ready.push({ image, pose: this.poses[bestIndex] });
+        ready.push({ image, depth, pose: this.poses[bestIndex] });
+        if(depth) this.lastDepthTimestamp=imageTimestamp;
         this.pendingImages.splice(imageIndex, 1);
         continue;
       }

@@ -1,3 +1,4 @@
+import { parseTofCalibration } from "./tof-occupancy.js";
 import * as protocol from "../core/protocol.js";
 import {
   DEFAULT_ALGORITHMS_WASM_URL,
@@ -614,6 +615,11 @@ export class MightyClient {
           });
         },
       };
+      // Use saved measured-depth alignment when available. Older boards have no tof config.
+      if (gridOptions.loadDeviceTofCalibration && gridOptions.tofCalibration === undefined) {
+        const saved = await this.configGet("tof", { as: "text" });
+        if (saved.ok && saved.found && saved.value) gridOptions.tofCalibration = parseTofCalibration(saved.value);
+      }
       let grid;
       if (gridOptions.worker === true && typeof Worker === "function") {
         grid = new MightyOccupancyGridWorker(this, {
@@ -1097,6 +1103,11 @@ export class MightyClient {
           else mapped = { subtype: "unknown", rawSubtype: v.subtype, rawPayload: toU8(frame.payload) };
           this._emit("viz", mapped);
           if (wantsAny) this._emitAny({ type: "viz", data: mapped });
+          return;
+        }
+        case protocol.TYPE.VXL1: {
+          const update=protocol.decodeVoxelPayload(frame.payload);
+          this._handleOccupancyGridUpdate(update);
           return;
         }
         case protocol.TYPE.PCLD: {

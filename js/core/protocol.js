@@ -24,6 +24,7 @@ const TYPE = {
   RSET: "RSET",
   FEA3: "FEA3",
   PCLD: "PCLD",
+  VXL1: "VXL1",
   KEYF: "KEYF",
   CMD: "CMD ",
   CRES: "CRES",
@@ -1817,6 +1818,18 @@ function decodeFea3Payload(payload) {
   return features;
 }
 
+function decodeVoxelPayload(payload) {
+  const bytes=payload instanceof Uint8Array?payload:new Uint8Array(payload);
+  if(bytes.length<14)throw new Error("Truncated voxel snapshot");
+  const dv=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
+  const count=dv.getUint16(2,false),resolutionM=dv.getUint16(12,false)/1000;
+  if(bytes[0]!==1||count>32768||bytes.length!==14+count*9||!(resolutionM>0))throw new Error("Invalid voxel snapshot");
+  const timestampNs=dv.getBigUint64(4,false),indices=new Int32Array(count*3),rgb=new Uint8Array(count*3);
+  for(let i=0;i<count;i++){const p=14+i*9;for(let j=0;j<3;j++){indices[3*i+j]=dv.getInt16(p+j*2,false);rgb[3*i+j]=bytes[p+6+j];}}
+  return {source:"device",reset:true,baseRevision:0n,revision:timestampNs,timestampNs,resolutionM,displayCellSizeM:resolutionM,changeCount:count,indices,rgb,
+    states:new Uint8Array(count).fill(2),occupancy:new Uint8Array(count).fill(200),intensity:new Uint8Array(count).fill(150),support:new Uint8Array(count).fill(3),visible:new Uint8Array(count).fill(1)};
+}
+
 function decodePcldPayload(payload) {
   const u8 = toU8(payload);
   let off = 0;
@@ -2018,6 +2031,7 @@ const api = {
   decodeVioStatePayload,
   decodeFea3Payload,
   decodePcldPayload,
+  decodeVoxelPayload,
   decodeCommandPayload,
   decodeResetVioPosePayload,
   decodeTrackerRectPayload,
@@ -2088,6 +2102,7 @@ export {
   decodeVioStatePayload,
   decodeFea3Payload,
   decodePcldPayload,
+  decodeVoxelPayload,
   decodeCommandPayload,
   decodeResetVioPosePayload,
   decodeTrackerRectPayload,

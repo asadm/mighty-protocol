@@ -55,6 +55,7 @@ export class MightyOccupancyGridWorker {
 
     this.unsubscribers = [
       client.onImage((image) => this._enqueueImage(image)),
+      ...(client.onDepth ? [client.onDepth((depth) => this._post({ type: "event", eventType: "depth", value: depth }))] : []),
       client.onPose((pose) => this._post({ type: "event", eventType: "pose", value: pose })),
       client.onVioState((metrics) => this._post({ type: "event", eventType: "metrics", value: metrics })),
       client.onReset(() => this._post({ type: "event", eventType: "reset" })),
@@ -85,7 +86,16 @@ export class MightyOccupancyGridWorker {
   }
 
   _enqueueImage(image) {
-    if (this.closed) return;
+    if (this.closed || (!image?.data && !image?.left && !image?.right)) return;
+    // Preview acknowledgement belongs to the UI. Functions cannot cross postMessage.
+    const cloneFrame = (frame) => {
+      if (!frame) return frame;
+      const { acknowledgePreview, left, right, ...copy } = frame;
+      if (left) copy.left = cloneFrame(left);
+      if (right) copy.right = cloneFrame(right);
+      return copy;
+    };
+    image = cloneFrame(image);
     if (this.workerBusy) {
       this.pendingImage = image;
       return;

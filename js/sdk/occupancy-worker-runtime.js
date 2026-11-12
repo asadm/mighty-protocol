@@ -14,18 +14,21 @@ class ForwardedClient {
   }
 
   onImage(callback) { return this.subscribe("image", callback); }
+  onDepth(callback) { return this.subscribe("depth", callback); }
   onPose(callback) { return this.subscribe("pose", callback); }
   onVioState(callback) { return this.subscribe("metrics", callback); }
   onReset(callback) { return this.subscribe("reset", callback); }
 
   emit(type, value) {
-    this.listeners.get(type)?.(value);
+    return this.listeners.get(type)?.(value);
   }
 }
 
 let client = null;
 let grid = null;
 let initializePromise = null;
+const eventCounts = {};
+let lastImage = null;
 
 function reportError(error) {
   self.postMessage({
@@ -81,7 +84,9 @@ async function handleMessage(message) {
   if (!grid || !client) return;
 
   if (message.type === "event") {
-    client.emit(message.eventType, message.value);
+    eventCounts[message.eventType] = (eventCounts[message.eventType] || 0) + 1;
+    if (message.eventType === "image") lastImage = {kind:message.value.kind,channel:message.value.channel,timestampNs:String(message.value.timestampNs),bytes:message.value.data?.length};
+    await client.emit(message.eventType, message.value);
     grid.process();
     if (message.eventType === "image") {
       self.postMessage({ type: "frame_done" });
@@ -89,7 +94,7 @@ async function handleMessage(message) {
   } else if (message.type === "clear") {
     grid.clear();
   } else if (message.type === "stats") {
-    self.postMessage({ type: "stats", stats: grid.stats() });
+    self.postMessage({ type: "stats", stats: { ...grid.stats(), inputSource: grid.tofCalibration ? "tof" : "rgb", eventCounts, lastImage, depthFrames: grid.depths.length, poseFrames: grid.poses.length } });
   }
 }
 
