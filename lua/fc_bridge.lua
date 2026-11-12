@@ -2,7 +2,7 @@
 -- UART remains owned by this script. Change the profile for PX4/Betaflight.
 local fc = MAVLink.new { profile = "ardupilot", mount = "saved",
                         system_id = 1, component_id = 197 }
-local last_pose, last_request = 0, -1000
+local next_pose, last_request = 0, -1000
 local last_start_check, retry_after = -1000, 0
 local start_request, startup_done = nil, false
 local interval = math.floor(1000 / fc:profile().rate_hz)
@@ -81,9 +81,14 @@ function loop()
   end
   update_led(now)
   update_startup(now) -- Asynchronous: UART reception continues during startup.
-  if now - last_pose >= interval then
-    last_pose = now
+  if now >= next_pose then
     local packet = fc:odometry(Mighty.odometry())
-    if packet then Serial.tryWriteRaw(packet) end
+    if packet then
+      Serial.tryWriteRaw(packet)
+      -- Keep phase through small callback delays. A duplicate/temporarily
+      -- unavailable sample does not consume a whole publication interval.
+      -- Skip missed slots; never burst or retry an encoded stale packet.
+      next_pose = next_pose + (math.floor((now - next_pose) / interval) + 1) * interval
+    end
   end
 end
