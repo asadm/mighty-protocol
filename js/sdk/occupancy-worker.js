@@ -16,7 +16,7 @@ export class MightyOccupancyGridWorker {
     this.latestStats = null;
     this.onUpdate = typeof options.onUpdate === "function" ? options.onUpdate : null;
     this.onError = typeof options.onError === "function" ? options.onError : null;
-    this.worker = new Worker(new URL("./occupancy-worker-runtime.js", import.meta.url), {
+    this.worker = new Worker(options.workerUrl || new URL("./occupancy-worker-runtime.js", import.meta.url), {
       type: "module",
       name: "mighty-occupancy-grid",
     });
@@ -37,6 +37,7 @@ export class MightyOccupancyGridWorker {
       onUpdate: _onUpdate,
       onError: _onError,
       worker: _worker,
+      workerUrl: _workerUrl,
       jpegDecoder: _jpegDecoder,
       moduleUrl,
       wasmUrl,
