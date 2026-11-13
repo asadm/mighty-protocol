@@ -88,7 +88,7 @@ baseline. The calibration estimates each camera's intrinsics and the rigid
 transform between the two cameras. If you also record IMU topics, the
 calibration report can include the camera-to-IMU chain. For testing, you can use
 the example mount at
-`mighty-web/mighty-protocol/examples/python/synced_stereo/stereo-mount.stl`.
+`examples/python/synced_stereo/stereo-mount.stl`.
 
 To create a calibration bag:
 
@@ -98,7 +98,7 @@ To create a calibration bag:
 3. Run the synced stereo Python example without depth enabled:
 
    ```bash
-   python3 mighty-web/mighty-protocol/examples/python/synced_stereo/main.py \
+   python3 examples/python/synced_stereo/main.py \
      --left-host http://192.168.7.1 \
      --right-host http://192.168.8.1
    ```
@@ -137,7 +137,7 @@ After calibration, run the example with the downloaded
 `-camchain-imucam.yaml`:
 
 ```bash
-python3 mighty-web/mighty-protocol/examples/python/synced_stereo/main.py \
+python3 examples/python/synced_stereo/main.py \
   --left-host http://192.168.7.1 \
   --right-host http://192.168.8.1 \
   --depth /path/to/your-camchain-imucam.yaml \
@@ -150,7 +150,7 @@ You can also replay a previously recorded stereo bag through the same viewer and
 depth pipeline:
 
 ```bash
-python3 mighty-web/mighty-protocol/examples/python/synced_stereo/main.py \
+python3 examples/python/synced_stereo/main.py \
   --bag /path/to/synced_stereo.bag \
   --depth /path/to/your-camchain-imucam.yaml \
   --depth-scale 0.5 \

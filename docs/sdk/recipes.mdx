@@ -33,7 +33,7 @@ client.connect();
 ```
 
 Why use it: default connection keeps simple apps simple and still supports local
-replay/proxy workflows without changing user code.
+proxy workflows without changing user code.
 
 ## Connect To A Specific Host
 
@@ -290,8 +290,7 @@ cameras, especially during manufacturing, calibration, and field testing.
 
 Use the typed calibration API when an application needs intrinsics or camera /
 body transforms. It accepts both Mighty OpenCV YAML and Kalibr multi-camera
-YAML, so consumers do not need their own YAML-layout parser. During replay,
-the result reflects the bag's active calibration override.
+YAML, so consumers do not need their own YAML-layout parser.
 
 ```python
 result = client.get_calibration()

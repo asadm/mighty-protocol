@@ -31,7 +31,7 @@ The SDK default host order is:
 2. `http://localhost:8080`
 3. `http://localhost:8084`
 
-The localhost entries are useful for development proxies and replay tools.
+The localhost entries are useful for development proxies.
 
 ## Install
 
@@ -72,31 +72,6 @@ JavaScript, `image_to_raw` in Python, or the optional
 `cpp/sdk/mighty_opencv.h` adapter in C++ when a consumer needs decoded pixels.
 This avoids paying JPEG decode cost in applications that only record or relay
 frames.
-
-## Optional Algorithm Binaries
-
-Native algorithm features use the prebuilt `mighty-algorithms` runtime. The
-protocol-only SDK remains header-only and does not link or load that runtime.
-Download the bundle only for applications that enable an algorithm feature:
-
-```bash
-curl -L -o /tmp/mighty-algorithms-sdk-<commit>.zip \
-  https://mightycamera.com/downloads/mighty-algorithms-sdk-<commit>.zip
-unzip -o /tmp/mighty-algorithms-sdk-<commit>.zip -d .
-```
-
-The native bundle installs `lib/algorithms/<platform>/`. Local developers can
-rebuild it with `scripts/rebuild_algorithms_sdk.sh`.
-
-For browser use, serve `mighty_algorithms.wasm` from your static assets; use
-`algorithmsWasmUrl` if your app serves it somewhere else:
-
-```js
-const client = new MightyClient(device, {
-  loopclosure: true,
-  algorithmsWasmUrl: "/assets/mighty_algorithms.wasm",
-});
-```
 
 ## Quick Start
 

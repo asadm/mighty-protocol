@@ -11,9 +11,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 get_filename_component(MIGHTY_PROTOCOL_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../.." ABSOLUTE)
-get_filename_component(REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../.." ABSOLUTE)
 
-list(PREPEND CMAKE_PREFIX_PATH "${REPO_ROOT}/external/pangolin-install")
 list(PREPEND CMAKE_PREFIX_PATH "/opt/homebrew/opt/eigen")
 
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs calib3d)
@@ -40,18 +38,7 @@ if(NOT LIBZIP_LIBRARY)
   set(LIBZIP_LIBRARY "")
 endif()
 
-find_package(Pangolin 0.2 QUIET)
-if(NOT Pangolin_FOUND AND TARGET pango_display)
-  set(Pangolin_FOUND TRUE)
-  set(Pangolin_INCLUDE_DIRS "${REPO_ROOT}/external/pangolin-install/include")
-  set(Pangolin_LIBRARIES
-    pango_core pango_display pango_geometry pango_glgeometry pango_image
-    pango_opengl pango_packetstream pango_plot pango_scene pango_tools
-    pango_vars pango_video pango_windowing tinyobj)
-endif()
-if(NOT Pangolin_FOUND)
-  message(FATAL_ERROR "Pangolin is required for mapper-example")
-endif()
+find_package(Pangolin 0.2 REQUIRED)
 
 add_executable(mighty_mapper_live main.cpp)
 add_executable(mighty_mapper_replay replay.cpp)

@@ -259,9 +259,8 @@ Metadata must specify `tag36h11` if it includes a family.
 
 ### JavaScript calibration
 
-`getCalibration()` fetches the active `calib` config and normalizes it. This
-means a replay bag's calibration override is resolved by Mighty before the SDK
-returns the object. `parseCalibrationYaml(yaml)` exposes the same normalizer for
+`getCalibration()` fetches the active `calib` config and normalizes it.
+`parseCalibrationYaml(yaml)` exposes the same normalizer for
 calibration text already held by the application. Both Kalibr `cam0`/`cam1`
 YAML and Mighty's flat OpenCV FileStorage YAML are accepted.
 
@@ -711,7 +710,7 @@ families in metadata are rejected.
 
 ### Python calibration
 
-`client.get_calibration()` fetches and normalizes the active device or replay
+`client.get_calibration()` fetches and normalizes the active device
 calibration. `parse_calibration_yaml(yaml)` performs the same normalization on
 an existing string. The returned `value` uses this stable snake-case schema:
 

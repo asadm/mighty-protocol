@@ -12,7 +12,7 @@ Default endpoints:
 Hardware setup:
 
 1. Mount two Mighty cameras on a rigid mount with a fixed baseline. For testing,
-   you can use `mighty-web/mighty-protocol/examples/python/synced_stereo/stereo-mount.stl`.
+   you can use `examples/python/synced_stereo/stereo-mount.stl`.
 2. Connect the FSYNC pins of both cameras together.
 3. Connect both FSYNC pins to the PWM pin from one camera, for example: both
    cameras' FSYNC pins connected to camera 1's PWM pin.
@@ -24,14 +24,14 @@ Hardware setup:
 Run from the repository root:
 
 ```bash
-pip install -r mighty-web/mighty-protocol/examples/python/synced_stereo/requirements.txt
-python3 mighty-web/mighty-protocol/examples/python/synced_stereo/main.py
+pip install -r examples/python/synced_stereo/requirements.txt
+python3 examples/python/synced_stereo/main.py
 ```
 
 Run without depth:
 
 ```bash
-python3 mighty-web/mighty-protocol/examples/python/synced_stereo/main.py \
+python3 examples/python/synced_stereo/main.py \
   --left-host http://192.168.7.1 \
   --right-host http://192.168.8.1
 ```
@@ -39,7 +39,7 @@ python3 mighty-web/mighty-protocol/examples/python/synced_stereo/main.py \
 Run with rectified SGBM metric depth:
 
 ```bash
-python3 mighty-web/mighty-protocol/examples/python/synced_stereo/main.py \
+python3 examples/python/synced_stereo/main.py \
   --left-host http://192.168.7.1 \
   --right-host http://192.168.8.1 \
   --depth ~/path/to/stereo-calibration-camchain-imucam.yaml \
@@ -51,15 +51,15 @@ python3 mighty-web/mighty-protocol/examples/python/synced_stereo/main.py \
 Replay a previously recorded bag:
 
 ```bash
-python3 mighty-web/mighty-protocol/examples/python/synced_stereo/main.py \
-  --bag /Users/asad/synced_stereo_20260626-184153.bag
+python3 examples/python/synced_stereo/main.py \
+  --bag /path/to/recording.bag
 ```
 
 Replay a bag with metric depth:
 
 ```bash
-python3 mighty-web/mighty-protocol/examples/python/synced_stereo/main.py \
-  --bag /Users/asad/synced_stereo_20260626-184153.bag \
+python3 examples/python/synced_stereo/main.py \
+  --bag /path/to/recording.bag \
   --depth ~/path/to/stereo-calibration-camchain-imucam.yaml \
   --depth-scale 0.5 \
   --depth-min-m 0.2 \
@@ -119,7 +119,7 @@ Stereo calibration workflow:
 Useful options:
 
 ```bash
-python3 mighty-web/mighty-protocol/examples/python/synced_stereo/main.py \
+python3 examples/python/synced_stereo/main.py \
   --left-host http://192.168.7.1 \
   --right-host http://192.168.8.1 \
   --start-vio
@@ -130,7 +130,7 @@ window. Click `Stop Rec` to close the bag. Bags are saved in `~/` by default as
 `synced_stereo_<timestamp>.bag`.
 
 ```bash
-python3 mighty-web/mighty-protocol/examples/python/synced_stereo/main.py
+python3 examples/python/synced_stereo/main.py
 ```
 
 Use `--record-dir /path/to/dir` to change the default save directory. Use
@@ -154,8 +154,8 @@ Use `--no-image-refine` to rely only on clock-command alignment.
 Enable the optional rectified stereo depth view with a Kalibr camchain YAML:
 
 ```bash
-python3 mighty-web/mighty-protocol/examples/python/synced_stereo/main.py \
-  --depth /Users/asad/Documents/kalibr-rerun-161436/synced_stereo_20260626-161436-camchain-imucam.yaml
+python3 examples/python/synced_stereo/main.py \
+  --depth /path/to/stereo-calibration-camchain-imucam.yaml
 ```
 
 Depth mode uses the same rendered synced stereo pair as the raw preview. It

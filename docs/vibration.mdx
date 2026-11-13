@@ -182,16 +182,15 @@ replace the raw IMU stream sent to other consumers.
 
 | Consumer | Data it receives when `noise.yaml` is active |
 | --- | --- |
-| Polaris VIO frontend and estimator | Filtered accelerometer and gyroscope samples |
+| VIO | Filtered accelerometer and gyroscope samples |
 | VIO pose, velocity, and tracking output | Estimated using the filtered IMU; the pose itself is not post-filtered |
 | Web Visualizer and SDK raw IMU stream | Raw, unfiltered IMU samples |
 | ROS bag recording (`/imu0`) | Raw, unfiltered IMU samples |
 | IMU health diagnostics | Raw, unfiltered IMU samples |
 
-Recordings also embed the active profile as `/noise` metadata. On replay, Mighty
-can apply that embedded profile to the VIO input while `/imu0` remains raw. This
-preserves the original measurements and makes the filtering choice
-reproducible.
+Recordings also embed the active profile as `/noise` metadata while `/imu0`
+remains raw, preserving the original measurements and the profile used during
+recording.
 
 Mighty currently installs fixed causal filter stages derived from the recorded
 operating envelope; it does not track live motor RPM. If the motor band later

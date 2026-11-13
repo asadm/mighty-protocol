@@ -3,12 +3,11 @@
 Native live mapper example using:
 
 - Mighty protocol C++ SDK for image, pose, and calibration
-- `libmighty_algorithms` from the packaged native SDK
+- An installed `libmighty_algorithms` runtime
 - Pangolin for a simple viewer
 
-The viewer intentionally draws its own map-update view so we can debug coordinate
-scale/orientation before returning to the WASM/Three.js path. It uses a white
-background, blue map points, and a red trajectory.
+The viewer displays map updates on a white background with blue map points
+and a red trajectory.
 
 ## Build
 
@@ -19,8 +18,8 @@ cmake -S . -B build
 cmake --build build --target mighty_mapper_live -j
 ```
 
-By default CMake uses the bundled native SDK at
-`../../../../lib/algorithms/current`. To test another package, set
+This example requires the native algorithms SDK. CMake looks in
+`../../../../lib/algorithms/current` by default. To use an installed SDK, set
 `MIGHTY_ALGORITHMS_SDK=/path/to/mighty-algorithms-sdk`.
 
 On Apple Silicon, the CMake file defaults to an `arm64` target when using
@@ -29,18 +28,10 @@ running under Rosetta.
 
 ## Run
 
-Start VIO first, for example:
+Connect Mighty Camera and start VIO in the visualizer, then run:
 
 ```bash
-./build_app/app ~/datasets/mighty-small-ov9281/calabazas-stairs2.bag \
-  main/polaris/config/rockchip1_ov9281_halfres.yaml \
-  --vio --wait_for_web_client --fps=60
-```
-
-Then run:
-
-```bash
-./build/mighty_mapper_live --base-url http://127.0.0.1:8084
+./build/mighty_mapper_live --base-url http://192.168.7.1
 ```
 
 The example uses the mapper defaults from `libmighty_algorithms`.

@@ -24,25 +24,25 @@ Before running this example:
 ## Install
 
 ```bash
-python3 -m pip install -r mighty-web/mighty-protocol/examples/python/multi_camera_apriltag/requirements.txt
+python3 -m pip install -r examples/python/multi_camera_apriltag/requirements.txt
 ```
 
 ## Live Demo
 
 ```bash
-python3 mighty-web/mighty-protocol/examples/python/multi_camera_apriltag/main.py
+python3 examples/python/multi_camera_apriltag/main.py
 ```
 
 Start both VIO instances from the UI with **Start VIO**, or start immediately:
 
 ```bash
-python3 mighty-web/mighty-protocol/examples/python/multi_camera_apriltag/main.py --start-vio
+python3 examples/python/multi_camera_apriltag/main.py --start-vio
 ```
 
 Override endpoints if needed:
 
 ```bash
-python3 mighty-web/mighty-protocol/examples/python/multi_camera_apriltag/main.py \
+python3 examples/python/multi_camera_apriltag/main.py \
   --red-host http://192.168.7.1 \
   --blue-host http://192.168.8.1
 ```
@@ -52,7 +52,7 @@ python3 mighty-web/mighty-protocol/examples/python/multi_camera_apriltag/main.py
 Use the **Record** button, or start recording on launch:
 
 ```bash
-python3 mighty-web/mighty-protocol/examples/python/multi_camera_apriltag/main.py \
+python3 examples/python/multi_camera_apriltag/main.py \
   --record \
   --record-dir ~/bags
 ```
@@ -63,7 +63,7 @@ payloads, and relocalization events for both cameras.
 ## Replay
 
 ```bash
-python3 mighty-web/mighty-protocol/examples/python/multi_camera_apriltag/main.py \
+python3 examples/python/multi_camera_apriltag/main.py \
   --bag ~/bags/multi_camera_apriltag_YYYYMMDD-HHMMSS.bag
 ```
 

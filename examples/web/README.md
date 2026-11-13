@@ -44,13 +44,7 @@ Loop-closure page:
 http://localhost:8090/loopclosure/
 ```
 
-For a local bag replay, start VIO separately:
-
-```bash
-./build_app/app /Users/asad/datasets/mighty-singleboard/calabazas-stairs4-imufixed.bag \
-  main/polaris/config/rockchip1_ov9281_halfres.yaml \
-  --vio --wait_for_web_client --fps=30 --start_from=0
-```
+Connect Mighty Camera and start VIO in the visualizer to view its live stream.
 
 ## Notes
 

@@ -1,12 +1,7 @@
 # MightyOccupancyGrid C++ Example
 
-Build the optional native runtime once from the protocol repository root:
-
-```bash
-scripts/rebuild_algorithms_sdk.sh macos-arm64
-```
-
-Then build and run the example:
+This example requires an installed native algorithms SDK at
+`lib/algorithms/current`. From the protocol repository root, build and run:
 
 ```bash
 cmake -S examples/cpp/wip/occupancy_grid_sdk \
