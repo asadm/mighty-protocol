@@ -65,6 +65,7 @@ local function update_led(now)
   end
 end
 function setup()
+  Mighty.set_loop_interval(math.min(20, interval))
   LED.begin()
   LED.off()
   Serial.begin(230400)
@@ -82,7 +83,7 @@ function loop()
   update_led(now)
   update_startup(now) -- Asynchronous: UART reception continues during startup.
   if now >= next_pose then
-    local packet = fc:odometry(Mighty.odometry())
+    local packet = fc:odometry()
     if packet then
       Serial.tryWriteRaw(packet)
       -- Keep phase through small callback delays. A duplicate/temporarily
