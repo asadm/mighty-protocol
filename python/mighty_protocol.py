@@ -494,7 +494,7 @@ def decode_pose_payload(payload: bytes):
         if (flags & (1 << flag_bit)) == 0:
             return None
         if len(payload) < off + 24:
-            return None
+            raise ValueError("payload too short for pose vector")
         v = struct.unpack(">ddd", payload[off:off+24])
         off += 24
         return v
@@ -508,6 +508,19 @@ def decode_pose_payload(payload: bytes):
         if len(payload) >= off + 8:
             timestamp_ns = struct.unpack(">Q", payload[off:off+8])[0]
             off += 8
+        else:
+            raise ValueError("payload too short for timestamp")
+    def read_covariance(bit):
+        nonlocal off
+        if not flags & (1 << bit):
+            return None
+        if len(payload) < off + 21 * 4:
+            raise ValueError("payload too short for covariance")
+        values = struct.unpack(">21f", payload[off:off+21*4])
+        off += 21 * 4
+        return values if all(math.isfinite(value) for value in values) else None
+    pose_covariance = read_covariance(7)
+    velocity_covariance = read_covariance(8)
     return {
         "pose_type": pose_type,
         "pose_flags": flags,
@@ -519,6 +532,8 @@ def decode_pose_payload(payload: bytes):
         "linear_acceleration_body_mps2": linear_acceleration_body_mps2,
         "angular_acceleration_body_rps2": angular_acceleration_body_rps2,
         "timestamp_ns": timestamp_ns,
+        "pose_covariance": pose_covariance,
+        "velocity_covariance": velocity_covariance,
     }
 
 def build_reset_vio_pose_payload(position_m=(0.0, 0.0, 0.0), orientation_xyzw=None) -> bytes:

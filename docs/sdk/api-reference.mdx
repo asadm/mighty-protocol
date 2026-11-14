@@ -430,6 +430,8 @@ type PoseEvent = {
   angularVelocityBodyRps?: [number, number, number];
   linearAccelerationBodyMps2?: [number, number, number];
   angularAccelerationBodyRps2?: [number, number, number];
+  poseCovariance?: number[];            // 21 upper-triangle f32 values; odom position and rotation-vector error
+  velocityCovariance?: number[];        // 21 upper-triangle f32 values; body linear/angular velocity
   timestampNs?: bigint;
 };
 ```

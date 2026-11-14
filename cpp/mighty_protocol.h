@@ -874,7 +874,9 @@ inline std::vector<uint8_t> build_pose_payload(uint32_t pose_type,
                                                const double* angular_velocity_body_rps_or_null = nullptr,
                                                const double* linear_acceleration_body_mps2_or_null = nullptr,
                                                const double* angular_acceleration_body_rps2_or_null = nullptr,
-                                               std::optional<uint64_t> timestamp_ns = std::nullopt) {
+                                               std::optional<uint64_t> timestamp_ns = std::nullopt,
+                                               const float* pose_covariance_or_null = nullptr,
+                                               const float* velocity_covariance_or_null = nullptr) {
   std::vector<uint8_t> payload;
   // NOTE: payload is intentionally append-only for backward compatibility.
   // New fields must be added at the end so older decoders can ignore them.
@@ -884,7 +886,9 @@ inline std::vector<uint8_t> build_pose_payload(uint32_t pose_type,
                   (angular_velocity_body_rps_or_null ? 8 * 3 : 0) +
                   (linear_acceleration_body_mps2_or_null ? 8 * 3 : 0) +
                   (angular_acceleration_body_rps2_or_null ? 8 * 3 : 0) +
-                  (has_timestamp ? 8 : 0));
+                  (has_timestamp ? 8 : 0) +
+                  (pose_covariance_or_null ? 21 * 4 : 0) +
+                  (velocity_covariance_or_null ? 21 * 4 : 0));
 
   // Pose flags (uint32 big-endian)
   // Bit 0: has_quat
@@ -894,6 +898,8 @@ inline std::vector<uint8_t> build_pose_payload(uint32_t pose_type,
   // Bit 4: has_linear_acceleration_body_mps2 (ax,ay,az) float64[3]
   // Bit 5: has_angular_acceleration_body_rps2 (alphax,alphay,alphaz) float64[3]
   // Bit 6: has_timestamp (timestamp_ns) uint64 appended at the end
+  // Bit 7: pose covariance, upper triangle of [x,y,z,roll,pitch,yaw], f32[21]
+  // Bit 8: velocity covariance, upper triangle of [vx,vy,vz,wx,wy,wz], f32[21]
   uint32_t flags = has_quat ? 1u : 0u;
   if (is_keyframe) flags |= (1u << 1);
   if (linear_velocity_body_mps_or_null) flags |= (1u << 2);
@@ -901,6 +907,8 @@ inline std::vector<uint8_t> build_pose_payload(uint32_t pose_type,
   if (linear_acceleration_body_mps2_or_null) flags |= (1u << 4);
   if (angular_acceleration_body_rps2_or_null) flags |= (1u << 5);
   if (has_timestamp) flags |= (1u << 6);
+  if (pose_covariance_or_null) flags |= (1u << 7);
+  if (velocity_covariance_or_null) flags |= (1u << 8);
 
   payload.resize(0);
   uint8_t buf8[8];
@@ -934,6 +942,13 @@ inline std::vector<uint8_t> build_pose_payload(uint32_t pose_type,
   if (has_timestamp) {
     write_u64_be(buf8, timestamp_ns.value());
     payload.insert(payload.end(), buf8, buf8 + 8);
+  }
+  for (const float* covariance : {pose_covariance_or_null, velocity_covariance_or_null}) {
+    if (!covariance) continue;
+    for (size_t i = 0; i < 21; ++i) {
+      write_f32_be(buf4, covariance[i]);
+      payload.insert(payload.end(), buf4, buf4 + 4);
+    }
   }
   return payload;
 }
@@ -1728,7 +1743,9 @@ inline bool decode_pose_payload(const std::vector<uint8_t>& payload,
                                 std::optional<std::array<double,3>>* angular_velocity_body_rps_or_null = nullptr,
                                 std::optional<std::array<double,3>>* linear_acceleration_body_mps2_or_null = nullptr,
                                 std::optional<std::array<double,3>>* angular_acceleration_body_rps2_or_null = nullptr,
-                                std::optional<uint64_t>* timestamp_ns_or_null = nullptr) {
+                                std::optional<uint64_t>* timestamp_ns_or_null = nullptr,
+                                std::optional<std::array<float,21>>* pose_covariance_or_null = nullptr,
+                                std::optional<std::array<float,21>>* velocity_covariance_or_null = nullptr) {
   if (payload.size() < 4 + 4 + 8 * 3) return false;
   auto rd_u32 = [&](size_t idx) -> uint32_t {
     return (static_cast<uint32_t>(payload[idx]) << 24) |
@@ -1780,39 +1797,52 @@ inline bool decode_pose_payload(const std::vector<uint8_t>& payload,
   off += 4;
 
   auto decode_vec3_if_present = [&](uint32_t flag_bit,
-                                    std::optional<std::array<double,3>>* out_opt) {
-    if (!out_opt) return;
+                                    std::optional<std::array<double,3>>* out_opt) -> bool {
     if ((pose_flags & (1u << flag_bit)) == 0) {
-      out_opt->reset();
-      return;
+      if (out_opt) out_opt->reset();
+      return true;
     }
-    if (payload.size() < off + 24) {
-      out_opt->reset();
-      return;
+    if (payload.size() < off + 24) return false;
+    if (out_opt) {
+      std::array<double,3> v{};
+      rd_f64x3(off, v);
+      *out_opt = v;
     }
-    std::array<double,3> v{};
-    rd_f64x3(off, v);
-    *out_opt = v;
     off += 24;
+    return true;
   };
 
-  decode_vec3_if_present(/*flag_bit=*/2, linear_velocity_body_mps_or_null);
-  decode_vec3_if_present(/*flag_bit=*/3, angular_velocity_body_rps_or_null);
-  decode_vec3_if_present(/*flag_bit=*/4, linear_acceleration_body_mps2_or_null);
-  decode_vec3_if_present(/*flag_bit=*/5, angular_acceleration_body_rps2_or_null);
+  if (!decode_vec3_if_present(/*flag_bit=*/2, linear_velocity_body_mps_or_null) ||
+      !decode_vec3_if_present(/*flag_bit=*/3, angular_velocity_body_rps_or_null) ||
+      !decode_vec3_if_present(/*flag_bit=*/4, linear_acceleration_body_mps2_or_null) ||
+      !decode_vec3_if_present(/*flag_bit=*/5, angular_acceleration_body_rps2_or_null)) return false;
 
-  if (timestamp_ns_or_null) {
-    if ((pose_flags & (1u << 6)) == 0) {
-      timestamp_ns_or_null->reset();
-    } else if (payload.size() < off + 8) {
-      timestamp_ns_or_null->reset();
-    } else {
-      uint64_t ts = 0;
-      for (int i = 0; i < 8; ++i) ts = (ts << 8) | payload[off + i];
-      *timestamp_ns_or_null = ts;
-      off += 8;
-    }
+  if (pose_flags & (1u << 6)) {
+    if (payload.size() < off + 8) return false;
+    uint64_t ts = 0;
+    for (int i = 0; i < 8; ++i) ts = (ts << 8) | payload[off + i];
+    if (timestamp_ns_or_null) *timestamp_ns_or_null = ts;
+    off += 8;
+  } else if (timestamp_ns_or_null) {
+    timestamp_ns_or_null->reset();
   }
+  auto read_covariance = [&](uint32_t flag_bit,
+                             std::optional<std::array<float,21>>* output) {
+    if (!(pose_flags & (1u << flag_bit))) {
+      if (output) output->reset();
+      return true;
+    }
+    if (payload.size() < off + 21 * 4) return false;
+    if (output) {
+      std::array<float,21> values{};
+      for (size_t i = 0; i < values.size(); ++i) rd_f32(off + 4 * i, values[i]);
+      *output = values;
+    }
+    off += 21 * 4;
+    return true;
+  };
+  if (!read_covariance(7, pose_covariance_or_null) ||
+      !read_covariance(8, velocity_covariance_or_null)) return false;
   return true;
 }
 

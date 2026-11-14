@@ -1016,6 +1016,8 @@ export class MightyClient {
             angularVelocityBodyRps: p.angularVelocityBodyRps || undefined,
             linearAccelerationBodyMps2: p.linearAccelerationBodyMps2 || undefined,
             angularAccelerationBodyRps2: p.angularAccelerationBodyRps2 || undefined,
+            poseCovariance: p.poseCovariance || undefined,
+            velocityCovariance: p.velocityCovariance || undefined,
             timestampNs: p.timestampNs === null ? undefined : p.timestampNs,
           };
           this._pushLoopclosurePose(mapped);

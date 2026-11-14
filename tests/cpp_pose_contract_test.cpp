@@ -126,6 +126,27 @@ int main() {
   assert(approx(out_angvel.value()[2], angvel[2]));
   assert(approx(static_cast<double>(confidence), 1.0));
 
+  std::array<float,21> pose_covariance{}, velocity_covariance{};
+  for (size_t i = 0; i < 21; ++i) {
+    pose_covariance[i] = static_cast<float>(i) / 8.0f;
+    velocity_covariance[i] = static_cast<float>(i) / 4.0f;
+  }
+  const auto extended = build_pose_payload(pose_type, true, false,
+      position[0], position[1], position[2], quat.data(), 1.0f,
+      linvel.data(), angvel.data(), nullptr, nullptr, timestamp_ns,
+      pose_covariance.data(), velocity_covariance.data());
+  std::optional<std::array<float,21>> decoded_pose_covariance, decoded_velocity_covariance;
+  assert(decode_pose_payload(extended, out_pose_type, out_flags, x, y, z,
+      out_quat, &confidence, &out_linvel, &out_angvel, nullptr, nullptr,
+      &out_ts, &decoded_pose_covariance, &decoded_velocity_covariance));
+  assert(decoded_pose_covariance == pose_covariance);
+  assert(decoded_velocity_covariance == velocity_covariance);
+  auto truncated = extended;
+  truncated.pop_back();
+  assert(!decode_pose_payload(truncated, out_pose_type, out_flags, x, y, z,
+      out_quat, &confidence, &out_linvel, &out_angvel, nullptr, nullptr,
+      &out_ts, &decoded_pose_covariance, &decoded_velocity_covariance));
+
   // Signed-axis sanity for canonical->viz basis.
   const auto ex = map_position_odom_to_viz({{1.0, 0.0, 0.0}});
   const auto ey = map_position_odom_to_viz({{0.0, 1.0, 0.0}});

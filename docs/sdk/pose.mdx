@@ -51,6 +51,13 @@ Interpretation:
 | `angular_velocity_body_rps` / `angularVelocityBodyRps` | angular velocity | `base_link` | rad/s |
 | `timestamp_ns` / `timestampNs` | sample time | stream/device clock | ns |
 | `confidence` | ordinal pose usability | scalar | `[0,1]` |
+| `pose_covariance` / `poseCovariance` | optional 6×6 position/rotation covariance, packed upper triangle | `odom` | m², rad², and cross terms |
+| `velocity_covariance` / `velocityCovariance` | optional 6×6 linear/angular velocity covariance, packed upper triangle | `base_link` | (m/s)², (rad/s)², and cross terms |
+
+Covariance arrays contain 21 values in row-major upper-triangle order. A
+missing array means uncertainty is unknown, not zero. These are local VIO model
+estimates; they do not guarantee absolute accuracy or account for every source
+of drift. The Viz circle uses the horizontal position block when available.
 
 ## Pose Usability
 

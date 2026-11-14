@@ -69,6 +69,23 @@ function buildManualPosePayload() {
   assert.ok(almost(out.angularVelocityBodyRps[2], fixture.angularVelocityBodyRps[2]));
   assert.strictEqual(out.timestampNs, fixture.ts);
   assert.ok(almost(out.confidence, 1.0));
+  assert.strictEqual(out.poseCovariance, null);
+  assert.strictEqual(out.velocityCovariance, null);
+
+  const poseCovariance = Array.from({ length: 21 }, (_, i) => i * 0.125);
+  const velocityCovariance = Array.from({ length: 21 }, (_, i) => i * 0.25);
+  const extended = proto.buildPosePayload({
+    positionM: fixture.positionM,
+    orientationXyzw: fixture.orientationXyzw,
+    timestampNs: fixture.ts,
+    poseCovariance,
+    velocityCovariance,
+  });
+  const decoded = proto.decodePosePayload(extended);
+  assert.strictEqual(extended.length, 64 + 4 + 8 + 168);
+  assert.deepStrictEqual(decoded.poseCovariance, poseCovariance);
+  assert.deepStrictEqual(decoded.velocityCovariance, velocityCovariance);
+  assert.throws(() => proto.decodePosePayload(extended.subarray(0, extended.length - 1)), /truncated/);
 
   // Signed-axis sanity for canonical->viz basis.
   const ex = mapPositionOdomToViz([1, 0, 0]);

@@ -588,12 +588,16 @@ function buildStereoRawPayload({ left = {}, right = {} } = {}) {
 		  linearAccelerationBodyMps2 = null,
 		  angularAccelerationBodyRps2 = null,
 		  timestampNs = null,
+		  poseCovariance = null,
+		  velocityCovariance = null,
 		} = {}) {
 		  const hasQuat = Array.isArray(orientationXyzw) && orientationXyzw.length === 4;
 		  const hasLinVel = Array.isArray(linearVelocityBodyMps) && linearVelocityBodyMps.length === 3;
 		  const hasAngVel = Array.isArray(angularVelocityBodyRps) && angularVelocityBodyRps.length === 3;
 		  const hasLinAcc = Array.isArray(linearAccelerationBodyMps2) && linearAccelerationBodyMps2.length === 3;
 		  const hasAngAcc = Array.isArray(angularAccelerationBodyRps2) && angularAccelerationBodyRps2.length === 3;
+		  const hasPoseCov = Array.isArray(poseCovariance) && poseCovariance.length === 21 && poseCovariance.every(Number.isFinite);
+		  const hasVelocityCov = Array.isArray(velocityCovariance) && velocityCovariance.length === 21 && velocityCovariance.every(Number.isFinite);
 		  let tsVal = 0n;
 		  let hasTs = false;
 		  if (timestampNs !== null && timestampNs !== undefined) {
@@ -605,20 +609,25 @@ function buildStereoRawPayload({ left = {}, right = {} } = {}) {
 		      tsVal = 0n;
 		    }
 		  }
-		  let flags = poseFlags;
+		  // Presence bits describe bytes actually appended, not caller intent.
+		  let flags = poseFlags & ~0x1fd;
 		  if (hasQuat) flags |= 0x1;
 		  if (hasLinVel) flags |= (1 << 2);
 		  if (hasAngVel) flags |= (1 << 3);
 		  if (hasLinAcc) flags |= (1 << 4);
 		  if (hasAngAcc) flags |= (1 << 5);
 		  if (hasTs) flags |= (1 << 6);
+		  if (hasPoseCov) flags |= (1 << 7);
+		  if (hasVelocityCov) flags |= (1 << 8);
 		  // NOTE: Keep payload append-only for backward compatibility; new fields go at the end.
 		  const len = 4 + 4 + 8 * 3 + (hasQuat ? 8 * 4 : 0) + 4 +
 		              (hasLinVel ? 8 * 3 : 0) +
 		              (hasAngVel ? 8 * 3 : 0) +
 		              (hasLinAcc ? 8 * 3 : 0) +
 		              (hasAngAcc ? 8 * 3 : 0) +
-		              (hasTs ? 8 : 0);
+		              (hasTs ? 8 : 0) +
+		              (hasPoseCov ? 21 * 4 : 0) +
+		              (hasVelocityCov ? 21 * 4 : 0);
 		  const buf = new Uint8Array(len);
 		  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
 		  let off = 0;
@@ -651,6 +660,12 @@ function buildStereoRawPayload({ left = {}, right = {} } = {}) {
 		  if (hasAngAcc) writeVec3(angularAccelerationBodyRps2);
 		  if (hasTs) {
 		    dv.setBigUint64(off, tsVal, false); off += 8;
+		  }
+		  for (const covariance of [hasPoseCov ? poseCovariance : null, hasVelocityCov ? velocityCovariance : null]) {
+		    if (!covariance) continue;
+		    for (const value of covariance) {
+		      dv.setFloat32(off, value, false); off += 4;
+		    }
 		  }
 		  return fromU8(buf);
 		}
@@ -1397,19 +1412,29 @@ function decodeStereoRawPayload(payload) {
 	  if (confidence > 1) confidence = 1.0;
 	  off += 4;
 
-	  const readVec3 = () => {
-	    if (u8.length < off + 24) return null;
+	  const readVec3 = (bit) => {
+	    if (!(poseFlags & (1 << bit))) return null;
+	    if (u8.length < off + 24) throw new Error("POSE vector payload truncated");
 	    const v = [readF64BE(u8, off), readF64BE(u8, off + 8), readF64BE(u8, off + 16)];
 	    off += 24;
 	    return v;
 	  };
-		  const linearVelocityBodyMps = (poseFlags & (1 << 2)) ? readVec3() : null;
-		  const angularVelocityBodyRps = (poseFlags & (1 << 3)) ? readVec3() : null;
-		  const linearAccelerationBodyMps2 = (poseFlags & (1 << 4)) ? readVec3() : null;
-		  const angularAccelerationBodyRps2 = (poseFlags & (1 << 5)) ? readVec3() : null;
+		  const linearVelocityBodyMps = readVec3(2);
+		  const angularVelocityBodyRps = readVec3(3);
+		  const linearAccelerationBodyMps2 = readVec3(4);
+		  const angularAccelerationBodyRps2 = readVec3(5);
 		  const timestampNs =
 		    (poseFlags & (1 << 6)) && u8.length >= off + 8 ? readBigU64BE(u8, off) : null;
 		  if (timestampNs !== null) off += 8;
+		  const readCovariance = (bit) => {
+		    if (!(poseFlags & (1 << bit))) return null;
+		    if (u8.length < off + 21 * 4) throw new Error("POSE covariance payload truncated");
+		    const values = Array.from({ length: 21 }, (_, i) => readF32BE(u8, off + 4 * i));
+		    off += 21 * 4;
+		    return values.every(Number.isFinite) ? values : null;
+		  };
+		  const poseCovariance = readCovariance(7);
+		  const velocityCovariance = readCovariance(8);
 
 		  return {
 		    poseType,
@@ -1422,6 +1447,8 @@ function decodeStereoRawPayload(payload) {
 		    linearAccelerationBodyMps2,
 		    angularAccelerationBodyRps2,
 		    timestampNs,
+		    poseCovariance,
+		    velocityCovariance,
 		  };
 		}
 

@@ -96,6 +96,8 @@ class DecodedDispatcher {
     std::optional<std::array<double,3>> linear_acceleration_body_mps2;
     std::optional<std::array<double,3>> angular_acceleration_body_rps2;
     std::optional<uint64_t> timestamp_ns;
+    std::optional<std::array<float,21>> pose_covariance;
+    std::optional<std::array<float,21>> velocity_covariance;
   };
   struct RawFrame {
     uint64_t timestamp_ns;
@@ -228,13 +230,16 @@ class DecodedDispatcher {
       std::optional<std::array<double,3>> linear_acceleration_body_mps2;
       std::optional<std::array<double,3>> angular_acceleration_body_rps2;
       std::optional<uint64_t> ts;
+      std::optional<std::array<float,21>> pose_covariance, velocity_covariance;
       if (decode_pose_payload(f.payload, pt, pf, x, y, z, q, &conf,
                               &linear_velocity_body_mps, &angular_velocity_body_rps,
-                              &linear_acceleration_body_mps2, &angular_acceleration_body_rps2, &ts)) {
+                              &linear_acceleration_body_mps2, &angular_acceleration_body_rps2, &ts,
+                              &pose_covariance, &velocity_covariance)) {
         Pose p{
             pt, pf, x, y, z, q, conf,
             linear_velocity_body_mps, angular_velocity_body_rps,
-            linear_acceleration_body_mps2, angular_acceleration_body_rps2, ts};
+            linear_acceleration_body_mps2, angular_acceleration_body_rps2, ts,
+            pose_covariance, velocity_covariance};
         pose_handler_(p, type == "UPOS");
       }
     } else if (type == "LCON") {

@@ -62,6 +62,22 @@ def main():
     assert almost(out["angular_velocity_body_rps"][2], angvel[2])
     assert int(out["timestamp_ns"]) == ts
     assert almost(out["confidence"], 1.0)
+    assert out["pose_covariance"] is None
+    assert out["velocity_covariance"] is None
+
+    cov = tuple(float(i) / 8 for i in range(21))
+    extended = bytearray(payload)
+    extended[4:8] = struct.pack(">I", struct.unpack(">I", extended[4:8])[0] | (1 << 7) | (1 << 8))
+    extended += struct.pack(">21f", *cov) + struct.pack(">21f", *cov)
+    decoded = mp.decode_pose_payload(extended)
+    assert decoded["pose_covariance"] == cov
+    assert decoded["velocity_covariance"] == cov
+    try:
+        mp.decode_pose_payload(extended[:-1])
+    except ValueError as exc:
+        assert "covariance" in str(exc)
+    else:
+        raise AssertionError("truncated covariance accepted")
 
     # Signed-axis sanity for canonical->viz basis.
     ex = map_position_odom_to_viz((1.0, 0.0, 0.0))

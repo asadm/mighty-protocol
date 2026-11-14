@@ -187,6 +187,18 @@ Quaternion convention:
 - bit 4: linear acceleration in body frame (`linearAccelerationBodyMps2`, f64 x3)
 - bit 5: angular acceleration in body frame (`angularAccelerationBodyRps2`, f64 x3)
 - bit 6: `timestamp_ns` present (u64)
+- bit 7: pose covariance present (21 big-endian f32 values, upper triangle of a
+  6×6 matrix ordered `[x, y, z, rx, ry, rz]`; position is in odom metres and
+  rotation is a local rotation-vector error in radians)
+- bit 8: velocity covariance present (21 big-endian f32 values, upper triangle
+  of a 6×6 matrix ordered `[vx, vy, vz, wx, wy, wz]`; velocities are body-frame)
+
+Covariances are appended **after** `timestamp_ns`, in bit order. The upper
+triangle is row-major: `[P00, P01, …, P05, P11, …, P55]`. Missing flags mean
+unknown covariance; never interpret missing covariance as zero uncertainty.
+Older decoders can continue reading the existing prefix. The pose covariance
+follows the public output alignment. It is a model estimate, not a guaranteed
+GPS-like accuracy bound; it is omitted when the estimator cannot certify it.
 
 POSE invariants:
 - `positionM`, `linearVelocityBodyMps`, `angularVelocityBodyRps`,
@@ -567,6 +579,7 @@ SDK pose callback fields:
   - `positionM`, `orientationXyzw`
   - `linearVelocityBodyMps`, `angularVelocityBodyRps`
   - `linearAccelerationBodyMps2`, `angularAccelerationBodyRps2`
+  - `poseCovariance`, `velocityCovariance` (optional 21-value upper triangles)
   - `timestampNs`, `confidence`, `isKeyframe`
 - Python SDK (`python/mighty_sdk/client.py`) pose callback object:
   - `is_public`, `packet_type`, `pose_type`, `pose_type_raw`, `pose_flags`

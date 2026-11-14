@@ -108,6 +108,8 @@ struct PoseFrame {
   std::optional<std::array<double, 3>> linear_acceleration_body_mps2;
   std::optional<std::array<double, 3>> angular_acceleration_body_rps2;
   std::optional<uint64_t> timestamp_ns;
+  std::optional<std::array<float, 21>> pose_covariance;
+  std::optional<std::array<float, 21>> velocity_covariance;
 };
 
 struct ImuBatch {
@@ -1065,7 +1067,9 @@ class MightyClient {
                                  &evt.angular_velocity_body_rps,
                                  &evt.linear_acceleration_body_mps2,
                                  &evt.angular_acceleration_body_rps2,
-                                 &evt.timestamp_ns)) {
+                                 &evt.timestamp_ns,
+                                 &evt.pose_covariance,
+                                 &evt.velocity_covariance)) {
           throw std::runtime_error("POSE decode failed");
         }
         evt.pose_type_raw = pose_type;

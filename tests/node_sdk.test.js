@@ -338,6 +338,8 @@ async function main() {
     angularVelocityBodyRps: [0.4, 0.5, 0.6],
     linearAccelerationBodyMps2: [7.0, 8.0, 9.0],
     angularAccelerationBodyRps2: [0.7, 0.8, 0.9],
+    poseCovariance: Array.from({ length: 21 }, (_, i) => i / 8),
+    velocityCovariance: Array.from({ length: 21 }, (_, i) => i / 4),
     timestampNs: 11n,
   };
 
@@ -478,6 +480,8 @@ async function main() {
   assert.ok(almost(lastPose.angularVelocityBodyRps[1], poseSample.angularVelocityBodyRps[1]));
   assert.ok(almost(lastPose.linearAccelerationBodyMps2[0], poseSample.linearAccelerationBodyMps2[0]));
   assert.ok(almost(lastPose.angularAccelerationBodyRps2[2], poseSample.angularAccelerationBodyRps2[2]));
+  assert.deepStrictEqual(lastPose.poseCovariance, poseSample.poseCovariance);
+  assert.deepStrictEqual(lastPose.velocityCovariance, poseSample.velocityCovariance);
 
   const pushedLoopclosurePoses = [];
   let correctedLoopclosurePoses = 0;
