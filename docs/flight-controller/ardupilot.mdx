@@ -103,15 +103,20 @@ EKF source set 1 is configured as:
 ```text
 EK3_SRC1_POSXY = 6   # ExternalNav
 EK3_SRC1_VELXY = 6   # ExternalNav
-EK3_SRC1_POSZ  = 1   # Barometer
-EK3_SRC1_VELZ  = 0   # None
+EK3_SRC1_POSZ  = 6   # ExternalNav (Mighty height)
+EK3_SRC1_VELZ  = 6   # ExternalNav (Mighty vertical velocity)
 EK3_SRC1_YAW   = 6   # ExternalNav
 ```
 
 This is a Pavo-specific bench configuration, not the generic GPS-preserving
 source-set-2 procedure below and not a flight-qualified preset. Confirm the
-FC receives fresh ODOMETRY and reports healthy ExternalNav position and yaw
-before using a position-required mode. For other aircraft, keep their working
+FC receives fresh ODOMETRY and reports healthy ExternalNav position, vertical
+velocity, and yaw before using a position-required mode. `EK3_SRC1_POSZ=1` and
+`EK3_SRC1_VELZ=0` instead leave height control on the barometer. To have Loiter
+use Mighty for height as well as horizontal position, set both vertical sources
+to `6`, reboot the FC, and read the values back. Start VIO and wait for healthy
+tracking before takeoff; losing external navigation does not automatically switch
+the height source back to the barometer. For other aircraft, keep their working
 GPS setup and follow the source-set-2 procedure below unless deliberately
 configuring a GPS-denied vehicle.
 
@@ -246,6 +251,11 @@ barometer, and set `EK3_SRC2_VELZ=0` unless Mighty supplies validated vertical
 velocity. Configure the RC switch in **all** positions and confirm the selected
 source set shown by the ground station before arming. Selecting a source set is
 a deliberate operator action; it does not create an automatic fallback policy.
+
+If you also want Mighty to supply height in source set 2, set
+`EK3_SRC2_POSZ=6` and `EK3_SRC2_VELZ=6`, then reboot and verify vertical
+position and velocity fusion while disarmed. Keep the barometer-based source set
+available on the configured switch if you need a manual fallback.
 
 For initial checks, leave the vehicle disarmed and propellers removed. Confirm
 the VIO output is fresh and stable, then select the Mighty source set and inspect
