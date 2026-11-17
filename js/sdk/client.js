@@ -67,13 +67,21 @@ function clamp01(v) {
   return v;
 }
 
-function timeoutPromise(ms, message) {
-  return new Promise((_, reject) => {
-    const t = setTimeout(() => {
-      clearTimeout(t);
-      reject(new Error(message));
-    }, Math.max(1, Number(ms) || 1));
-  });
+async function raceWithTimeout(promise, ms, message) {
+  let timer = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          timer = null;
+          reject(new Error(message));
+        }, Math.max(1, Number(ms) || 1));
+      }),
+    ]);
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+  }
 }
 
 function isLoopclosurePose(pose) {
@@ -255,7 +263,7 @@ export class MightyClient {
       const req = this.device.sendCommandPayload(cmdPayload);
       const timeoutMs = Number(this.opts.commandTimeoutMs) || 0;
       const responsePayload = timeoutMs > 0
-        ? await Promise.race([req, timeoutPromise(timeoutMs, "command timeout")])
+        ? await raceWithTimeout(req, timeoutMs, "command timeout")
         : await req;
 
       const decoded = protocol.decodeCommandResponsePayload(responsePayload);
