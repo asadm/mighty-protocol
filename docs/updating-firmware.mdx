@@ -1,6 +1,6 @@
 ---
 title: Updating Firmware
-description: Update Mighty Camera firmware from the browser.
+description: Update Mighty Camera firmware from the browser or standalone CLI.
 ---
 
 <div style={{ position: "relative", width: "100%", aspectRatio: "16 / 9", marginBottom: "1.5rem" }}>
@@ -15,8 +15,12 @@ description: Update Mighty Camera firmware from the browser.
 
 The firmware update page guides you through putting Mighty into update mode,
 selecting the USB device, flashing the firmware, and restarting the device.
+On Windows—or when you prefer a terminal workflow—use the standalone CLI updater
+below instead of browser USB flashing.
 
 ## Update from the browser
+
+> Browser USB flashing is supported on **macOS, Linux, and Android** (Chrome, Chromium, or Edge). On **Windows**, use [Update from the CLI](#update-from-the-cli) below.
 
 1. Plug Mighty Camera into your machine.
 2. Open Chrome, Chromium, or Edge.
@@ -32,16 +36,69 @@ selecting the USB device, flashing the firmware, and restarting the device.
 
 Do not unplug Mighty while the update is flashing or restarting.
 
+## Update from the CLI
+
+`mighty-update` is a self-contained command-line updater for **Windows, macOS,
+and Linux**. It fetches the latest firmware release from `mightycamera.com`,
+backs up your camera calibration and on-device settings before flashing, writes
+the update, and restores your settings once Mighty reboots.
+
+### Download
+
+| Platform | Binary |
+| --- | --- |
+| Windows (x64) | [mighty-update-windows-x64.exe](https://static.mightycamera.com/tools/mighty-update/mighty-update-windows-x64.exe) |
+| macOS (Apple Silicon) | [mighty-update-macos-arm64](https://static.mightycamera.com/tools/mighty-update/mighty-update-macos-arm64) |
+| macOS (Intel) | [mighty-update-macos-x64](https://static.mightycamera.com/tools/mighty-update/mighty-update-macos-x64) |
+| Linux (x64) | [mighty-update-linux-x64](https://static.mightycamera.com/tools/mighty-update/mighty-update-linux-x64) |
+
+SHA-256 checksums: [SHA256SUMS.txt](https://static.mightycamera.com/tools/mighty-update/SHA256SUMS.txt)
+
+### Run on Windows
+
+1. Plug Mighty Camera into your PC with a USB data cable.
+2. Download [mighty-update-windows-x64.exe](https://static.mightycamera.com/tools/mighty-update/mighty-update-windows-x64.exe) and run it (double-click or run from PowerShell):
+
+```powershell
+.\mighty-update-windows-x64.exe
+```
+
+3. On first run, if the Rockchip bootloader USB driver is not installed yet (or
+   if Zadig `WinUSB` was previously installed on the bootloader), accept the
+   prompt to install the bundled Microsoft-signed Rockchip USB driver.
+4. Keep Mighty connected until **Update complete** appears.
+
+### Run on macOS or Linux
+
+Plug Mighty Camera into your computer, then download and run the binary for your
+platform:
+
+```bash
+# macOS (Apple Silicon)
+curl -fL https://static.mightycamera.com/tools/mighty-update/mighty-update-macos-arm64 -o mighty-update
+chmod +x mighty-update
+./mighty-update
+```
+
+```bash
+# Linux (x64)
+curl -fL https://static.mightycamera.com/tools/mighty-update/mighty-update-linux-x64 -o mighty-update
+chmod +x mighty-update
+sudo ./mighty-update
+```
+
+Pass `--help` to see options such as `--file <firmware.zip>` for offline
+packages or `--install-driver` on Windows.
+
 ## If the device is not detected
 
-If the update page cannot find the device, put it into bootloader mode manually:
+If the browser page or CLI cannot find a running Mighty device, put it into
+bootloader mode manually:
 
 1. Unplug Mighty.
 2. Press and hold the board button.
 3. While holding the button, connect the USB cable.
 4. Release the button.
-5. Open the update page and click **Select Device** at the bottom.
+5. Run `mighty-update` (or click **Select Device** on the browser update page).
 
-The update should continue from the Rockchip bootloader path. This path requires
-you to
-[recalibrate your device](/docs/calibration) after the update completes.
+If no previous calibration backup exists on that computer, [recalibrate your device](/docs/calibration) after the update completes.
