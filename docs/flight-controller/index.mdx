@@ -13,7 +13,7 @@ where GPS is unavailable. It does not require a prebuilt map or an internet
 connection. Local odometry can drift; it is not an absolute geographic position
 or a guarantee of return-to-home performance.
 
-[Open mounting calibration](/calib-airframe) · [ArduPilot setup guide](/docs/flight-controller/ardupilot)
+[Open mounting calibration](/calib-airframe) · [ArduPilot setup guide](/docs/flight-controller/ardupilot) · [PX4 setup guide](/docs/flight-controller/px4)
 
 ## How the pieces connect
 
@@ -100,8 +100,8 @@ or stale; the aircraft must have an appropriate response to navigation-data loss
 
 | Profile | Requested output rate | Integration |
 | --- | --- | --- |
-| ArduPilot | 20 Hz | Existing external-navigation interface; see the [detailed guide](/docs/flight-controller/ardupilot). |
-| PX4 | 50 Hz | Existing external-vision interface; configure the receiver for the selected fusion sources. |
+| ArduPilot | 20 Hz | Existing external-navigation interface; see the [ArduPilot setup guide](/docs/flight-controller/ardupilot). |
+| PX4 | 50 Hz | Existing external-vision interface; see the [PX4 setup guide](/docs/flight-controller/px4). |
 | Betaflight / DroneForge | 20 Hz | Requires custom MAVLink telemetry and odometry receiver integration. |
 
 These are requested rates, not guaranteed achieved rates. Available sensor

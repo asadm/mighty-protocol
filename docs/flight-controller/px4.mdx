@@ -1,0 +1,149 @@
+---
+title: PX4 setup
+description: Wire Mighty to PX4, calibrate the mounting, and configure EKF2 external-vision fusion.
+---
+
+This guide describes an installation on a PX4 aircraft using EKF2. Port names,
+serial assignments, and available parameters depend on the flight-controller
+board and PX4 release.
+
+## Quick path
+
+1. Remove propellers, power the FC and Mighty, and identify the FC UART wired to
+   Mighty. Confirm logic levels and power-supply voltage for your hardware.
+2. Configure a MAVLink instance on that UART in **Onboard** mode at `230400`
+   baud, reboot the FC, and verify the mounting page identifies the controller.
+3. Back up your current Lua program. Install the **PX4** bridge from **Calibrate
+   mounting → Set up the Lua UART bridge… → PX4**.
+4. Calibrate and save the Mighty-to-FC mounting rotation with propellers removed.
+5. Configure `EKF2_EV_CTRL` (and `EKF2_HGT_REF` if using Mighty height), sensor
+   offsets, and delay, then **reboot the FC**.
+6. Verify 30–50 Hz `ODOMETRY` reception, Forward-Right-Down axis directions, EKF2
+   innovations, and loss behavior on the bench before flight.
+
+PX4 natively decodes MAVLink 2 `ODOMETRY` (`MAV_FRAME_LOCAL_FRD` /
+`MAV_FRAME_BODY_FRD`) into `vehicle_visual_odometry` for EKF2. No custom PX4
+firmware patch is required. This guide is an integration procedure, not a claim
+of completed flight qualification for your aircraft.
+
+## 1. Mount and wire Mighty
+
+Mount Mighty rigidly with a clear camera view and control motor vibration. The
+camera may face forward, downward, or at another fixed angle; mounting
+calibration solves the camera-to-airframe rotation.
+
+| Mighty connection | Flight controller / supply |
+| --- | --- |
+| TX | Dedicated telemetry UART RX (for example `TELEM 2` RX) |
+| RX | Same UART TX (`TELEM 2` TX) |
+| GND | Common ground |
+| Power | Regulated supply matched to your Mighty hardware revision |
+
+Both TX and RX are required for mounting calibration and saved-mount identity
+verification. Because RTS/CTS flow-control lines are not wired, disable hardware
+flow control on that port if your board enables it by default.
+
+## 2. Configure the PX4 MAVLink serial link
+
+The example below assigns MAVLink instance 1 to **TELEM 2** (`102`). Check your
+board's port mapping in QGroundControl (**Vehicle Setup → Parameters → MAVLink**
+and **Serial**).
+
+| Parameter | Value | Meaning |
+| --- | --- | --- |
+| `MAV_1_CONFIG` | `TELEM 2` (`102`) | Bind MAVLink instance 1 to the wired UART |
+| `MAV_1_MODE` | `Onboard` (`2`) | Companion/VIO telemetry profile (required for 50 Hz rates) |
+| `MAV_1_RATE` | `0` (or `23040`) | Default onboard rate ceiling (`baud / 10` B/s); do not leave at `1200` B/s |
+| `MAV_1_FLOW_CTRL` | `Force off` (`0`) | 3-wire UART without RTS/CTS |
+| `SER_TEL2_BAUD` | `230400 8N1` (`230400`) | Match the standard Mighty Lua bridge baud rate |
+
+**Reboot the flight controller** after setting `MAV_1_CONFIG` so `SER_TEL2_BAUD`
+and the remaining `MAV_1_*` parameters appear, then write those values and reboot
+again.
+
+> **Important (`MAV_1_MODE = Onboard`):** Leaving a serial link in `Normal` mode
+> (`0`) with a low `1200 B/s` rate ceiling throttles PX4's `ATTITUDE` stream to
+> roughly 12–15 Hz, which can stall the mounting wizard's stillness and motion
+> checks and starve bidirectional traffic. Always select **Onboard** (`2`).
+
+## 3. Install the PX4 Lua bridge and calibrate mounting
+
+1. Complete [camera and IMU calibration](/docs/calibration) first.
+2. Open [Calibrate mounting](/calib-airframe) and connect to Mighty.
+3. Choose **Install the bridge** (or **Set up the Lua UART bridge…**), select
+   **PX4**, download any existing Lua backup, and install the bridge.
+4. Keep the aircraft disarmed with propellers removed. Confirm all five readiness
+   checks turn green, then click **Begin mounting calibration**.
+5. Hold still, rotate smoothly across roll, pitch, and yaw, verify on fresh
+   movements, and click **Save calibration on Mighty**.
+
+You can click **Download `camera-to-airframe.json`** on the completion screen (or
+on the flight-controller readiness card whenever a saved calibration is present)
+to inspect the saved mounting quaternion (`q_xyzw`, `body_from_camera_flu`) and
+fit residual.
+
+The PX4 profile configures Mighty's publisher for up to **50 Hz** (PX4 requires
+external vision messages between 30 Hz and 50 Hz) with default `system_id = 1`
+and `component_id = 197` (`MAV_COMP_ID_VISUAL_INERTIAL_ODOMETRY`). Adjust
+`system_id` in Lua if your vehicle's `MAV_SYS_ID` is not `1`.
+
+## 4. Configure EKF2 external-vision fusion
+
+In QGroundControl (**Vehicle Setup → Parameters → EKF2**), configure the desired
+fusion sources in `EKF2_EV_CTRL`:
+
+| `EKF2_EV_CTRL` bit | Value | Fusion source |
+| --- | ---: | --- |
+| Bit 0 | `1` | Horizontal position |
+| Bit 1 | `2` | Vertical position |
+| Bit 2 | `4` | 3D velocity |
+| Bit 3 | `8` | Yaw (heading relative to local vision frame) |
+
+Common starting configurations:
+
+- **Horizontal position + 3D velocity + barometer height + compass yaw:**
+  `EKF2_EV_CTRL = 5` (or `7` to include vertical vision aiding while keeping
+  compass yaw), `EKF2_HGT_REF = 1` (Barometer).
+- **Full GPS-denied local VIO (position + velocity + height + vision yaw):**
+  `EKF2_EV_CTRL = 15`, `EKF2_HGT_REF = 3` (Vision). If operating without GPS,
+  configure `EKF2_GPS_CTRL = 0` and verify indoor pre-arm requirements on your
+  PX4 release.
+
+Configure sensor offset and delay:
+
+| Parameter | Guidance |
+| --- | --- |
+| `EKF2_EV_POS_X`, `EKF2_EV_POS_Y`, `EKF2_EV_POS_Z` | Mighty IMU position relative to the FC center/IMU in aircraft **FRD** metres (Forward +, Right +, Down +). Enter measured offsets when mounted away from the FC. |
+| `EKF2_EV_DELAY` | Vision pipeline delay relative to FC IMU in milliseconds (commonly `15–35 ms` over 230400 UART; tune from onboard logs to minimize EKF2 velocity/position innovations). |
+| `EKF2_EV_NOISE_MD` | `0` uses sensor-reported variance bounded below by `EKF2_EVP_NOISE` / `EKF2_EVV_NOISE` / `EKF2_EVA_NOISE`; `1` uses parameter noise values only. |
+
+**Reboot the flight controller** after changing `EKF2_EV_CTRL` or `EKF2_HGT_REF`.
+Changing `EKF2_HGT_REF` to Vision without rebooting can leave an unaligned
+barometer/GPS reference altitude offset in EKF2.
+
+## 5. Bench verification before flight
+
+With propellers removed and the aircraft disarmed:
+
+1. Wait for Mighty VIO to enter tracking (the bridge starts VIO automatically
+   once saved calibration and FC identity are ready).
+2. In QGroundControl **Analyze Tools → MAVLink Inspector** (or `listener
+   vehicle_visual_odometry` in the MAVLink Console), verify:
+   - `ODOMETRY` (`vehicle_visual_odometry`) arrives steadily at **30–50 Hz**.
+   - At startup, local position starts near `(0, 0, 0)` and vision yaw starts near
+     `0°`.
+   - Moving the aircraft **Forward**, **Right**, and **Down** increases `+X`,
+     `+Y`, and `+Z` respectively (`FRD`), and body velocities (`vx`, `vy`, `vz`)
+     match the same Forward-Right-Down signs.
+3. Check `estimator_status_flags` (`cs_ev_pos`, `cs_ev_vel`, and `cs_ev_hgt` /
+   `cs_ev_yaw` according to `EKF2_EV_CTRL`) and confirm innovation test ratios
+   remain healthy during gentle handheld movement.
+4. Cover the camera or interrupt the link on the bench to verify your configured
+   navigation-loss failsafe behavior before attempting flight.
+
+## References
+
+- [PX4 external position estimation (VIO / MAVLink)](https://docs.px4.io/main/en/ros/external_position_estimation#px4-mavlink-integration)
+- [PX4 serial port configuration](https://docs.px4.io/main/en/peripherals/serial_configuration)
+- [PX4 MAVLink peripherals (`Onboard` mode)](https://docs.px4.io/main/en/peripherals/mavlink_peripherals)
+- [PX4 EKF2 parameter reference](https://docs.px4.io/main/en/advanced_config/parameter_reference#ekf2)
