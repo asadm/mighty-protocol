@@ -297,6 +297,67 @@ Mighty withholds stale/invalid odometry. ArduPilot must be configured to handle
 that loss appropriately. Complete physical UART, EKF innovation, and controlled
 flight validation for your aircraft before relying on position hold or RTL.
 
+## 8. Tuning Loiter for sway or drift
+
+If external odometry and EKF3 innovations look healthy in flight logs (`VISP`,
+`XKF3`, `PSCN`/`PSCE`) yet the aircraft slowly sways back and forth around its
+hold point or drifts before correcting, check the inner attitude loop before
+adjusting Loiter gains. Default ArduCopter parameters target larger outdoor
+frames and often leave compact indoor aircraft sluggish at small lean angles.
+
+### Check inner attitude and rate tracking first
+
+Loiter holds position through `1°–2°` lean corrections. If `ATT.Roll` and
+`ATT.Pitch` lag behind `ATT.DesRoll` and `ATT.DesPitch` (or only reach part of
+the commanded angle), the aircraft hangs off-target for several seconds while
+integrators wind up, then overshoots across center in a slow pendulum sway.
+
+- Tune rate and angle loops in Stabilize or AltHold first (using harmonic notch
+  filtering plus QuickTune or AutoTune where appropriate for your frame).
+- On small, agile multirotors with clean vibration levels, modestly increasing
+  `ATC_ANG_RLL_P` and `ATC_ANG_PIT_P` (for example `4.5` to `6.0–6.5`),
+  lowering `ATC_INPUT_TC` (for example `0.10` to `0.06`), and bringing
+  under-tuned `ATC_RAT_RLL_P/I` and `ATC_RAT_PIT_P/I` up to match the airframe
+  gives Loiter crisp small-angle authority.
+- Increase rate gains incrementally and check motor sound, temperatures, and
+  logged `PIDR`/`PIDP` D-term activity after each step.
+
+### Damp slow horizontal pendulum sway
+
+Once `Roll` and `Pitch` track `DesRoll` and `DesPitch` closely, adjust the
+horizontal position controller (`PSC_NE_*`) if slow left-right or fore-aft
+overshoot remains:
+
+| Parameter | Typical adjustment | Effect |
+| --- | --- | --- |
+| `PSC_NE_VEL_I` | Lower (for example `1.0` → `0.4–0.6`) | Reduces velocity-integrator windup that keeps banking the aircraft past zero position error, while retaining trim for CG offset or drafts |
+| `PSC_NE_VEL_P` | Increase modestly (for example `2.0` → `2.5`) | Adds firmer velocity damping as the aircraft brakes toward the hold point |
+| `PSC_NE_POS_P` | Increase modestly (for example `1.0` → `1.2–1.4`) | Tightens restoring velocity commands for small centimeter-scale offsets once the inner loop is responsive |
+| `PSC_NE_JERK` | Increase on nimble frames (for example `5.0` → `8.0`) | Reduces jerk-limiting lag during small hover lean reversals |
+
+Validate changes one group at a time in a clear area; overly high `PSC_NE_VEL_P`
+or `PSC_NE_POS_P` on a frame with sluggish attitude response or high vibration
+will cause twitching rather than a tighter lock.
+
+### Trim, latency, and indoor altitude stability
+
+- **CG and level calibration:** Balance battery placement and run accelerometer
+  level calibration so hover does not require several degrees of constant trim.
+  Large trim offsets slow initial lock and accelerate drift during brief
+  navigation dropouts.
+- **Odometry delay (`VISO_DELAY_MS`):** Align `VISO_DELAY_MS` with the measured
+  odometry pipeline delay in FC logs (commonly `20–40 ms` over serial) and
+  reboot the FC so EKF3 fuses poses against the matching historical IMU state.
+- **Uncommanded indoor altitude climb or dip:** During any brief external-nav
+  interruption, EKF3 can fall back to the barometer. Indoor propwash on an
+  uncovered barometer produces large false pressure swings that can step target
+  altitude upward or downward. Shield the barometer with breathable open-cell
+  foam and consider raising `EK3_ALT_M_NSE` (for example `2.0` → `4.0–5.0`) for
+  indoor propwash environments.
+- **Visual environment:** Ensure adequate lighting and surface texture in the
+  camera view; hovering very low over a blank, featureless floor reduces visual
+  features and parallax.
+
 ## Troubleshooting
 
 | Wizard indication | Check |
@@ -318,3 +379,4 @@ flight validation for your aircraft before relying on position hold or RTL.
 - [Requesting telemetry messages](https://ardupilot.org/dev/docs/mavlink-requesting-data.html)
 - [EKF source selection](https://ardupilot.org/copter/docs/common-ekf-sources.html)
 - [VOXL-compatible external navigation and heading alignment](https://ardupilot.org/copter/docs/common-modalai-voxl.html)
+- [Loiter mode and position-controller tuning](https://ardupilot.org/copter/docs/loiter-mode.html)
