@@ -22,32 +22,37 @@ The visualizer is the quickest way to confirm that the board is connected, the
 sensors are streaming, and VIO is running before integrating it into your own
 software.
 
+- **Recording:** Expand the **Recording** tab in the sidebar (collapsed by
+  default) for browser recording, automatic SD recording with VIO, and SD card
+  bag management.
+- **SD Card Rosbags (Preview mode):** While in Preview mode (VIO stopped),
+  click **SD Bags** to preview a 4-frame montage of recordings on the SD card,
+  repair incomplete bags, download, or delete them.
+
 ## Board button
 
-The button on Mighty can also start and stop VIO without using the browser:
+The button on Mighty controls **VIO** and **SD card recording** independently,
+so you can run both at the same time:
 
-| State | Button action | Result |
-| --- | --- | --- |
-| Idle / preview | Short press and release | Start VIO |
-| VIO running | Press and release | Stop VIO |
+| Button action | Result |
+| --- | --- |
+| **Short press** (`< 1.2 s`, on release) | Toggle **VIO** (`Start VIO` / `Stop VIO`) |
+| **Long press** (`≥ 1.2 s`, fires while held) | Toggle **SD Recording** (`Start` / `Stop`) in Preview or VIO |
 
-A long press while idle starts board-side recording instead of VIO. See
-[Recording](/docs/recording) for the full recording sequence.
+See [Recording](/docs/recording) for full recording details, topics, and SD
+card management.
 
 ## LED states
 
-The board LED shows the current VIO state:
+The board LED shows both VIO health and recording status simultaneously:
 
-| LED pattern | Meaning |
-| --- | --- |
-| Slow blink | Idle / preview mode |
-| Fast blink | VIO is starting or initializing |
-| Solid on | VIO is tracking |
-| Double pulse | VIO is degraded |
-| Steady medium blink | VIO is lost |
-
-If the LED switches to the recording pattern, recording has priority over VIO in
-the status display. See [Recording](/docs/recording) for that pattern.
+| VIO state | Not recording | Recording active |
+| --- | --- | --- |
+| **Preview / Idle** | Slow single blip | Triple blip, pause |
+| **VIO Tracking** | Solid ON | Solid ON + double shutter wink |
+| **VIO Starting / Recovering** | Fast even blink | Fast triple burst, pause |
+| **VIO Degraded / Low Light** | Double blip | Double blip + recording pulse |
+| **VIO Lost** | Steady medium blink | Steady medium blink (Lost always wins) |
 
 ## Mobile and tablet
 

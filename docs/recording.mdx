@@ -1,61 +1,87 @@
 ---
 title: Recording
-description: Record Mighty camera, IMU, pose, and calibration data for replay or offline analysis.
+description: Record Mighty camera, IMU, barometer, pose, and calibration data for replay or offline analysis, and manage SD card bags from the visualizer.
 ---
 
-Mighty can record ROS bag v1 files from the browser visualizer or directly on
-the board. Use recordings to review captured streams or analyze sensor data offline.
+Mighty can record ROS bag v1 files from the browser visualizer or directly to
+its mounted SD card. Recording works independently of VIO — you can record in
+Preview mode or concurrently while VIO is running.
 
 ## Record from the visualizer
 
-The browser visualizer can record camera, IMU, and pose streams without a local
-app:
+All recording controls live in the **Recording** tab in the visualizer sidebar
+(collapsed by default):
 
 1. Plug Mighty Camera into your machine.
 2. Open [mightycamera.com/viz](https://mightycamera.com/viz) and wait for the
    board to connect.
-3. Click **Start Recording**.
-4. Move the board through the motion you want to capture.
-5. Click **Stop Recording**.
+3. Expand the **Recording** tab in the sidebar.
+4. Click **Start Recording** under **Browser Recording**.
+5. Move the board through the motion you want to capture, then click
+   **Stop Recording**.
 
 The visualizer downloads a `.bag` file when recording stops. Keep the browser
 tab open until the download starts.
 
-## Record on the board
+In the same **Recording** tab, you can also toggle **Record to SD card
+automatically with VIO** to start and stop an on-board SD card recording
+whenever VIO starts or stops.
 
-Mighty can also write a bag directly to its mounted SD card. Board-side
-recording is useful when you do not want a browser to hold the recording session
-open.
+## Record on the board (button controls)
 
-| State | Button action | Result |
+Mighty can write bags directly to its mounted SD card at `/mnt/sdcard` without
+a browser attached. Button controls are orthogonal so VIO and recording can be
+toggled independently:
+
+| Button action | Result | Works in |
 | --- | --- | --- |
-| Idle / preview | Long press, about 2 seconds, then release | Start recording |
-| Recording | Press and release | Stop recording |
+| **Short press** (`< 1.2 s`, on release) | Toggle **VIO** (`Start VIO` / `Stop VIO`) | Preview or VIO (leaves recording untouched) |
+| **Long press** (`≥ 1.2 s`, fires while held) | Toggle **SD Recording** (`Start` / `Stop`) | **Both Preview and VIO** (leaves VIO untouched) |
 
-Recording and VIO are mutually exclusive on the board. Stop VIO before starting
-a board-side recording. If recording is already active, any button press stops
-the recording.
+Board-side recordings are saved under `/mnt/sdcard` (`rec-NNNNNN.bag`) and
+include:
 
-Board-side full recordings are saved under `/mnt/sdcard` and include:
+- `/cam0/image_raw/compressed` — JPEG camera frames (`sensor_msgs/CompressedImage`)
+- `/imu0` — accelerometer and gyroscope measurements (`sensor_msgs/Imu`)
+- `/imu0/temperature` — IMU die temperature (`sensor_msgs/Temperature`, when available)
+- `/barometer` — absolute atmospheric pressure in Pascals (`sensor_msgs/FluidPressure`, time-synced to Mighty's IMU clock when a MAVLink flight controller streaming `SCALED_PRESSURE` is connected)
+- `/calib` and `/noise` — camera/IMU calibration and vibration filter metadata
 
-- `/cam0/image_raw/compressed`
-- `/imu0`, IMU data with accelerometer and gyroscope measurements
-- `/calib`, Calibration data for Camera and IMU
+## LED states (VIO + Recording)
 
-## LED states
+The board LED shows **both** VIO health and recording status at the same time.
+Recording never masks VIO tracking health or a VIO lost condition:
 
-Recording has the highest-priority LED pattern. When a recording is active, the
-LED shows three quick flashes, then a pause.
+| VIO state | Not recording | Recording active |
+| --- | --- | --- |
+| **Preview / Idle** | Slow single blip (`100 ms ON / 900 ms OFF`) | **Triple blip** (`120 ms ON/OFF ×3, 400 ms OFF`) |
+| **VIO Tracking** | **Solid ON** | **Solid ON + double shutter wink** (`1200 ms ON`, brief double dark wink) |
+| **VIO Starting / Recovering** | Fast even blink (`100 ms ON / 100 ms OFF`) | Fast **triple burst** (`100 ms ×3, 400 ms OFF`) |
+| **VIO Degraded / Low Light** | Double blip (`50 ms ×2, 750 ms OFF`) | Double blip + **recording pulse** (`50 ms ×2, 250 ms ON`) |
+| **VIO Lost** | Medium even blink (`200 ms ON / 200 ms OFF`) | **Medium even blink** (Lost always takes priority) |
 
-| LED pattern | Meaning |
-| --- | --- |
-| Three quick flashes, pause | Recording is active |
-| Slow blink | Idle / preview mode |
-| Fast blink | VIO is starting or initializing |
-| Solid on | VIO is tracking |
-| Double pulse | VIO is degraded |
-| Steady medium blink | VIO is lost |
+If a long press flashes **4 rapid error blinks** (`60 ms`) and returns to the
+previous pattern, recording could not start (most commonly because no SD card
+is mounted at `/mnt/sdcard`).
 
-If the LED stays in the idle pattern after a long press, recording did not
-start. Common causes are an unmounted SD card, an existing active recording, or
-VIO still running.
+## Browse, preview, repair, and download SD card bags
+
+When Mighty is connected over HTTP/USB and in **Preview mode** (VIO stopped),
+you can manage SD card recordings directly from the visualizer without removing
+the SD card:
+
+1. Stop VIO if it is running (the SD card browser is disabled while VIO is active).
+2. Click **SD Bags** in **Controls / Pose** (or **Browse SD Card Bags** in the
+   **Recording** tab).
+3. Select any `.bag` file to view a **4-frame preview montage** sampled across
+   the recording, along with duration, chunk count, and topics. Click any
+   thumbnail to zoom in.
+4. Use **Download Bag** to save the file over HTTP, or **Delete** (with
+   confirmation) to free space on the SD card.
+
+### Handling incomplete bags
+
+If power is lost during recording, a bag may be left unindexed and marked
+**Needs Repair** in the SD card browser. You can still inspect its preview
+montage, then click **Repair Bag** (or **Repair & Download**) to rebuild its
+ROS bag index in place on the device before opening it in standard ROS tools.
