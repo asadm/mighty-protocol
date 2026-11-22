@@ -472,6 +472,69 @@ export class MightyClient {
     return this.command("depth_estimation", encodeText("status"));
   }
 
+  async vpsMapStatus() {
+    const res = await this.command("vps_map", encodeText("STATUS"));
+    if (!res.ok) return res;
+    try {
+      const value = res.data?.length ? JSON.parse(decodeText(res.data)) : {};
+      return { ...res, value };
+    } catch (err) {
+      return { ...res, ok: false, message: `Invalid vps_map status: ${err.message}` };
+    }
+  }
+
+  async clearVpsMap() {
+    const res = await this.command("vps_map", encodeText("CLEAR"));
+    if (!res.ok) return res;
+    try {
+      const value = res.data?.length ? JSON.parse(decodeText(res.data)) : {};
+      return { ...res, value };
+    } catch (err) {
+      return { ...res, ok: false, message: `Invalid vps_map status: ${err.message}` };
+    }
+  }
+
+  async uploadVpsMap(data, options = {}) {
+    const bytes = toU8(data);
+    if (bytes.byteLength < 1024) {
+      return { ok: false, status: 1, message: "VPS map buffer is too small", data: new Uint8Array() };
+    }
+    const chunkBytes = Math.max(4096, Math.min(64 * 1024, Number(options.chunkBytes) || 64 * 1024));
+    let shaHex = options.sha256 || "";
+    if (!shaHex && typeof globalThis.crypto?.subtle?.digest === "function") {
+      try {
+        const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+        shaHex = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+      } catch (_) {
+        shaHex = "";
+      }
+    }
+    const name = String(options.filename || "active.vpsmap.sqlite").replace(/\s+/g, "_");
+    const begin = await this.command(
+      "vps_map",
+      encodeText(`UPLOAD_BEGIN ${bytes.byteLength} ${shaHex} ${name}`),
+    );
+    if (!begin.ok) return begin;
+    for (let offset = 0; offset < bytes.byteLength; offset += chunkBytes) {
+      const end = Math.min(bytes.byteLength, offset + chunkBytes);
+      const hdr = encodeText(`UPLOAD_CHUNK ${offset}\n`);
+      const payload = new Uint8Array(hdr.byteLength + (end - offset));
+      payload.set(hdr, 0);
+      payload.set(bytes.subarray(offset, end), hdr.byteLength);
+      const chunkRes = await this.command("vps_map", payload);
+      if (!chunkRes.ok) return chunkRes;
+      options.onProgress?.({ sentBytes: end, totalBytes: bytes.byteLength, fraction: end / bytes.byteLength });
+    }
+    const commit = await this.command("vps_map", encodeText("UPLOAD_COMMIT"));
+    if (!commit.ok) return commit;
+    try {
+      const value = commit.data?.length ? JSON.parse(decodeText(commit.data)) : {};
+      return { ...commit, value };
+    } catch (err) {
+      return { ...commit, ok: false, message: `Invalid vps_map status: ${err.message}` };
+    }
+  }
+
   async _loadAlgorithmsWasm(options = {}) {
     if (options.module) {
       this._algorithmsWasmModule = options.module;
